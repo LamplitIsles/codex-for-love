@@ -8,6 +8,9 @@ port = 3082
 command = "codex"
 model = "gpt-5.6-luna"
 version = "0.154.0"
+# For the customized build, replace command above with its absolute codex path:
+# provenance = "/absolute/path/to/artifact/codex.provenance.json"
+# local_compaction = true
 # home = "/path/to/a/Codex-home" # omit to use the existing Codex login
 
 # Optional STT only; write the DashScope API key using `credential ... speech`.

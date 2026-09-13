@@ -1,0 +1,237 @@
+diff --git a/codex-rs/config/src/config_toml.rs b/codex-rs/config/src/config_toml.rs
+index 7bf981482f..88d19d5fd6 100644
+--- a/codex-rs/config/src/config_toml.rs
++++ b/codex-rs/config/src/config_toml.rs
+@@ -255,6 +255,9 @@ pub struct ConfigToml {
+     /// Compact prompt used for history compaction.
+     pub compact_prompt: Option<String>,
+ 
++    /// Force supported compaction routes through the local Responses summarizer.
++    pub experimental_local_compaction: Option<bool>,
++
+     /// When set, restricts ChatGPT login to one or more workspace identifiers.
+     #[serde(default)]
+     pub forced_chatgpt_workspace_id: Option<ForcedChatgptWorkspaceIds>,
+diff --git a/codex-rs/core/src/config/config_tests.rs b/codex-rs/core/src/config/config_tests.rs
+index a093aaf28f..2d118a7e67 100644
+--- a/codex-rs/core/src/config/config_tests.rs
++++ b/codex-rs/core/src/config/config_tests.rs
+@@ -8096,6 +8096,23 @@ async fn cli_override_sets_compact_prompt() -> std::io::Result<()> {
+     Ok(())
+ }
+ 
++#[tokio::test]
++async fn config_loads_local_compaction_override() -> std::io::Result<()> {
++    let codex_home = TempDir::new()?;
++    let config = Config::load_from_base_config_with_overrides(
++        ConfigToml {
++            experimental_local_compaction: Some(true),
++            ..Default::default()
++        },
++        ConfigOverrides::default(),
++        codex_home.abs(),
++    )
++    .await?;
++
++    assert!(config.experimental_local_compaction);
++    Ok(())
++}
++
+ #[tokio::test]
+ async fn loads_compact_prompt_from_file() -> std::io::Result<()> {
+     let codex_home = TempDir::new()?;
+diff --git a/codex-rs/core/src/config/mod.rs b/codex-rs/core/src/config/mod.rs
+index ebda9778b1..61326f8ccb 100644
+--- a/codex-rs/core/src/config/mod.rs
++++ b/codex-rs/core/src/config/mod.rs
+@@ -714,6 +714,9 @@ pub struct Config {
+     /// Compact prompt override.
+     pub compact_prompt: Option<String>,
+ 
++    /// Whether manual and automatic compaction should use the local summarizer.
++    pub experimental_local_compaction: bool,
++
+     /// Optional external notifier command. When set, Codex will spawn this
+     /// program after each completed *turn* (i.e. when the agent finishes
+     /// processing a user submission). The value must be the full command
+@@ -4185,6 +4188,7 @@ impl Config {
+             personality,
+             developer_instructions,
+             compact_prompt,
++            experimental_local_compaction: cfg.experimental_local_compaction.unwrap_or(false),
+             include_permissions_instructions,
+             include_apps_instructions,
+             include_collaboration_mode_instructions,
+diff --git a/codex-rs/core/src/session/turn.rs b/codex-rs/core/src/session/turn.rs
+index 4719e1d891..f5a923d3cf 100644
+--- a/codex-rs/core/src/session/turn.rs
++++ b/codex-rs/core/src/session/turn.rs
+@@ -1273,6 +1273,23 @@ async fn run_auto_compact(
+         return Ok(());
+     }
+ 
++    if turn_context.config.experimental_local_compaction {
++        emit_compact_metric(
++            &sess.services.session_telemetry,
++            "local",
++            /*manual*/ false,
++        );
++        run_inline_auto_compact_task(
++            Arc::clone(sess),
++            Arc::clone(turn_context),
++            initial_context_injection,
++            reason,
++            phase,
++        )
++        .await?;
++        return Ok(());
++    }
++
+     match turn_context.provider.capabilities().remote_compaction {
+         RemoteCompactionSupport::V2
+             if turn_context
+diff --git a/codex-rs/core/src/tasks/compact.rs b/codex-rs/core/src/tasks/compact.rs
+index 99e2113485..f91c8a9bfd 100644
+--- a/codex-rs/core/src/tasks/compact.rs
++++ b/codex-rs/core/src/tasks/compact.rs
+@@ -38,6 +38,31 @@ impl SessionTask for CompactTask {
+             return Ok(None);
+         }
+ 
++        if ctx.config.experimental_local_compaction {
++            emit_compact_metric(
++                &session.services.session_telemetry,
++                "local",
++                /*manual*/ true,
++            );
++            let input = vec![UserInput::Text {
++                text: ctx
++                    .config
++                    .compact_prompt
++                    .as_deref()
++                    .unwrap_or(crate::compact::SUMMARIZATION_PROMPT)
++                    .to_string(),
++                // Compaction prompt is synthesized; no UI element ranges to preserve.
++                text_elements: Vec::new(),
++            }];
++            let result = crate::compact::run_compact_task(session.clone(), ctx, input).await;
++            if let Err(err) = result
++                && matches!(err.details(), CodexErrorDetails::TurnAborted)
++            {
++                return Err(err);
++            }
++            return Ok(None);
++        }
++
+         let result = match ctx.provider.capabilities().remote_compaction {
+             RemoteCompactionSupport::V2
+                 if ctx.config.features.enabled(Feature::RemoteCompactionV2) =>
+diff --git a/codex-rs/core/tests/suite/compact.rs b/codex-rs/core/tests/suite/compact.rs
+index 09ae3e2cdd..ea19eee3c3 100644
+--- a/codex-rs/core/tests/suite/compact.rs
++++ b/codex-rs/core/tests/suite/compact.rs
+@@ -770,6 +770,77 @@ async fn summarize_context_three_requests_and_instructions(
+     Ok(())
+ }
+ 
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn explicit_local_compaction_override_routes_builtin_openai_manual() -> Result<()> {
++    skip_if_no_network!(Ok(()));
++
++    let server = start_mock_server().await;
++    let request_log = mount_sse_sequence(
++        &server,
++        vec![
++            sse(vec![
++                ev_assistant_message("initial", FIRST_REPLY),
++                ev_completed("initial"),
++            ]),
++            sse(vec![
++                ev_assistant_message("compact", SUMMARY_TEXT),
++                ev_completed("compact"),
++            ]),
++            sse(vec![ev_completed("follow-up")]),
++        ],
++    )
++    .await;
++
++    let model_provider = openai_model_provider(&server);
++    let mut builder = test_codex().with_config(move |config| {
++        config.model_provider = model_provider;
++        config.experimental_local_compaction = true;
++        let _ = config.features.enable(Feature::RemoteCompactionV2);
++        set_test_compact_prompt(config);
++    });
++    let codex = builder.build(&server).await?.codex;
++
++    codex
++        .start_or_steer_turn(TurnInputRequest::user_input(vec![UserInput::Text {
++            text: "before explicit local compact".into(),
++            text_elements: Vec::new(),
++        }]))
++        .await?;
++    wait_for_event(&codex, |ev| matches!(ev, EventMsg::TurnComplete(_))).await;
++
++    codex.submit(Op::Compact).await?;
++    wait_for_event(&codex, |ev| matches!(ev, EventMsg::TurnComplete(_))).await;
++
++    codex
++        .start_or_steer_turn(TurnInputRequest::user_input(vec![UserInput::Text {
++            text: THIRD_USER_MSG.into(),
++            text_elements: Vec::new(),
++        }]))
++        .await?;
++    wait_for_event(&codex, |ev| matches!(ev, EventMsg::TurnComplete(_))).await;
++
++    let requests = request_log.requests();
++    assert_eq!(requests.len(), 3);
++    let compact_body = requests[1].body_json();
++    let compact_input = compact_body["input"].as_array().expect("compact input");
++    assert!(compact_input.iter().any(|item| {
++        item["type"] == "message"
++            && item["role"] == "user"
++            && item["content"][0]["text"] == SUMMARIZATION_PROMPT
++    }));
++    assert!(
++        !compact_input
++            .iter()
++            .any(|item| item["type"] == "compaction_trigger")
++    );
++    assert!(body_contains_text(
++        &requests[2].body_json().to_string(),
++        &summary_with_prefix(SUMMARY_TEXT),
++    ));
++
++    Ok(())
++}
++
+ #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+ async fn manual_pre_compact_block_decision_does_not_block_compaction() {
+     skip_if_no_network!();
+@@ -1721,10 +1792,12 @@ async fn auto_compact_runs_after_token_limit_hit() {
+ 
+     let request_log = mount_sse_sequence(&server, vec![sse1, sse2, sse3, sse4]).await;
+ 
+-    let model_provider = non_openai_model_provider(&server);
++    let model_provider = openai_model_provider(&server);
+ 
+     let mut builder = test_codex().with_config(move |config| {
+         config.model_provider = model_provider;
++        config.experimental_local_compaction = true;
++        let _ = config.features.enable(Feature::RemoteCompactionV2);
+         set_test_compact_prompt(config);
+         config.model_auto_compact_token_limit = Some(200_000);
+     });
+diff --git a/codex-rs/thread-manager-sample/src/main.rs b/codex-rs/thread-manager-sample/src/main.rs
+index e99c62c933..4e028f8672 100644
+--- a/codex-rs/thread-manager-sample/src/main.rs
++++ b/codex-rs/thread-manager-sample/src/main.rs
+@@ -222,6 +222,7 @@ fn new_config(model: Option<String>, arg0_paths: Arg0DispatchPaths) -> anyhow::R
+         orchestrator_mcp_enabled: false,
+         include_environment_context: false,
+         compact_prompt: None,
++        experimental_local_compaction: false,
+         notify: None,
+         tui_notifications: TuiNotificationSettings::default(),
+         animations: true,
+

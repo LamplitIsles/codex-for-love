@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { fixture, eventually } from './fixture.ts';
 import { Store } from '../runtime/store.ts';
 import { partnerPaths } from '../runtime/storage-paths.ts';
+import { compactionPrompt } from '../runtime/prompts.ts';
 
 const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGP4DwQACfsD/fteaysAAAAASUVORK5CYII=';
 const photo = { type: 'image' as const, mediaType: 'image/png' as const, name: 'steer.png', data: png };
@@ -44,6 +45,28 @@ test('official app-server owns the thread, native turns and history across an or
     assert.equal((await f.requests()).filter((request) => request.method === 'thread/start').length, 1);
     assert.equal((await f.requests()).filter((request) => request.method === 'thread/resume').length, 1);
   } finally { await partner.close(); await f.close(); }
+});
+
+test('local compaction sends the existing Owner prompt and override on start and resume', async () => {
+  const f = await fixture();
+  await f.enableLocalCompaction();
+  let partner = await f.createPartner();
+  try {
+    const start = (await f.requests()).find((request) => request.method === 'thread/start');
+    assert(start);
+    assert.equal((start.params as { config: Record<string, unknown> }).config.compact_prompt, compactionPrompt);
+    assert.equal((start.params as { config: Record<string, unknown> }).config.experimental_local_compaction, true);
+
+    await partner.close();
+    partner = await f.createPartner();
+    const resume = (await f.requests()).find((request) => request.method === 'thread/resume');
+    assert(resume);
+    assert.equal((resume.params as { config: Record<string, unknown> }).config.compact_prompt, compactionPrompt);
+    assert.equal((resume.params as { config: Record<string, unknown> }).config.experimental_local_compaction, true);
+  } finally {
+    await partner.close();
+    await f.close();
+  }
 });
 
 test('an active native turn receives ordered steering inputs without a second turn', async () => {

@@ -94,3 +94,14 @@ app is bundled.
 No obsolete nanocodex package artifacts, source checkout, or release claim is
 part of the current application. The old artifact-preparation script was
 removed with that runtime.
+
+## Maintained Codex patches
+
+`patches/0001-local-compaction.patch` and
+`patches/0002-neutral-summary-prefix.patch` modify OpenAI Codex 0.154.0,
+revision `6b9826e3aa83b1a5947db50f4332cb9c65f1b340`, from
+<https://github.com/openai/codex>. Codex is Apache-2.0 licensed; the build-owned
+source retains its upstream license and notices. The patches add an explicit
+local compaction override and replace the shared continuity summary prefix.
+The repository stores patches and build scripts, not the upstream source tree
+or compiled artifacts. The SDK remains pinned to 0.2.1 and protocol 0.154.0.

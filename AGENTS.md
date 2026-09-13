@@ -11,6 +11,7 @@ Update README for operator contracts and docs/IMPORTS.md for imported source att
 ## Standalone core workflow
 
 - Run `pnpm install --frozen-lockfile`, `pnpm check`, `pnpm build` and `pnpm test` from the repository root.
+- For maintained Codex patches or custom compaction, follow README’s build and artifact-selection instructions; the pinned baseline is Codex 0.154.0. Use `pnpm run codex:build` for the resource-limited local build and verify the selected artifact with the isolated `test:real-sdk` probe before live acceptance.
 - Run the Partner with `pnpm --filter @lamplitisles/partner start -- <config.toml>` after configuring the official Codex 0.154.0 executable and existing device-auth login.
 - Use a fresh test-owned workspace and the fake app-server for automated tests. Do not use the real Codex home, credentials or external message side effects in tests.
 - The official app-server is the execution owner. Do not reintroduce naco, Bridge model transport, custom imagegen/mail/skill wrappers, Docker, migration or cutover code.

@@ -1,10 +1,12 @@
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { CodexAppServerClientOptions } from '@jaminzhou/codex-app-server-client';
 import type { Config, Credentials } from '../runtime/config.ts';
 import { createPartner, type Partner } from '../runtime/partner.ts';
+import { CODEX_PATCHES, CODEX_SOURCE_REVISION } from '../runtime/provenance.ts';
 
 const fakeServer = fileURLToPath(new URL('./fake-app-server-entry.mjs', import.meta.url));
 const hookScript = fileURLToPath(new URL('../runtime/session-start-hook.mjs', import.meta.url));
@@ -28,7 +30,7 @@ export async function fixture() {
   await writeFile(controlPath, '{}', { mode: 0o600 });
   const config: Config = {
     name: 'Mica', persona, state: directory, workspace, port: 3082,
-    codex: { command: fakeServer, model: 'gpt-5.6-luna', version: '0.154.0' },
+    codex: { command: fakeServer, model: 'gpt-5.6-luna', version: '0.154.0', local_compaction: false },
   };
   const credentials: Credentials = {};
   const environment: Record<string, string> = {
@@ -56,6 +58,29 @@ export async function fixture() {
     directory, workspace, config, credentials, appServer, requests,
     async createPartner() { partner = await createPartner(config, credentials, { appServer }); return partner; },
     holdProvider(value: boolean) { return writeFile(controlPath, JSON.stringify({ hold: value }), { mode: 0o600 }); },
+    async enableLocalCompaction() {
+      const executable = join(directory, 'codex.mjs');
+      await writeFile(executable, `#!/usr/bin/env node\nimport ${JSON.stringify(pathToFileURL(fakeServer).href)};\n`, { mode: 0o755 });
+      config.codex.command = executable;
+      const helper = 'test-owned code-mode host';
+      await writeFile(join(directory, 'codex-code-mode-host'), helper, { mode: 0o755 });
+      const provenance = join(directory, 'codex.provenance.json');
+      const binarySha256 = createHash('sha256').update(await readFile(executable)).digest('hex');
+      await writeFile(provenance, `${JSON.stringify({
+        schemaVersion: 1,
+        codexVersion: '0.154.0',
+        sdkVersion: '0.2.1',
+        upstreamRepository: 'https://github.com/openai/codex',
+        sourceRevision: CODEX_SOURCE_REVISION,
+        patches: CODEX_PATCHES,
+        binaryPath: executable,
+        codeModeHostSha256: createHash('sha256').update(helper).digest('hex'),
+        binarySha256,
+        binaryIdentity: 'codex-cli 0.154.0',
+      }, null, 2)}\n`);
+      config.codex.local_compaction = true;
+      config.codex.provenance = provenance;
+    },
     async close() { await partner?.close(); await rm(directory, { recursive: true, force: true }); },
   };
 }

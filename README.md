@@ -204,14 +204,23 @@ non-text image payloads are excluded, while text from a mixed text/image user
 message is retained; role labels identify historical excerpts as evidence,
 not new requests. An ordinary turn or resume does not repeat the bootstrap.
 
-The current app calls the official `thread/compact/start` operation and
-projects its lifecycle and engine-reported token observations. On the current
-remote-v2 path, Codex sends the thread's base instructions plus its
-`CompactionTrigger`/history flow; it does not read the separate
-`compact_prompt` setting. Therefore this implementation does not claim that
-the Owner's eight-section custom summary is supported by remote-v2. The
-independent `compactionPrompt` artifact remains available for the Owner-held
-local-routing work and is not misrepresented as a remote result here.
+The app calls the official `thread/compact/start` operation and projects its
+lifecycle and engine-reported token observations. The patched Codex build can
+route manual and automatic compaction through the official local summarizer,
+which consumes the Owner-authored `compactionPrompt`. Enable it explicitly:
+
+```toml
+[codex]
+command = "/absolute/path/to/artifact/codex"
+provenance = "/absolute/path/to/artifact/codex.provenance.json"
+local_compaction = true
+```
+
+The host verifies the artifact hash, source revision and patch declarations
+before SDK startup, and sets the override on both thread start and resume.
+The local summary uses a neutral continuity prefix; builtin OpenAI provider
+identity is unchanged. Without the override, upstream routing remains active;
+remote-v2 does not consume `compact_prompt`.
 
 ## Scope and safety
 
@@ -224,3 +233,47 @@ fault testing are outside this core.
 Source provenance and retained upstream licenses are recorded in
 [`docs/IMPORTS.md`](docs/IMPORTS.md). The ownership decision is recorded in
 [`docs/adr/0001-codex-app-server.md`](docs/adr/0001-codex-app-server.md).
+
+## Building the patched Codex locally
+
+On Linux with a user systemd manager, use the resource-limited entry point:
+
+```sh
+pnpm run codex:build
+```
+
+The pnpm command pins this host’s existing Nix pkg-config/OpenSSL/patchelf
+paths, uses `/home/neil/code/projects/openai/codex`, and writes a new
+timestamped directory under `.cache/codex-artifacts/`. For another host, call
+`bash scripts/build-codex-patches-local.sh --source CHECKOUT --output OUTPUT`
+directly. The checkout must contain the pinned upstream revision; it is read without
+modification. Choose a new output directory for each artifact. The wrapper
+waits for completion and returns the build's status, using eight Cargo jobs,
+an eight-CPU quota, a 6 GiB memory limit and at most 512 MiB of swap for the
+whole build. `CARGO_BUILD_JOBS` can lower parallelism without changing the
+limits. Exceeding the memory limit can fail the build; it does not guarantee
+that unrelated host workloads cannot exhaust resources. Check available host
+disk space before starting; this entry point does not monitor Windows disk
+space. Stop this build with `systemctl --user stop cfl-codex-build-local`.
+
+The reusable source and Cargo cache live in `.cache/codex-build`; interrupted
+builds preserve completed artifacts. The `codex` CLI is built with optimization level 1 and LTO, debug information
+and incremental compilation disabled. Its unmodified `codex-code-mode-host`
+helper is copied from the SDK’s lockfile-pinned official Codex 0.154.0 package;
+its V8 runtime is not built locally. Both executable hashes are verified at
+application startup. Cargo still reuses unchanged compiled dependencies.
+The output contains `codex`, its `codex.provenance.json` sidecar, and
+`codex-code-mode-host`. Keep both executables together; native code-mode tools
+resolve the helper beside the CLI.
+
+CI or hosts without systemd can call `scripts/build-codex-patches.sh` directly
+(default: one job). Both entry points use the installed Rust toolchain and
+require the native build prerequisites for the pinned Codex source. If Nix
+provides OpenSSL/pkg-config, export `PKG_CONFIG` and `PKG_CONFIG_PATH`; the
+local wrapper forwards them without embedding host-specific store paths.
+
+When OpenSSL is supplied by Nix, `patchelf` must also be on `PATH`. The build
+adds the discovered OpenSSL library directory to the output binary's RPATH
+before checking its version and hashing it; Cargo's cached binary is unchanged.
+This is a host-local artifact, not a portable/static release. Its referenced
+Nix store libraries must remain available on the deployment host.

@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CodexAppServerClient, resolveCodexBinary } from '@jaminzhou/codex-app-server-client';
+import { compactionPrompt } from '../runtime/prompts.ts';
+import { verifyCodexArtifact } from '../runtime/provenance.ts';
 
 const CODEX_VERSION = '0.154.0';
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGP4DwQACfsD/fteaysAAAAASUVORK5CYII=', 'base64');
@@ -20,14 +22,14 @@ async function waitFor(check, label, timeoutMs = 15_000) {
   }
 }
 
-function responseEvents(id, text) {
+function responseEvents(id, text, totalTokens = 0) {
   return [
     ['response.created', { type: 'response.created', response: { id } }],
     ['response.output_item.done', { type: 'response.output_item.done', item: {
       type: 'message', role: 'assistant', id: `message-${id}`, content: [{ type: 'output_text', text }],
     } }],
     ['response.completed', { type: 'response.completed', response: {
-      id, usage: { input_tokens: 0, input_tokens_details: null, output_tokens: 0, output_tokens_details: null, total_tokens: 0 },
+      id, usage: { input_tokens: 0, input_tokens_details: null, output_tokens: 0, output_tokens_details: null, total_tokens: totalTokens },
     } }],
   ];
 }
@@ -61,18 +63,32 @@ async function main() {
 
   const modelRequests = [];
   let responseNumber = 0;
+  let autoCompactionMode = false;
   let steeringReleased = false;
   let releaseSteering = () => {};
+  const localCompactionRequests = [];
+  const remoteCompactionRequests = [];
   const provider = createServer(async (request, response) => {
-    if (request.method !== 'POST' || !request.url?.endsWith('/responses')) {
+    const responsesRequest = request.method === 'POST'
+      && (request.url?.endsWith('/responses') || request.url?.endsWith('/responses/compact'));
+    if (!responsesRequest) {
       response.writeHead(404, { 'content-type': 'application/json' });
       response.end(JSON.stringify({ error: 'not found' }));
       return;
     }
+    if (request.url?.endsWith('/responses/compact')) {
+      remoteCompactionRequests.push({ path: request.url });
+      response.writeHead(500, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ error: 'remote compaction is forbidden in this check' }));
+      return;
+    }
     const body = JSON.parse(await readBody(request));
     modelRequests.push(body);
-    const serialized = JSON.stringify(body);
     const latestText = latestUserText(body);
+    const hasRemoteTrigger = body.input?.some((item) => item.type === 'compaction_trigger');
+    if (hasRemoteTrigger) remoteCompactionRequests.push({ path: request.url, body });
+    const isCompaction = latestText === compactionPrompt;
+    if (isCompaction) localCompactionRequests.push(body);
     if (latestText === 'hold steering' && !steeringReleased) {
       await new Promise((resolve) => {
         releaseSteering = resolve;
@@ -94,7 +110,21 @@ async function main() {
     const invokesTool = body.input?.some((item) => item.type === 'message'
       && item.content?.some((part) => part.type === 'input_text' && part.text.includes('invoke dynamic tool')));
     const id = `real-response-${++responseNumber}`;
-    const events = invokesTool && !hasToolOutput
+    const responseText = isCompaction ? 'CUSTOMIZED_LOCAL_CHECKPOINT' : 'loopback response';
+    const totalTokens = autoCompactionMode && !isCompaction ? 5_000 : 0;
+    const codeModeRequested = body.input?.some((item) => item.type === 'message'
+      && item.content?.some((part) => part.type === 'input_text' && part.text === 'exercise native code mode'));
+    const codeModeDone = body.input?.some((item) => item.type === 'custom_tool_call_output'
+      && item.call_id === 'code-mode-probe');
+    const events = codeModeRequested && !codeModeDone
+      ? [
+          ['response.created', { type: 'response.created', response: { id } }],
+          ['response.output_item.done', { type: 'response.output_item.done', item: {
+            type: 'custom_tool_call', call_id: 'code-mode-probe', name: 'exec', input: 'text("CODE_MODE_HOST_OK")',
+          } }],
+          ['response.completed', { type: 'response.completed', response: { id } }],
+        ]
+      : invokesTool && !hasToolOutput
       ? [
           ['response.created', { type: 'response.created', response: { id } }],
           ['response.output_item.done', { type: 'response.output_item.done', item: {
@@ -104,22 +134,18 @@ async function main() {
             id, usage: { input_tokens: 0, input_tokens_details: null, output_tokens: 0, output_tokens_details: null, total_tokens: 0 },
           } }],
         ]
-      : responseEvents(id, 'loopback response');
+      : responseEvents(id, responseText, totalTokens);
     response.writeHead(200, { 'content-type': 'text/event-stream', connection: 'close' });
     response.end(sse(events));
   });
   await new Promise((resolve) => provider.listen(0, '127.0.0.1', resolve));
   const port = provider.address().port;
-  await writeFile(join(codexHome, 'config.toml'), `model = "loopback-model"
-model_provider = "loopback"
+  await writeFile(join(codexHome, 'config.toml'), `model = "gpt-5.2"
+model_provider = "openai"
+openai_base_url = "http://127.0.0.1:${port}/v1"
 mcp_servers = {}
 [features]
 plugins = false
-[model_providers.loopback]
-name = "loopback"
-base_url = "http://127.0.0.1:${port}/v1"
-wire_api = "responses"
-requires_openai_auth = false
 `);
 
   const environment = {
@@ -129,7 +155,7 @@ requires_openai_auth = false
     XDG_CONFIG_HOME: xdgConfig,
     XDG_DATA_HOME: xdgData,
     XDG_CACHE_HOME: xdgCache,
-    OPENAI_API_KEY: '',
+    OPENAI_API_KEY: 'test-only-loopback-key',
     CODEX_API_KEY: '',
     CODEX_DISABLE_FEEDBACK: '1',
     CODEX_DISABLE_UPDATE_CHECK: '1',
@@ -138,8 +164,16 @@ requires_openai_auth = false
   let dynamicToolCalls = 0;
   let client;
   try {
+    const selectedCodex = process.env.CODEX_PATCHED_CODEX;
+    if (selectedCodex) {
+      const provenance = process.env.CODEX_PATCHED_PROVENANCE;
+      if (!provenance) throw new Error('CODEX_PATCHED_PROVENANCE is required with CODEX_PATCHED_CODEX');
+      await verifyCodexArtifact(selectedCodex, provenance);
+    } else if (process.env.REQUIRE_CODEX_PATCHED === '1') {
+      throw new Error('REQUIRE_CODEX_PATCHED=1 requires CODEX_PATCHED_CODEX');
+    }
     client = new CodexAppServerClient({
-      codexPath: resolveCodexBinary().executablePath,
+      codexPath: selectedCodex ?? resolveCodexBinary().executablePath,
       cwd: workspace,
       env: environment,
       protocolValidation: 'strict',
@@ -163,12 +197,16 @@ requires_openai_auth = false
     assert.equal(initialized.platformOs, 'linux');
 
     const started = await client.call('thread/start', {
-      model: 'loopback-model',
-      modelProvider: 'loopback',
+      model: 'gpt-5.2',
+      modelProvider: 'openai',
       cwd: workspace,
       approvalPolicy: 'never',
       sandbox: 'danger-full-access',
       historyMode: 'paginated',
+      config: {
+        compact_prompt: compactionPrompt,
+        experimental_local_compaction: true,
+      },
       dynamicTools: [{
         type: 'function',
         name: 'probe_tool',
@@ -212,6 +250,78 @@ requires_openai_auth = false
     assert.notEqual(firstPage.data[0].id, secondPage.data[0].id);
     const itemPage = await client.call('thread/items/list', { threadId, turnId: firstPage.data[0].id, limit: 100, sortDirection: 'asc' });
     assert.ok(itemPage.data.length >= 2);
+
+    const manualCompactionCount = localCompactionRequests.length;
+    const beforeManualEvents = notifications.length;
+    await client.call('thread/compact/start', { threadId });
+    await waitFor(() => localCompactionRequests.length > manualCompactionCount, 'manual local compaction request');
+    const manualCompaction = localCompactionRequests.at(-1);
+    assert.ok(manualCompaction);
+    assert.equal(latestUserText(manualCompaction), compactionPrompt);
+    assert.equal(manualCompaction.input.some((item) => item.type === 'compaction_trigger'), false);
+
+    await waitFor(() => notifications.slice(beforeManualEvents).some((notification) => notification.method === 'turn/completed'
+      && notification.params.threadId === threadId
+      && notification.params.turn.status === 'completed'), 'manual compaction completion');
+
+    const beforeManualFollowUp = modelRequests.length;
+    const manualFollowUp = await client.call('turn/start', {
+      threadId,
+      input: [{ type: 'text', text: 'after manual local compaction', text_elements: [] }],
+      clientUserMessageId: 'real-after-manual-compaction',
+    });
+    await waitFor(() => notifications.some((notification) => notification.method === 'turn/completed'
+      && notification.params.turn.id === manualFollowUp.turn.id
+      && notification.params.turn.status === 'completed'), 'post-manual-compaction turn completion');
+    const manualFollowUpRequest = modelRequests.slice(beforeManualFollowUp).at(-1);
+    assert.ok(manualFollowUpRequest);
+    assert.ok(JSON.stringify(manualFollowUpRequest).includes('CUSTOMIZED_LOCAL_CHECKPOINT'));
+    assert.ok(JSON.stringify(manualFollowUpRequest).includes('The following checkpoint summarizes earlier conversation.'));
+    const sessionFiles = await readdir(join(codexHome, 'sessions'), { recursive: true });
+    const rolloutFile = sessionFiles.find((path) => path.endsWith('.jsonl') && path.includes(threadId));
+    assert.ok(rolloutFile, 'official session rollout exists');
+    const rollout = (await readFile(join(codexHome, 'sessions', rolloutFile), 'utf8')).trim().split('\n').map(JSON.parse);
+    assert.ok(rollout.some((entry) => entry.type === 'compacted'
+      && JSON.stringify(entry.payload).includes('CUSTOMIZED_LOCAL_CHECKPOINT')), 'checkpoint persisted in official compacted record');
+
+    autoCompactionMode = true;
+    const autoStarted = await client.call('thread/start', {
+      model: 'gpt-5.2',
+      modelProvider: 'openai',
+      cwd: workspace,
+      approvalPolicy: 'never',
+      sandbox: 'danger-full-access',
+      historyMode: 'paginated',
+      config: {
+        compact_prompt: compactionPrompt,
+        experimental_local_compaction: true,
+        model_auto_compact_token_limit: 1_000,
+      },
+    });
+    const autoThreadId = autoStarted.thread.id;
+    const automaticCompactionCount = localCompactionRequests.length;
+    const autoFirst = await client.call('turn/start', {
+      threadId: autoThreadId,
+      input: [{ type: 'text', text: 'automatic compaction seed', text_elements: [] }],
+      clientUserMessageId: 'real-auto-seed',
+    });
+    await waitFor(() => notifications.some((notification) => notification.method === 'turn/completed'
+      && notification.params.turn.id === autoFirst.turn.id
+      && notification.params.turn.status === 'completed'), 'automatic compaction seed completion');
+    const autoSecond = await client.call('turn/start', {
+      threadId: autoThreadId,
+      input: [{ type: 'text', text: 'automatic compaction follow-up', text_elements: [] }],
+      clientUserMessageId: 'real-auto-follow-up',
+    });
+    await waitFor(() => localCompactionRequests.length > automaticCompactionCount, 'automatic local compaction request');
+    await waitFor(() => notifications.some((notification) => notification.method === 'turn/completed'
+      && notification.params.turn.id === autoSecond.turn.id
+      && notification.params.turn.status === 'completed'), 'automatic compaction follow-up completion');
+    const automaticCompaction = localCompactionRequests.slice(automaticCompactionCount).at(-1);
+    assert.ok(automaticCompaction);
+    assert.equal(latestUserText(automaticCompaction), compactionPrompt);
+    assert.equal(automaticCompaction.input.some((item) => item.type === 'compaction_trigger'), false);
+    assert.equal(remoteCompactionRequests.length, 0, 'local override must not issue a remote compaction request');
 
     const steeringStart = await client.call('turn/start', {
       threadId,
@@ -258,6 +368,20 @@ requires_openai_auth = false
     });
     await waitFor(() => notifications.some((notification) => notification.method === 'turn/completed'
       && notification.params.turn.id === fresh.turn.id && notification.params.turn.status === 'completed'), 'fresh post-interrupt completion');
+
+    const codeThread = await client.call('thread/start', {
+      model: 'gpt-5.2', modelProvider: 'openai', cwd: workspace,
+      approvalPolicy: 'never', sandbox: 'danger-full-access',
+      config: { 'features.code_mode': true },
+    });
+    const codeTurn = await client.call('turn/start', {
+      threadId: codeThread.thread.id,
+      input: [{ type: 'text', text: 'exercise native code mode', text_elements: [] }],
+    });
+    await waitFor(() => notifications.some((notification) => notification.method === 'turn/completed'
+      && notification.params.turn.id === codeTurn.turn.id && notification.params.turn.status === 'completed'), 'native code-mode host');
+    assert.ok(modelRequests.some((body) => body.input?.some((item) => item.type === 'custom_tool_call_output'
+      && item.call_id === 'code-mode-probe' && JSON.stringify(item.output).includes('CODE_MODE_HOST_OK'))));
 
     console.log(`real SDK check passed: ${initialized.userAgent}; handshake, native start/steer, multiple-input history, interrupt/fresh start, paginated history/items, dynamic tool, text/localImage, strict validation`);
   } finally {

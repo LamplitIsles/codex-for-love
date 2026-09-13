@@ -38,7 +38,8 @@ import { MOOD_LABELS, affinityStage } from '../src/lib/companion/domain.ts';
 import { createCompactBoundary, projectContinuity, type CompactionPhase } from '../src/lib/continuity.ts';
 import type { CompactionLifecycleState } from '../src/lib/companion/continuity.ts';
 import type { Config, Credentials } from './config.ts';
-import { companionPrompt } from './prompts.ts';
+import { compactionPrompt, companionPrompt } from './prompts.ts';
+import { verifyCodexArtifact } from './provenance.ts';
 import { partnerPaths } from './storage-paths.ts';
 import { processError } from './logging.ts';
 
@@ -1126,6 +1127,13 @@ export async function createPartner(config: Config, credentials: Credentials, de
     startupPending = !marker?.threadId;
     await refreshBootstrap();
     const injected = dependencies.appServer ?? {};
+    const selectedCodexPath = injected.codexPath ?? config.codex.command;
+    if (config.codex.local_compaction && !config.codex.provenance) {
+      throw new Error('Local compaction requires codex.provenance for the selected custom Codex build');
+    }
+    if (config.codex.provenance) {
+      await verifyCodexArtifact(selectedCodexPath, config.codex.provenance);
+    }
     const environment = {
       ...(config.codex.home ? { CODEX_HOME: config.codex.home } : {}),
       ...(injected.env ?? {}),
@@ -1143,7 +1151,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
       appServerArgs: injected.appServerArgs,
       capabilities: { ...injected.capabilities, experimentalApi: true, requestAttestation: false },
       clientInfo: { ...injected.clientInfo, name: 'codex-for-love', title: 'Codex for Love', version: '0.1.0' },
-      codexPath: injected.codexPath ?? config.codex.command,
+      codexPath: selectedCodexPath,
       configOverrides: injected.configOverrides,
       cwd: paths.workspaceRoot,
       env: environment,
@@ -1179,7 +1187,13 @@ export async function createPartner(config: Config, credentials: Credentials, de
       approvalPolicy: 'never' as const,
       sandbox: 'danger-full-access' as const,
       baseInstructions: `${companionPrompt}\n\n${persona}`,
-      config: { 'features.hooks': true, 'features.image_generation': true },
+      config: {
+        'features.hooks': true,
+        'features.image_generation': true,
+        ...(config.codex.local_compaction
+          ? { compact_prompt: compactionPrompt, experimental_local_compaction: true }
+          : {}),
+      },
     };
     let response: v2.ThreadStartResponse | v2.ThreadResumeResponse;
     if (marker?.threadId) {

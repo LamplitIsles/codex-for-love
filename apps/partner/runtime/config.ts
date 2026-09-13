@@ -18,7 +18,9 @@ const schema = z.object({
     model: z.string().min(1).default(DEFAULT_CODEX_MODEL),
     version: z.literal(SUPPORTED_CODEX_VERSION).default(SUPPORTED_CODEX_VERSION),
     home: z.string().min(1).optional(),
-  }).strict().default({ command: 'codex', model: DEFAULT_CODEX_MODEL, version: SUPPORTED_CODEX_VERSION }),
+    provenance: z.string().min(1).optional(),
+    local_compaction: z.boolean().default(false),
+  }).strict().default({ command: 'codex', model: DEFAULT_CODEX_MODEL, version: SUPPORTED_CODEX_VERSION, local_compaction: false }),
   speech: z.object({
     endpoint: z.url().default('https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation'),
   }).strict().optional(),
@@ -37,6 +39,7 @@ export async function loadConfig(path: string): Promise<Config> {
     codex: {
       ...config.codex,
       home: config.codex.home ? resolve(base, config.codex.home) : undefined,
+      provenance: config.codex.provenance ? resolve(base, config.codex.provenance) : undefined,
     },
   };
 }

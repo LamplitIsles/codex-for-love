@@ -46,14 +46,20 @@ text continuity is limited to the newest five complete text rounds under a
 4,000-token soft budget; tool and image payloads are excluded. The bootstrap
 is metadata and historical evidence, not a new user message.
 
-## Compaction limitation
+## Customized local compaction
 
-On the current remote-v2 app-server path, base instructions are sent with the
-conversation and compaction uses the official `CompactionTrigger`/history
-flow. Remote-v2 does not read the separate `compact_prompt` setting, so this
-core does not claim that the Owner's eight-section custom summary is a remote
-feature. The independent prompt artifact is retained for the separately
-Owner-held local-routing phase; no provider alias or Bridge fallback is used.
+The maintained Codex 0.154.0 patches add an explicit local-compaction override
+and neutral continuity prefix. With `codex.local_compaction` enabled, CFL
+verifies the configured executable and provenance before SDK startup, then
+passes the existing Owner prompt and override on thread start and resume.
+Manual and automatic compaction use the official local summarizer while
+retaining builtin OpenAI provider identity and existing hook handling.
+
+The patched binary passed isolated SDK checks for both routes, persisted
+checkpoint reuse and the neutral prefix in subsequent model context. This
+proves protocol behavior, not real model summary quality. Unset retains
+upstream routing; remote-v2 does not consume `compact_prompt`. No provider
+alias or Bridge fallback is used.
 
 ## Consequences
 
