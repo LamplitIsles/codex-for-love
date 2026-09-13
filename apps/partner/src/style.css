@@ -1,0 +1,10 @@
+@import 'tailwindcss';
+@import './lib/companion/client/daisy.css';
+@import '@fontsource/noto-sans-sc/400.css';
+@import 'katex/dist/katex.min.css';
+body { margin: 0; font-family: 'Noto Sans SC', sans-serif; }
+button, textarea, input { font: inherit; }
+
+#dsh-companion .companion-row-pending .companion-bubble,
+#dsh-companion .companion-row-pending .companion-image-group { opacity: 0.6; }
+#dsh-companion .companion-row-pending .companion-bubble { outline: 1px dashed color-mix(in oklch, var(--color-base-content) 30%, transparent); }

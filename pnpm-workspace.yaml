@@ -1,0 +1,4 @@
+packages:
+  - apps/partner
+allowBuilds:
+  esbuild: true

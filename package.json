@@ -1,0 +1,16 @@
+{
+  "name": "codex-for-love",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "packageManager": "pnpm@11.22.0",
+  "scripts": {
+    "build": "pnpm --filter @lamplitisles/partner build",
+    "check": "pnpm --filter @lamplitisles/partner check",
+    "test": "pnpm --filter @lamplitisles/partner test",
+    "start": "pnpm --filter @lamplitisles/partner start"
+  }
+}

@@ -1,0 +1,8 @@
+.scratch/
+.cache/
+node_modules/
+.env
+.lamplit/
+apps/partner/.svelte-kit/
+apps/partner/build/
+apps/partner/state/

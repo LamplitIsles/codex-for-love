@@ -1,0 +1,15 @@
+name = "Mica"
+persona = "./persona.example.md"
+state = "./state"
+workspace = "./workspace"
+port = 3082
+
+[codex]
+command = "codex"
+model = "gpt-5.6-luna"
+version = "0.154.0"
+# home = "/path/to/a/Codex-home" # omit to use the existing Codex login
+
+# Optional STT only; write the DashScope API key using `credential ... speech`.
+# [speech]
+# endpoint = "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"

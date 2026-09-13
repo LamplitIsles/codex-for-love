@@ -1,0 +1,83 @@
+@import "tailwindcss/utilities.css" source(none);
+@source "./Companion.svelte";
+@source not inline("hidden");
+
+@plugin "daisyui" {
+  themes: false;
+  root: "#dsh-companion";
+  prefix: cmp-;
+  include:
+    button, avatar, mask, chat, drawer, status, loading, skeleton, card, badge,
+    modal;
+  exclude:
+    properties, rootcolor, scrollbar, rootscrolllock, rootscrollgutter, svg;
+  logs: false;
+}
+
+@plugin "daisyui/theme" {
+  name: "sticker-messenger";
+  default: true;
+  color-scheme: light;
+  --color-base-100: #fffaf3;
+  --color-base-200: #f8ecdf;
+  --color-base-300: #ead8c5;
+  --color-base-content: #352e38;
+  --color-primary: #ed7186;
+  --color-primary-content: #fff;
+  --color-secondary: #71c9bc;
+  --color-secondary-content: #153b3b;
+  --color-accent: #f5bd52;
+  --color-accent-content: #3b2a13;
+  --color-neutral: #423a49;
+  --color-neutral-content: #fffaf3;
+  --color-info: #5f9fd1;
+  --color-info-content: #102b43;
+  --color-success: #4ba873;
+  --color-success-content: #102d1d;
+  --color-warning: #d49135;
+  --color-warning-content: #3b2406;
+  --color-error: #d75d67;
+  --color-error-content: #3c1014;
+  --radius-selector: 1rem;
+  --radius-field: 0.875rem;
+  --radius-box: 1.75rem;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 1;
+  --noise: 0;
+}
+
+@plugin "daisyui/theme" {
+  name: "night-voyage";
+  prefersdark: true;
+  color-scheme: dark;
+  --color-base-100: #101827;
+  --color-base-200: #0b1220;
+  --color-base-300: #273650;
+  --color-base-content: #edf2fb;
+  --color-primary: #ff8da0;
+  --color-primary-content: #351823;
+  --color-secondary: #68cdc5;
+  --color-secondary-content: #082e31;
+  --color-accent: #edc66e;
+  --color-accent-content: #30240b;
+  --color-neutral: #243149;
+  --color-neutral-content: #f4f7ff;
+  --color-info: #79b7e8;
+  --color-info-content: #0c263e;
+  --color-success: #6ed394;
+  --color-success-content: #082b18;
+  --color-warning: #f0bd68;
+  --color-warning-content: #342008;
+  --color-error: #ff8991;
+  --color-error-content: #3b1116;
+  --radius-selector: 0.875rem;
+  --radius-field: 0.75rem;
+  --radius-box: 1.5rem;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 1;
+  --noise: 1;
+}
