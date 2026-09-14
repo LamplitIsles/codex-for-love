@@ -149,7 +149,7 @@ test('imports only user-authored user messages', async () => {
     end.seq = seq + 2;
     rows.splice(lastEnd, 0, {
       type: 'user/message', seq, time: seq,
-      data: { id: 'memory', role: 'user', content: [{ type: 'text', text: '<hindsight_context>memory</hindsight_context>' }], source: { kind: 'plugin', plugin: 'kepos-hindsight', form: 'recall' } },
+      data: { id: 'plugin-message', role: 'user', content: [{ type: 'text', text: '<plugin_context>ignore</plugin_context>' }], source: { kind: 'plugin', plugin: 'legacy-recall', form: 'recall' } },
       surfaceOp: 'append',
     }, {
       type: 'user/message', seq: seq + 1, time: seq + 1,
@@ -161,7 +161,7 @@ test('imports only user-authored user messages', async () => {
     const result = await inspectDshLog(path);
     assert.equal(result.report.messages.user, 5);
     assert.equal(result.records.some((record) => record.type === 'user' && record.text === ''), true);
-    assert.doesNotMatch(JSON.stringify(result.records), /hindsight_context|memory/);
+    assert.doesNotMatch(JSON.stringify(result.records), /plugin_context|ignore/);
   } finally { await f.close(); }
 });
 

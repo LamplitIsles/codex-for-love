@@ -111,10 +111,8 @@ configuration.
 
 ## Notices
 
-The imported LamplitIsles source described above is Apache-2.0. The retained
-Apache-2.0 license text is in
-`licenses/dsh-hindsight-Apache-2.0.txt`; it remains with the imported source
-provenance even though the old Hindsight runtime is no longer used.
+The imported LamplitIsles source described above is Apache-2.0; the repository
+root [`LICENSE`](../LICENSE) supplies its terms.
 
 Noto Sans SC is supplied through `@fontsource/noto-sans-sc` under SIL Open Font
 License 1.1. The package's upstream notice remains in its installed package

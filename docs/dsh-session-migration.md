@@ -54,7 +54,7 @@ initial SessionStart hook; later compactions use the normal hook refresh path.
 
 Before cutover, compare source and destination counts for human messages,
 assistant messages, compactions, relationship records, and referenced images.
-Confirm that no injected Hindsight or system text appears, multi-message replies
+Confirm that no plugin-injected or system text appears, multi-message replies
 render as separate bubbles, historical images load, both avatar endpoints return
 the expected bytes, and the source files remain byte-for-byte unchanged. Then
 open the candidate workspace in the real Companion UI before changing either
