@@ -78,14 +78,14 @@ test('event projection and restart reuse saved generated attachments without old
 
     const followupId = randomUUID();
     await partner.submit(followupId, 'follow-up text after the image');
-    await eventually(async () => (await partner.snapshot()).results?.some((result) => result.sourceIds.includes(followupId) && result.answer !== null) === true);
+    await eventually(async () => (await partner.snapshot()).results?.some((result) => result.sourceIds.includes(followupId) && result.answers.length > 0) === true);
     await partner.snapshot();
     await partner.snapshot();
     const afterEvents = await f.requests();
     assert.equal(afterEvents.filter((request) => request.method === 'thread/turns/list').length, initialTurnPages);
     assert.equal(afterEvents.filter((request) => request.method === 'thread/turns/list' && (request.params as { itemsView?: string } | undefined)?.itemsView === 'full').length, initialFullTurns);
     assert.equal(afterEvents.filter((request) => request.method === 'thread/items/list').length, initialItemPages);
-    assert.match((await partner.snapshot()).results?.find((result) => result.sourceIds.includes(followupId))?.answer ?? '', /^fixture reply/);
+    assert.match((await partner.snapshot()).results?.find((result) => result.sourceIds.includes(followupId))?.answers.join('\n\n') ?? '', /^fixture reply/);
 
     for (const name of await readdir(join(f.directory, 'native-images'))) await unlink(join(f.directory, 'native-images', name));
     await partner.close();
@@ -106,7 +106,7 @@ test('relationship tool calls from the official server update the Companion proj
   const f = await fixture(); const partner = await f.createPartner();
   try {
     const id = randomUUID(); await partner.submit(id, 'please use the relationship tool');
-    await eventually(async () => (await partner.snapshot()).results?.some((result) => result.sourceIds.includes(id) && result.answer !== null) === true);
+    await eventually(async () => (await partner.snapshot()).results?.some((result) => result.sourceIds.includes(id) && result.answers.length > 0) === true);
     const view = await partner.snapshot();
     assert.equal(view.relationship.mood, 'bright');
     assert.equal(view.history.length, 1);

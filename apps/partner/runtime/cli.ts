@@ -3,14 +3,17 @@ import { mkdir, readFile, writeFile, rename, access, rm } from 'node:fs/promises
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadConfig, loadCredentials } from './config.ts';
+import { convertDshSession } from './dsh-session-import.ts';
 import { createPartner } from './partner.ts';
 import { createWebServer } from './server.ts';
 
 const cliArgs = process.argv.slice(2);
 if (cliArgs[0] === '--') cliArgs.shift();
 if (cliArgs[1] === '--') cliArgs.splice(1, 1);
-const [command, configPath, name] = cliArgs;
-if (!configPath) throw new Error('Usage: cli.ts <serve|credential> <config.toml> [speech]');
+const dryRun = cliArgs.includes('--dry-run');
+const positionalArgs = cliArgs.filter((argument) => argument !== '--dry-run');
+const [command, configPath, name, companionStatePath, attachmentRoot, destinationPath, dshSettingsPath] = positionalArgs;
+if (!configPath) throw new Error('Usage: cli.ts <serve|credential|import-session> <config.toml> [speech|log destination]');
 const config = await loadConfig(resolve(configPath));
 if (command === 'credential') {
   if (name !== 'speech') throw new Error('Only the speech credential is managed by this runtime');
@@ -41,4 +44,8 @@ if (command === 'credential') {
   let stopping = false;
   const stop = async () => { if (stopping) return; stopping = true; await app.close(); };
   process.once('SIGINT', stop); process.once('SIGTERM', stop);
+} else if (command === 'import-session') {
+  if (!name || !companionStatePath || !attachmentRoot || !destinationPath) throw new Error('Usage: cli.ts import-session <config.toml> <session.jsonl[.zstd]> <state.jsonl> <attachments/v1> <new-workspace> [dsh-settings.yaml] [--dry-run]');
+  const result = await convertDshSession(config, name, companionStatePath, attachmentRoot, destinationPath, {}, { dryRun, dshSettingsPath });
+  console.log(JSON.stringify(result, null, 2));
 } else throw new Error('Unknown command');

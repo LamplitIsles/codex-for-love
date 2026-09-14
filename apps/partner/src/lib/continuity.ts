@@ -24,9 +24,17 @@ export function insertCompactBoundaries(units: readonly TimelineMessageUnit[], b
     let index = 0;
     if (boundary.anchorId) {
       const user = units.findIndex(unit => unit.id === `${boundary.anchorId}:user`);
-      const answer = units.findIndex(unit => unit.id === `${boundary.anchorId}:answer`);
       if (user < 0) continue;
-      index = boundary.position === 'before' ? user : boundary.position === 'after-user' ? user + 1 : (answer < 0 ? user : answer) + 1;
+      if (boundary.position === 'before') index = user;
+      else if (boundary.position === 'after-user') index = user + 1;
+      else {
+        // A turn can yield several separate Partner messages. The response
+        // units use their native turn ID, not the user message ID, so place a
+        // completed checkpoint after the whole incoming run and before the
+        // next user contribution.
+        index = user + 1;
+        while (units[index]?.side === 'incoming') index += 1;
+      }
     }
     const records = slots.get(index) ?? [];
     records.push({ id: boundary.id, side: 'incoming', items: [{ id: boundary.id, messageKey: boundary.id, kind: 'continuity',

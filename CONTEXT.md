@@ -16,6 +16,18 @@ _Avoid_: current mood, relationship score
 A condensed account of established shared experiences, relationship context, boundaries, and unfinished threads that helps the Partner continue truthfully. It records prior conversation rather than creating new shared experiences or commitments.
 _Avoid_: new user message, relationship history
 
+**Conversation history（聊天历史）**:
+The chronological user-visible record of messages exchanged by the owner and Partner, including where continuity checkpoints occurred. Earlier messages can remain available for human review after a checkpoint without remaining in the Partner's active context.
+_Avoid_: active context, relationship history, tool transcript
+
+**Active context（当前上下文）**:
+The current checkpoint and subsequent conversation that the model receives when continuing the relationship. It is a bounded projection of conversation history, not the complete user-visible record.
+_Avoid_: conversation history, token usage total
+
+**Historical media library（历史媒体库）**:
+Media copied from an earlier Partner workspace and restored on its original visible user message for human review. It never becomes an active image input after migration.
+_Avoid_: active image input, current context
+
 **Graph memory（图谱记忆）**:
 The Partner's durable, connected recollection of people, events, preferences, and relationships across conversations.
 _Avoid_: chat history, prompt context

@@ -139,12 +139,12 @@ test('accepted native start reconciles a dropped response without submitting a s
   try {
     const id = randomUUID();
     await partner.submit(id, 'the start response may be lost');
-    await eventually(async () => (await partner.snapshot()).results?.some((result) => result.sourceIds.includes(id) && result.answer !== null) === true);
+    await eventually(async () => (await partner.snapshot()).results?.some((result) => result.sourceIds.includes(id) && result.answers.length > 0) === true);
     assert.equal((await f.requests()).filter((request) => request.method === 'turn/start').length, 1);
     await partner.close();
     partner = await f.createPartner();
     const reopened = await partner.snapshot();
-    assert.equal(reopened.results?.some((result) => result.sourceIds.includes(id) && result.answer !== null), true);
+    assert.equal(reopened.results?.some((result) => result.sourceIds.includes(id) && result.answers.length > 0), true);
     assert.equal((await f.requests()).filter((request) => request.method === 'turn/start').length, 1);
   } finally {
     await partner.close();
@@ -165,7 +165,7 @@ test('accepted native steer reconciles a dropped response without duplicating th
     await partner.submit(second, 'steer response may be lost');
     assert.equal((await f.requests()).filter((request) => request.method === 'turn/steer').length, 1);
     await f.holdProvider(false);
-    await eventually(async () => (await partner.snapshot()).results?.some((result) => result.sourceIds.includes(second) && result.answer !== null) === true);
+    await eventually(async () => (await partner.snapshot()).results?.some((result) => result.sourceIds.includes(second) && result.answers.length > 0) === true);
     const view = await partner.snapshot();
     assert.equal(view.messages.length, 2);
     assert.equal(view.results?.[0]?.sourceIds.join(','), `${first},${second}`);
@@ -199,7 +199,7 @@ test('pre-acceptance timeout remains an editable unresolved draft across reopen 
 
     const replacement = randomUUID();
     await partner.submit(replacement, 'deliberate replacement', [], [id]);
-    await eventually(async () => (await partner.snapshot()).results?.some((result) => result.sourceIds.includes(replacement) && result.answer !== null) === true);
+    await eventually(async () => (await partner.snapshot()).results?.some((result) => result.sourceIds.includes(replacement) && result.answers.length > 0) === true);
     const completed = await partner.snapshot();
     assert.equal(completed.messages.find((message) => message.id === id)?.delivery, 'replaced');
     assert.equal(completed.draft, undefined);
@@ -227,7 +227,7 @@ test('closing rejects an in-flight SDK RPC and a fresh Partner owns later events
   try {
     const id = randomUUID();
     await second.submit(id, 'please use the relationship tool');
-    await eventually(async () => (await second.snapshot()).results?.some((result) => result.sourceIds.includes(id) && result.answer !== null) === true);
+    await eventually(async () => (await second.snapshot()).results?.some((result) => result.sourceIds.includes(id) && result.answers.length > 0) === true);
     assert.equal((await readFile(f.appServer.env!.FAKE_SERVER_STATE!, 'utf8')).includes('"toolCalls":1'), true);
     assert.equal(staleNotifications, notificationsBeforeClose);
   } finally {

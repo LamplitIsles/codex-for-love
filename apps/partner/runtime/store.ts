@@ -384,6 +384,21 @@ export class Store {
     return this.transaction(() => this.db.prepare('SELECT data FROM relationship ORDER BY rowid DESC').all().map((row) => JSON.parse(String((row as { data: string }).data)) as CompanionStateRecord));
   }
 
+  /** Import a validated chronological relationship history without replaying agent tools. */
+  async importRelationshipHistory(records: readonly CompanionStateRecord[]): Promise<void> {
+    await this.transaction(() => {
+      if (this.db.prepare('SELECT 1 FROM relationship LIMIT 1').get()) {
+        throw new Error('Relationship history already exists');
+      }
+      const statement = this.db.prepare('INSERT INTO relationship(call_id,operation_id,previous_affinity,data) VALUES(?,?,?,?)');
+      let previousAffinity = records[0]?.state.affinity ?? 50;
+      records.forEach((record, index) => {
+        statement.run(`import:${index}`, `import:${index}`, previousAffinity, JSON.stringify(record));
+        previousAffinity = record.state.affinity;
+      });
+    });
+  }
+
   async updateRelationship(operation: string, callId: string, update: RelationshipUpdate & { signature?: { value: string; reason: string } }): Promise<CompanionState> {
     if (!operation) throw new Error('Relationship updates require an active conversation turn');
     return this.transaction(() => {

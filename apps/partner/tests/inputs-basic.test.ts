@@ -21,7 +21,7 @@ test('native localImage input is admitted once, keeps visible text clean, and su
   try {
     const response = await fetch(`${url}/api/messages`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id, input: '', images: [photo] }) });
     assert.equal(response.status, 202);
-    await eventually(async () => (await partner.snapshot()).results?.[0]?.answer !== null);
+    await eventually(async () => ((await partner.snapshot()).results?.[0]?.answers.length ?? 0) > 0);
     const view = await partner.snapshot();
     assert.equal(view.messages[0]?.input, '');
     assert.equal(view.messages[0]?.inputImages.length, 1);
@@ -39,7 +39,7 @@ test('native localImage input is admitted once, keeps visible text clean, and su
     const afterRefresh = await reopened.snapshot();
     assert.equal(afterRefresh.messages[0]?.input, '');
     assert.equal(afterRefresh.messages[0]?.inputImages.length, 1);
-    assert.match(afterRefresh.results?.[0]?.answer ?? '', /^fixture reply/);
+    assert.match(afterRefresh.results?.[0]?.answers.join('\n\n') ?? '', /^fixture reply/);
   } finally { await app.close(); await f.close(); }
 });
 

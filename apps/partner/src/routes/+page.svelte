@@ -14,9 +14,10 @@
   import { CompanionPreControllerError } from '$lib/companion/client/admission.js';
   type Message = { sequence: number; revision: number; id: string; turnId?: string | null; input: string; delivery: 'sending' | 'pending' | 'acknowledged' | 'unresolved' | 'replaced'; inputError: string | null; created: number;
     inputImages: { id: string; name: string; url: string }[] };
-  type TurnResult = { id: string; turnId: string; sourceIds: string[]; sequence: number; revision: number; answer: string | null; error: string | null; status: string;
+  type TurnResult = { id: string; turnId: string; sourceIds: string[]; sequence: number; revision: number; answers: string[]; error: string | null; status: string;
     images: { id: string; name: string; url: string }[] };
   type Snapshot = { cursor: number; before: number | null; hasMore: boolean; hasChangesMore: boolean; pendingCount: number; cancellable: string[]; imageLimits?: ImageAttachmentLimits; name: string; speech?: boolean; typing: boolean; messages: Message[]; storageError: boolean;
+    avatars?: { companion?: string; user?: string };
     context?: { activeTokens: number | null; windowTokens: number | null } | null;
     compactions?: CompactBoundary[]; lifecycle?: CompanionContinuitySnapshot;
     relationship?: { mood: string; moodLabel: string; note?: string; affinity: number; affinityStage: string; signature: string };
@@ -42,13 +43,22 @@
     const resultBySource = new Map(results.flatMap((result) => result.sourceIds.map((id) => [id, result] as const)));
     const resultOwners = new Set(results.map((result) => result.sourceIds.at(-1)).filter((id): id is string => Boolean(id)));
     const visibleMessages = [...session.messages.filter(message => message.delivery !== 'replaced'), ...outgoing.filter(local => local.delivery !== 'replaced' && !session.messages.some(message => message.id === local.id))];
-    const resultItems = (result: TurnResult): TimelineItem[] => {
-      const incoming: TimelineItem[] = [];
-      if (result.answer !== null) incoming.push({ id: `${result.id}:answer`, messageKey: result.id, kind: 'text', side: 'incoming', text: result.answer });
-      for (const image of result.images) incoming.push({ id: image.id, messageKey: result.id, kind: 'image', side: 'incoming', state: 'ready', previewUrl: image.url, alt: image.name });
+    const resultUnits = (result: TurnResult): TimelineMessageUnit[] => {
+      const units = result.answers.map((answer, index): TimelineMessageUnit => {
+        const suffix = index === 0 ? '' : `:${index}`;
+        const id = `${result.id}:answer${suffix}`;
+        return { id, side: 'incoming', items: [{ id, messageKey: id, kind: 'text', side: 'incoming', text: answer }] };
+      });
+      const supplemental: TimelineItem[] = [];
+      for (const image of result.images) supplemental.push({ id: image.id, messageKey: result.id, kind: 'image', side: 'incoming', state: 'ready', previewUrl: image.url, alt: image.name });
       const stopped = result.status === 'interrupted' || result.status === 'cancelled';
-      if (result.error || result.status === 'failed' || stopped) incoming.push({ id: `${result.id}:error`, messageKey: result.id, kind: 'notice', side: 'incoming', tone: 'error', text: result.error === 'cancelled' || stopped ? '这次回应已停止。' : '这次未能回应。' });
-      return incoming;
+      if (result.error || result.status === 'failed' || stopped) supplemental.push({ id: `${result.id}:error`, messageKey: result.id, kind: 'notice', side: 'incoming', tone: 'error', text: result.error === 'cancelled' || stopped ? '这次回应已停止。' : '这次未能回应。' });
+      if (supplemental.length && units.length) {
+        const last = units.at(-1)!;
+        units[units.length - 1] = { ...last, items: [...last.items, ...supplemental] };
+      }
+      else if (supplemental.length) units.push({ id: `${result.id}:answer`, side: 'incoming', items: supplemental });
+      return units;
     };
     for (const [index, message] of visibleMessages.entries()) {
       const order = message.sequence > 0 ? message.sequence * 2 : Number.MAX_SAFE_INTEGER - (visibleMessages.length - index) * 2;
@@ -59,20 +69,20 @@
       // A turn result is rendered once, after the last source input. This
       // keeps multi-input turns readable without copying the same answer to
       // every source message.
-      let incoming: TimelineItem[] = [];
+      let incoming: TimelineMessageUnit[] = [];
       if (result && resultOwners.has(message.id)) {
-        incoming = resultItems(result);
+        incoming = resultUnits(result);
       }
-      if (message.inputError) incoming = [...incoming, { id: `${message.id}:input-error`, messageKey: message.id, kind: 'notice', side: 'incoming', tone: 'error', text: message.inputError }];
-      if (incoming.length) ordered.push({ order: order + 1, unit: { id: `${message.id}:answer`, side: 'incoming', items: incoming } });
+      if (message.inputError) incoming = [...incoming, { id: `${message.id}:input-error`, side: 'incoming', items: [{ id: `${message.id}:input-error`, messageKey: message.id, kind: 'notice', side: 'incoming', tone: 'error', text: message.inputError }] }];
+      incoming.forEach((unit, index) => ordered.push({ order: order + 1 + index / 1000, unit }));
     }
     // Incremental snapshots can contain a changed source without its result
     // owner. Keep the canonical result visible at the end rather than
     // manufacturing a duplicate per message.
     for (const result of results) {
       if (!visibleMessages.some((message) => message.id === result.sourceIds.at(-1))) {
-        const incoming = resultItems(result);
-        if (incoming.length) ordered.push({ order: result.sequence * 2 + 1, unit: { id: `${result.id}:answer`, side: 'incoming', items: incoming } });
+        const incoming = resultUnits(result);
+        incoming.forEach((unit, index) => ordered.push({ order: result.sequence * 2 + 1 + index / 1000, unit }));
       }
     }
     ordered.sort((a, b) => a.order - b.order);
@@ -164,7 +174,7 @@
 </script>
 <svelte:head><title>{session.name} · Lamplit</title></svelte:head>
 <Companion {projection} {actions} {t} locale="zh" scheme="dark" sessionId="partner" voiceCapability={session.speech ? "available" : "unavailable"} imageLimits={session.imageLimits} onHistoryOpenChange={undefined}
-  identity={{ companionName: session.name, userName: '你', preferredAddress: '你', signature: session.relationship?.signature ?? '',
+  identity={{ companionName: session.name, userName: '你', preferredAddress: '你', companionAvatar: session.avatars?.companion, userAvatar: session.avatars?.user, signature: session.relationship?.signature ?? '',
     mood: session.relationship?.mood ?? 'neutral', moodLabel: session.relationship?.moodLabel ?? '如常', moodNote: session.relationship?.note,
     affinity: session.relationship?.affinity, affinityStage: session.relationship?.affinityStage }}
   workspaceReadiness={loaded ? 'ready' : 'loading'} sessionReadiness={loaded ? 'ready' : 'loading'}

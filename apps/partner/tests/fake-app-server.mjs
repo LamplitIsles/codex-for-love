@@ -1,4 +1,5 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { basename, join } from 'node:path';
 import { createInterface } from 'node:readline';
 
@@ -48,7 +49,7 @@ function threadRecord(cwd, model) {
     sessionId: 'session-fake',
     source: 'appServer',
     status: { type: 'idle' },
-    path: join(root, 'thread-fake.jsonl'),
+    path: state.rolloutPath ?? join(root, 'thread-fake.jsonl'),
     extra: null,
     forkedFromId: null,
     parentThreadId: null,
@@ -60,6 +61,51 @@ function threadRecord(cwd, model) {
     threadSource: null,
     turns: [],
   };
+}
+
+function loadRollout(path) {
+  const lines = readFileSync(path, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
+  const meta = lines.find((line) => line.type === 'session_meta')?.payload;
+  if (!meta?.id) rpcError(-32602, 'rollout lacks session metadata');
+  state.threadId = meta.id;
+  state.rolloutPath = path;
+  const turns = [];
+  let active;
+  let modelHistory = [];
+  for (const line of lines) {
+    if (line.type === 'compacted') { modelHistory = line.payload.replacement_history ?? []; continue; }
+    if (line.type === 'response_item') modelHistory.push(line.payload);
+    if (line.type !== 'event_msg') continue;
+    const event = line.payload;
+    if (event.type === 'task_started') { active = { id: event.turn_id, status: 'inProgress', items: [], startedAt: event.started_at ?? null, completedAt: null, error: null }; turns.push(active); }
+    else if (event.type === 'item_completed' && active) {
+      if (event.item.type === 'UserMessage') active.items.push({ type: 'userMessage', id: event.item.id, content: event.item.content });
+      else if (event.item.type === 'AgentMessage') active.items.push({ type: 'agentMessage', id: event.item.id, text: event.item.content.map((part) => part.text).join(''), phase: event.item.phase });
+      else if (event.item.type === 'ContextCompaction') active.items.push({ type: 'contextCompaction', id: event.item.id });
+    }
+    else if (event.type === 'task_complete' && active) { active.status = 'completed'; active.completedAt = event.completed_at ?? null; active = undefined; }
+  }
+  state.turns = turns;
+  state.importedHistory = modelHistory;
+  runImportedStartupHook();
+  save();
+}
+
+// The real pinned Codex runtime runs the startup SessionStart hook for a
+// history-based thread/resume (the history route is a forked startup). Keep
+// that observable bootstrap boundary in the test-owned fake so import tests
+// also exercise ordinary CFL resume rather than a second local injector.
+function runImportedStartupHook() {
+  const command = process.env.FAKE_HOOK_COMMAND;
+  if (!command) return;
+  const result = spawnSync('/bin/sh', ['-c', command], {
+    input: JSON.stringify({ source: 'startup' }) + '\n',
+    encoding: 'utf8',
+  });
+  if (result.status !== 0) rpcError(-32603, result.stderr || `fixture startup hook exited ${result.status}`);
+  state.hookRuns = (state.hookRuns ?? 0) + 1;
+  state.hookOutputs = [...(state.hookOutputs ?? []), result.stdout];
+  save();
 }
 
 function page(values, params) {
@@ -252,7 +298,18 @@ async function handle(request) {
     case 'thread/start': {
       state.threadId = 'thread-fake'; save(); return { thread: threadRecord(p.cwd, p.model), model: p.model, modelProvider: 'fixture', serviceTier: null, cwd: p.cwd, runtimeWorkspaceRoots: [], instructionSources: [], approvalPolicy: 'never', approvalsReviewer: 'user', sandbox: { type: 'dangerFullAccess' }, activePermissionProfile: null, reasoningEffort: null, multiAgentMode: 'explicitRequestOnly' };
     }
-    case 'thread/resume': return { thread: threadRecord(p.cwd, p.model), model: p.model, modelProvider: 'fixture', serviceTier: null, cwd: p.cwd, runtimeWorkspaceRoots: [], instructionSources: [], approvalPolicy: 'never', approvalsReviewer: 'user', sandbox: { type: 'dangerFullAccess' }, activePermissionProfile: null, reasoningEffort: null, multiAgentMode: 'explicitRequestOnly' };
+    case 'thread/resume': {
+      if (typeof p.path === 'string' && p.path) loadRollout(p.path);
+      if (control().failResume) rpcError(-32603, 'fixture resume rejected');
+      if (Array.isArray(p.history)) {
+        if (!p.history.length) rpcError(-32602, 'history must contain at least one item');
+        state.importedHistory = p.history;
+        state.historyResumeCount = (state.historyResumeCount ?? 0) + 1;
+        runImportedStartupHook();
+        save();
+      }
+      return { thread: threadRecord(p.cwd, p.model), model: p.model, modelProvider: 'fixture', serviceTier: null, cwd: p.cwd, runtimeWorkspaceRoots: [], instructionSources: [], approvalPolicy: 'never', approvalsReviewer: 'user', sandbox: { type: 'dangerFullAccess' }, activePermissionProfile: null, reasoningEffort: null, multiAgentMode: 'explicitRequestOnly' };
+    }
     case 'thread/turns/list': {
       if (process.env.FAKE_HISTORY_ERROR) {
         const error = new Error(process.env.FAKE_HISTORY_ERROR);

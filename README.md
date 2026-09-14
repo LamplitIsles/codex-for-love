@@ -7,9 +7,11 @@ thread, model history, tools, skills, execution and compaction; this
 repository owns the Companion projection, relationship state, speech
 transcription and workspace attachments.
 
-This checkout is a local core implementation. It does not migrate an old
-session, replace an existing Lamplit service, package Docker, or perform a
-deployment cutover.
+This checkout is a local core implementation. It does not perform generic
+session migration, replace an existing Lamplit service, package Docker, or
+perform a deployment cutover. It does include one explicit, one-time import
+for an operator-supplied DSH log after DSH has already compacted it; that
+workflow is described below.
 
 ## Requirements
 
@@ -48,7 +50,9 @@ pnpm --filter @lamplitisles/partner start -- /path/to/partner.toml
 
 The host binds to `127.0.0.1` and prints its URL. `state` and `workspace` are
 resolved relative to the configuration file. Use a fresh workspace for a new
-conversation; this implementation has no historical-session migration.
+conversation. To create a candidate from a compacted DSH log, use the
+one-time import command below instead of pointing the normal host at the DSH
+log.
 
 The equivalent direct commands are useful when diagnosing startup:
 
@@ -58,29 +62,83 @@ pnpm --filter @lamplitisles/partner build
 pnpm --filter @lamplitisles/partner cli serve /path/to/partner.toml
 ```
 
-Automated tests use a test-owned temporary workspace and a schema-valid fake
-app-server subprocess launched through the real SDK. They never use the real
-Codex home, credentials or services:
+### One-time DSH session import
+
+Manually compact the selected DSH session, wait for its final user turn to
+complete successfully, and supply the stable session log together with its
+Companion state file and attachment-store root. The converter reads only those
+paths. It does not read a live session, trigger compaction, call a model, switch
+the active session, copy credentials, or modify its sources. Released physical v0 logs (including packed
+text, reasoning and tool-call chunk rows) and logical v3 logs are supported in plain `.jsonl` or
+concatenated `.jsonl.zstd` form. Packed chunk rows are counted and discarded;
+they cannot affect the three migrated semantics.
+
+Inspect the candidate without writing either destination first:
 
 ```sh
-pnpm test
+pnpm --filter @lamplitisles/partner cli import-session \
+  /path/to/partner.toml /path/to/session.jsonl \
+  /path/to/.dsh/dsh-companion/state.jsonl /path/to/attachments/v1 \
+  /path/to/new-workspace /path/to/dsh/settings.yaml --dry-run
 ```
 
-The bounded real-runtime check is separate because it requires the installed
-Codex 0.154.0 binary. It starts a test-owned loopback Responses provider and
-isolates `HOME`, `CODEX_HOME`, XDG directories and the workspace; it does not
-use credentials, external MCPs, paid model requests or external messages:
+The dry-run reports user and Partner message counts, every completed compact
+boundary, relationship records, referenced images and discarded record kinds,
+plus the reduced user/Partner/compact records. It never prints opaque, tool or
+reasoning payloads. A real conversion
+requires an absent or empty destination and refuses to overwrite any entry:
+
+```sh
+pnpm --filter @lamplitisles/partner cli import-session \
+  /path/to/partner.toml /path/to/session.jsonl \
+  /path/to/.dsh/dsh-companion/state.jsonl /path/to/attachments/v1 \
+  /path/to/new-workspace /path/to/dsh/settings.yaml
+```
+
+The command translates every finalized user and Partner text message and
+completed compact boundary into a native Codex 0.154.0 rollout. A historical
+turn superseded by a later turn may lack `turn/end`; its finalized messages are
+still retained. Official pagination keeps
+the complete visible conversation, while only the newest compact replacement
+and its following messages form active model context. Tool calls, results,
+reasoning, system records and opaque payloads are discarded.
+
+All valid relationship records are imported chronologically into CFL state;
+the latest one becomes current. Referenced images are hash-checked, copied
+byte-for-byte into `<new-workspace>/.lamplit/historical-media/`, and associated
+with their original user messages. The two DSH Companion avatars are decoded
+from the explicit DSH settings file into `<new-workspace>/.lamplit/profile/`;
+TOML stores their workspace-relative paths. Persona remains CFL-owned. Because
+Codex 0.154.0 path resume does not run the SessionStart startup hook, the
+converter places current relationship context directly into the initial active
+history exactly once; later compact hooks refresh it normally.
+
+On success the report identifies the native thread, rollout and workspace.
+Point `workspace` at that candidate only during a later explicit cutover. If
+app-server registration has begun when an unexpected failure occurs, inspect or
+remove the reported isolated candidate and retry with a new destination; the
+command does not claim rollback. All automated checks use temporary state and a
+fake or loopback provider.
+
+Run the isolated fixture suite with `pnpm test`. The pinned-runtime import
+check additionally requires the built Codex 0.154.0 executable and still uses
+only a loopback Responses provider:
+
+```sh
+CODEX_PATCHED_CODEX=/absolute/path/to/codex \
+  pnpm --filter @lamplitisles/partner test:real-import
+```
+
+The broader SDK probe uses the same isolation rules:
 
 ```sh
 pnpm --filter @lamplitisles/partner test:real-sdk
 ```
 
-That probe verifies the SDK handshake and strict validation, native
-`turn/start`/`turn/steer`, multiple user inputs in one turn, paginated history
-and items, turn interruption followed by a fresh start, an early dynamic-tool
-request, and text plus `localImage` input. Fixture coverage and this isolated
-probe do not establish live-account image-generation or remote
-compaction-result behavior.
+It verifies the SDK handshake and strict validation, native turn start and
+steering, paginated history, interruption, dynamic tools, local image input
+and ordinary resume. These probes do not establish live-account image
+generation or remote compaction-result behavior.
 
 ## Configuration and ownership
 
@@ -100,6 +158,9 @@ compaction-result behavior.
   relationship metadata, `.lamplit/thread.json` identifies the official
   thread, and `.lamplit/attachments/` contains stable image files. The app
   does not duplicate the official transcript or model payloads in SQLite.
+- `avatars.companion` and `avatars.user` point to image files inside the
+  workspace. The browser receives application URLs, never host filesystem
+  paths or embedded base64 configuration.
 - The optional `speech` section enables DashScope transcription. Store its
   credential with `pnpm --filter @lamplitisles/partner cli credential
   /path/to/partner.toml speech`, supplying the value on stdin; do not put the
@@ -222,13 +283,21 @@ The local summary uses a neutral continuity prefix; builtin OpenAI provider
 identity is unchanged. Without the override, upstream routing remains active;
 remote-v2 does not consume `compact_prompt`.
 
+An imported candidate uses the same owned hook declaration. Codex 0.154.0 path
+resume does not execute the SessionStart startup hook, so conversion writes the
+current relationship state once into active history and marks startup bootstrap
+complete. The imported checkpoint is already in official history. A later
+ordinary resume repeats neither relationship state nor the checkpoint.
+
 ## Scope and safety
 
 Use a test persona such as Mica and a fresh application workspace for local
 acceptance. Never copy the real Codex home or conversation into this
-repository, and never send an external message as a test. Existing Lamplit
-services, Docker packaging, migration, deployment cutover and crash-recovery
-fault testing are outside this core.
+repository, and never send an external message as a test. The one-time DSH
+import is limited to a user-supplied, already-compacted released physical v0 or logical v3 log;
+generic
+migration, existing Lamplit services, Docker packaging, deployment cutover
+and crash-recovery fault testing are outside this core.
 
 Source provenance and retained upstream licenses are recorded in
 [`docs/IMPORTS.md`](docs/IMPORTS.md). The ownership decision is recorded in

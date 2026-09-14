@@ -48,6 +48,34 @@ the native Codex app-server contract. The old custom image-generation
 transport, mail wrapper, QuickJS adapter, skill CLI wrapper and duplicate basic
 tool modules are not part of this runtime.
 
+## DSH compacted-log import boundary
+
+`apps/partner/runtime/dsh-session-import.ts` is original CFL integration code,
+not a copied DSH runtime or a legacy reader. Its deliberately narrow parser is
+derived from the released physical v0 and logical v3 serialized envelopes,
+surface replacement metadata and compact checkpoint lifecycle documented by the read-only
+`lamplitisles/deepseek-harness` checkout at revision
+`5dda764ed3aa172535a7967b06ff95d9cbfe536a` (`packages/core/session`,
+`packages/compaction/compaction`, `packages/compaction/compaction-basic` and
+`packages/session/session-persistence-jsonl`). It admits only released physical
+version 0 and logical version 3, validates and discards the three known packed
+assistant chunk row types, folds the effective surface and correlates
+`source.kind=plugin`/`source.plugin=compact` with its committed
+start/summary/replacement/end lifecycle. No DSH source, session database,
+credentials, transcript reader or migration framework is vendored here. The
+adapter translates every visible user/assistant text record and every completed
+compact boundary directly into the pinned native rollout projections. It
+discards tool, reasoning, system and opaque records. Companion relationship
+history is imported into CFL state, and source-session-referenced images are
+verified, copied byte-for-byte into the workspace media library, and restored
+on their original visible user messages. The compact replacement history stays
+text-only, so these historical images are not active model inputs; no DSH
+runtime or ongoing reader remains.
+
+Released physical v0 assistant final-message `sourceEventSeqs` may cite earlier
+packed chunk provenance. The adapter validates ordering and then discards that
+provenance with the chunks; logical v3 keeps its separate final-message contract.
+
 ## External official runtime
 
 The runtime targets the installed official Codex CLI/app-server `0.154.0`

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { randomUUID } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fixture, eventually } from './fixture.ts';
 import { Store } from '../runtime/store.ts';
@@ -12,14 +12,31 @@ const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGP4DwQACfs
 const photo = { type: 'image' as const, mediaType: 'image/png' as const, name: 'steer.png', data: png };
 const secondPhoto = { type: 'image' as const, mediaType: 'image/png' as const, name: 'second-steer.png', data: png };
 
+test('workspace avatar files are projected without copying them into session state', async () => {
+  const f = await fixture();
+  const companion = join(f.workspace, '.lamplit', 'companion.png');
+  const user = join(f.workspace, '.lamplit', 'user.png');
+  await (await import('node:fs/promises')).mkdir(join(f.workspace, '.lamplit'), { recursive: true });
+  await writeFile(companion, Buffer.from(png, 'base64'));
+  await writeFile(user, Buffer.from(png, 'base64'));
+  f.config.avatars = { companion, user };
+  const partner = await f.createPartner();
+  try {
+    const snapshot = await partner.snapshot();
+    assert.deepEqual(snapshot.avatars, { companion: '/api/avatars/companion', user: '/api/avatars/user' });
+    assert.equal(partner.avatar('companion')?.mediaType, 'image/png');
+    assert.deepEqual(partner.avatar('user')?.data, Buffer.from(png, 'base64'));
+  } finally { await f.close(); }
+});
+
 test('official app-server owns the thread, native turns and history across an ordinary resume', async () => {
   const f = await fixture(); let partner = await f.createPartner();
   try {
     const id = randomUUID(); await partner.submit(id, 'hello from the Companion');
-    await eventually(async () => (await partner.snapshot()).results?.some((result) => result.sourceIds.includes(id) && result.answer !== null) === true);
+    await eventually(async () => (await partner.snapshot()).results?.some((result) => result.sourceIds.includes(id) && result.answers.length > 0) === true);
     const before = await partner.snapshot();
     assert.equal(before.messages[0]?.input, 'hello from the Companion');
-    assert.match(before.results?.find((result) => result.sourceIds.includes(id))?.answer ?? '', /^fixture reply/);
+    assert.match(before.results?.find((result) => result.sourceIds.includes(id))?.answers.join('\n\n') ?? '', /^fixture reply/);
     assert.equal('answer' in before.messages[0]!, false);
     assert.equal('error' in before.messages[0]!, false);
     assert.equal('images' in before.messages[0]!, false);
@@ -38,10 +55,10 @@ test('official app-server owns the thread, native turns and history across an or
     partner = await f.createPartner();
     const resumed = await partner.snapshot();
     assert.equal(resumed.messages.length, 1);
-    assert.equal(resumed.results?.find((result) => result.sourceIds.includes(id))?.answer, before.results?.find((result) => result.sourceIds.includes(id))?.answer);
+    assert.deepEqual(resumed.results?.find((result) => result.sourceIds.includes(id))?.answers, before.results?.find((result) => result.sourceIds.includes(id))?.answers);
     const afterResumeId = randomUUID();
     await partner.submit(afterResumeId, 'post-resume submission');
-    await eventually(async () => (await partner.snapshot()).results?.some((result) => result.sourceIds.includes(afterResumeId) && result.answer !== null) === true);
+    await eventually(async () => (await partner.snapshot()).results?.some((result) => result.sourceIds.includes(afterResumeId) && result.answers.length > 0) === true);
     assert.equal((await f.requests()).filter((request) => request.method === 'thread/start').length, 1);
     assert.equal((await f.requests()).filter((request) => request.method === 'thread/resume').length, 1);
   } finally { await partner.close(); await f.close(); }
@@ -92,7 +109,7 @@ test('an active native turn receives ordered steering inputs without a second tu
     });
     const view = await partner.snapshot();
     assert.equal(view.messages.length, 2);
-    assert.equal(view.results?.filter((result) => result.answer !== null).length, 1);
+    assert.equal(view.results?.filter((result) => result.answers.length > 0).length, 1);
     assert.equal(view.results?.[0]?.sourceIds.join(','), `${first},${second}`);
     assert.equal((await f.requests()).filter((request) => String(request.method).includes('thread/queue')).length, 0);
   } finally { await partner.close(); await f.close(); }
@@ -130,7 +147,7 @@ test('retired acknowledged bodies still project normal steer sources after repea
       [first, 'normal first source'],
       [second, 'normal second\nwith a line'],
     ]);
-    assert.equal(reopened.results?.filter((result) => result.answer !== null).length, 1);
+    assert.equal(reopened.results?.filter((result) => result.answers.length > 0).length, 1);
   } finally { await partner.close(); await f.close(); }
 });
 
@@ -166,10 +183,10 @@ test('a completed steer target starts the submitted input once without replaying
     assert.equal(requests.filter((request) => request.method === 'turn/start').length, 2);
     assert.equal(requests.filter((request) => request.method === 'turn/steer').length, 1);
     await f.holdProvider(false);
-    await eventually(async () => (await partner.snapshot()).results?.some((result) => result.sourceIds.includes(second) && result.answer !== null) === true);
+    await eventually(async () => (await partner.snapshot()).results?.some((result) => result.sourceIds.includes(second) && result.answers.length > 0) === true);
     const view = await partner.snapshot();
     assert.equal(view.messages.length, 2);
-    assert.equal(view.results?.some((result) => result.sourceIds.includes(second) && result.answer !== null), true);
+    assert.equal(view.results?.some((result) => result.sourceIds.includes(second) && result.answers.length > 0), true);
   } finally { await partner.close(); await f.close(); }
 });
 
@@ -195,7 +212,7 @@ test('definitively rejected steers merge in order into one eligible native turn'
     const mergedInput = (starts[1]!.params as { input: { type: string }[] }).input;
     assert.equal(mergedInput.filter((item) => item.type === 'localImage').length, 2);
     const view = await partner.snapshot();
-    assert.equal(view.results?.filter((result) => result.answer !== null).length, 2);
+    assert.equal(view.results?.filter((result) => result.answers.length > 0).length, 2);
     assert.equal(view.results?.at(-1)?.sourceIds.join(','), `${second},${third}`);
     assert.equal(view.messages.find((message) => message.id === second)?.inputImages.length, 1);
     assert.equal(view.messages.find((message) => message.id === third)?.inputImages.length, 1);
@@ -226,7 +243,7 @@ test('retired acknowledged bodies reconstruct multiline and image-only merged so
       assert.equal(view.messages.find((message) => message.id === second)?.inputImages.length, 1);
       assert.equal(view.messages.find((message) => message.id === third)?.inputImages.length, 1);
       assert.deepEqual(view.results?.at(-1)?.sourceIds, [second, third]);
-      assert.equal(view.results?.filter((result) => result.answer !== null).length, 2);
+      assert.equal(view.results?.filter((result) => result.answers.length > 0).length, 2);
     }
     await partner.close();
     const store = new Store(partnerPaths(f.workspace).database);
@@ -247,7 +264,7 @@ test('retired acknowledged bodies reconstruct multiline and image-only merged so
     ]);
     assert.equal(reopened.messages.find((message) => message.id === second)?.inputImages.length, 1);
     assert.equal(reopened.messages.find((message) => message.id === third)?.inputImages.length, 1);
-    assert.equal(reopened.results?.filter((result) => result.answer !== null).length, 2);
+    assert.equal(reopened.results?.filter((result) => result.answers.length > 0).length, 2);
   } finally { await partner.close(); await f.close(); }
 });
 
@@ -306,7 +323,7 @@ test('resume hydrates interrupted drafts without submitting them, then permits a
     assert.equal(startCount, 1);
     const next = randomUUID();
     await partner.submit(next, 'deliberate continuation');
-    await eventually(async () => (await partner.snapshot()).results?.some((result) => result.sourceIds.includes(next) && result.answer !== null) === true);
+    await eventually(async () => (await partner.snapshot()).results?.some((result) => result.sourceIds.includes(next) && result.answers.length > 0) === true);
     assert.equal((await f.requests()).filter((request) => request.method === 'turn/start').length, 2);
   } finally { await partner.close(); await f.close(); }
 });
@@ -315,7 +332,7 @@ test('native compact lifecycle, zero token observation and post-compact bootstra
   const f = await fixture(); const partner = await f.createPartner();
   try {
     const id = randomUUID(); await partner.submit(id, 'before compact');
-    await eventually(async () => (await partner.snapshot()).results?.some((result) => result.sourceIds.includes(id) && result.answer !== null) === true);
+    await eventually(async () => (await partner.snapshot()).results?.some((result) => result.sourceIds.includes(id) && result.answers.length > 0) === true);
     await partner.compact();
     const view = await partner.snapshot();
     assert.equal(view.compactions.length, 1);

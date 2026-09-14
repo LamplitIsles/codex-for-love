@@ -12,6 +12,10 @@ const schema = z.object({
   persona: z.string().min(1),
   state: z.string().default('./state'),
   workspace: z.string().optional(),
+  avatars: z.object({
+    companion: z.string().min(1),
+    user: z.string().min(1),
+  }).strict().optional(),
   port: z.number().int().min(1024).max(65535).default(3082),
   codex: z.object({
     command: z.string().min(1).default('codex'),
@@ -36,6 +40,10 @@ export async function loadConfig(path: string): Promise<Config> {
     state: resolve(base, config.state),
     persona: resolve(base, config.persona),
     workspace: resolve(base, config.workspace ?? `${config.state}/workspace`),
+    avatars: config.avatars ? {
+      companion: resolve(base, config.avatars.companion),
+      user: resolve(base, config.avatars.user),
+    } : undefined,
     codex: {
       ...config.codex,
       home: config.codex.home ? resolve(base, config.codex.home) : undefined,

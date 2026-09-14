@@ -9,6 +9,19 @@ import { createWebServer } from '../runtime/server.ts';
 import { mergeMessages, mergeResults } from '../src/lib/message-pages.ts';
 import { fixture, eventually } from './fixture.ts';
 import { partnerPaths } from '../runtime/storage-paths.ts';
+import { visibleHistoryPage } from '../runtime/partner.ts';
+
+test('history windows count visible user and Partner contributions like DSH', () => {
+  const messages = Array.from({ length: 30 }, (_, index) => ({ id: `message-${index + 1}`, sequence: index + 1, revision: index + 1, created: index + 1 }));
+  const results = messages.map((message) => ({ turnId: `turn-${message.id}`, sourceIds: [message.id], sequence: message.sequence, revision: message.revision, answers: Array.from({ length: message.sequence % 6 === 0 ? 4 : 1 }, () => 'reply'), error: null, status: 'completed', generatedIds: [] }));
+  const page = visibleHistoryPage(messages, results);
+  const visible = page.messages.reduce((count, message) => count + 1 + results.find((result) => result.sourceIds.at(-1) === message.id)!.answers.length, 0);
+  assert.equal(visible, 50);
+  assert.equal(page.messages[0]?.id, 'message-12');
+  assert.equal(page.messages.at(-1)?.id, 'message-30');
+  assert.equal(page.hasMore, true);
+  assert.equal(page.before, page.messages[0]?.sequence);
+});
 
 test('history pages and bounded change batches retain stable ordering and restart cursors', async () => {
   const f = await fixture();
@@ -95,9 +108,9 @@ test('HTTP refresh returns native turn, steering and turn-level interruption cha
     await f.holdProvider(false);
     await eventually(async () => !(await partner.snapshot()).typing);
     const completedId = randomUUID(); await partner.submit(completedId, 'completed');
-    await eventually(async () => (await partner.snapshot()).results?.some((result) => result.sourceIds.includes(completedId) && result.answer !== null) === true);
-    const complete = await (await fetch(`${url}?after=${cancelled.cursor}`)).json() as { cursor: number; results: { answer: string | null }[] };
-    assert(complete.results.some((result) => result.answer !== null));
+    await eventually(async () => (await partner.snapshot()).results?.some((result) => result.sourceIds.includes(completedId) && result.answers.length > 0) === true);
+    const complete = await (await fetch(`${url}?after=${cancelled.cursor}`)).json() as { cursor: number; results: { answers: string[] }[] };
+    assert(complete.results.some((result) => result.answers.length > 0));
     const unchanged = await (await fetch(`${url}?after=${complete.cursor}`)).json() as { messages: unknown[] };
     assert.deepEqual(unchanged.messages, []);
     assert.equal((await fetch(`${url}?before=1&after=1`)).status, 400);

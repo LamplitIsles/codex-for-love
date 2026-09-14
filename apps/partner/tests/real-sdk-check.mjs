@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
+import { randomUUID } from 'node:crypto';
 import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -383,7 +384,53 @@ plugins = false
     assert.ok(modelRequests.some((body) => body.input?.some((item) => item.type === 'custom_tool_call_output'
       && item.call_id === 'code-mode-probe' && JSON.stringify(item.output).includes('CODE_MODE_HOST_OK'))));
 
-    console.log(`real SDK check passed: ${initialized.userAgent}; handshake, native start/steer, multiple-input history, interrupt/fresh start, paginated history/items, dynamic tool, text/localImage, strict validation`);
+    // The converter's narrow initialization seam: history is supplied to a
+    // fresh non-running thread, then the same official thread is resumed by
+    // id. The follow-up request proves the history is durable and each item
+    const importedHistory = [
+      { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'HISTORY_IMPORT_SUMMARY' }] },
+      { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'HISTORY_IMPORT_USER' }] },
+      { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'HISTORY_IMPORT_ASSISTANT' }] },
+    ];
+    const imported = await client.call('thread/resume', {
+      threadId: randomUUID(),
+      history: importedHistory,
+      model: 'gpt-5.2',
+      modelProvider: 'openai',
+      cwd: workspace,
+      approvalPolicy: 'never',
+      sandbox: 'danger-full-access',
+      excludeTurns: true,
+    });
+    const importedThreadId = imported.thread.id;
+    assert.ok(importedThreadId);
+    const ordinaryImportedResume = await client.call('thread/resume', {
+      threadId: importedThreadId,
+      model: 'gpt-5.2',
+      modelProvider: 'openai',
+      cwd: workspace,
+      approvalPolicy: 'never',
+      sandbox: 'danger-full-access',
+      excludeTurns: true,
+    });
+    assert.equal(ordinaryImportedResume.thread.id, importedThreadId);
+    const beforeImportedFollowUp = modelRequests.length;
+    const importedFollowUp = await client.call('turn/start', {
+      threadId: importedThreadId,
+      input: [{ type: 'text', text: 'history retention probe', text_elements: [] }],
+      clientUserMessageId: 'real-history-import-follow-up',
+    });
+    await waitFor(() => notifications.some((notification) => notification.method === 'turn/completed'
+      && notification.params.turn.id === importedFollowUp.turn.id
+      && notification.params.turn.status === 'completed'), 'history-import follow-up completion');
+    const importedRequest = modelRequests.slice(beforeImportedFollowUp).at(-1);
+    assert.ok(importedRequest);
+    const importedRequestText = JSON.stringify(importedRequest);
+    assert.equal(importedRequestText.split('HISTORY_IMPORT_SUMMARY').length - 1, 1);
+    assert.equal(importedRequestText.split('HISTORY_IMPORT_USER').length - 1, 1);
+    assert.equal(importedRequestText.split('HISTORY_IMPORT_ASSISTANT').length - 1, 1);
+
+    console.log(`real SDK check passed: ${initialized.userAgent}; handshake, durable history resume/ordinary resume, native start/steer, multiple-input history, interrupt/fresh start, paginated history/items, dynamic tool, text/localImage, strict validation`);
   } finally {
     steeringReleased = true;
     releaseSteering();

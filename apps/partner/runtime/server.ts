@@ -63,6 +63,13 @@ export function createWebServer(partner: Partner, assets: string) {
         response.writeHead(200, { 'content-type': image.media_type, 'cache-control': 'private, max-age=31536000, immutable' });
         response.end(image.data); return;
       }
+      if (path.startsWith('/api/avatars/') && request.method === 'GET') {
+        const kind = z.enum(['companion', 'user']).parse(path.slice('/api/avatars/'.length));
+        const avatar = partner.avatar(kind);
+        if (!avatar) return json(response, { error: 'Avatar not found' }, 404);
+        response.writeHead(200, { 'content-type': avatar.mediaType, 'cache-control': 'no-store' });
+        response.end(avatar.data); return;
+      }
       if (path === '/api/messages' && request.method === 'POST') {
         const parsed = z.object({ id: z.uuid(), input: z.string().trim().max(MAX_MESSAGE_LENGTH), images: z.array(imageInputSchema).max(5).default([]), replaces: z.array(z.uuid()).max(20).default([]) }).strict().refine(value => value.input.length > 0 || value.images.length > 0).safeParse(await body(request, messageBodyLimit));
         if (!parsed.success) return json(response, { error: '消息内容无效，请检查文字长度和图片后重新发送。', code: 'invalid_message' }, 422);

@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
-import { basename, extname, join, relative, resolve } from 'node:path';
+import { basename, extname, isAbsolute, join, relative, resolve, sep as pathSeparator } from 'node:path';
 import type { z } from 'zod';
 import {
   AppServerInvalidRequestError,
@@ -31,7 +31,7 @@ import {
   type imageInputSchema,
 } from './images.ts';
 import { transcribeAudio } from './speech.ts';
-import { Store, type MessagePageOptions, type StoredImage, type StoredInput, type StoredInputSegment } from './store.ts';
+import { Store, type MessageMeta, type MessagePageOptions, type StoredImage, type StoredInput, type StoredInputSegment } from './store.ts';
 import { createTools, type DynamicToolSet } from './tools/index.ts';
 import type { CompanionState } from '../src/lib/companion/domain.ts';
 import { MOOD_LABELS, affinityStage } from '../src/lib/companion/domain.ts';
@@ -65,11 +65,42 @@ type TurnResult = {
   sourceIds: string[];
   sequence: number;
   revision: number;
-  answer: string | null;
+  answers: string[];
   error: string | null;
   status: string;
   generatedIds: string[];
 };
+const HISTORY_PAGE_MESSAGES = 50;
+
+/** Match DSH's 50-message history window against CFL's rendered projection. */
+export function visibleHistoryPage(messages: readonly MessageMeta[], results: readonly TurnResult[], before?: number) {
+  const candidates = messages.filter((message) => before === undefined || message.sequence < before);
+  const resultByOwner = new Map(results.map((result) => [result.sourceIds.at(-1), result]));
+  const selected: MessageMeta[] = [];
+  let visible = 0;
+  let index = candidates.length - 1;
+  for (; index >= 0; index -= 1) {
+    const message = candidates[index]!;
+    const result = resultByOwner.get(message.id);
+    const resultUnits = result
+      ? result.answers.length + result.generatedIds.length + (result.error || ['failed', 'interrupted', 'cancelled'].includes(result.status) ? 1 : 0)
+      : 0;
+    const units = 1 + resultUnits;
+    // Keep one whole input/result group when it alone is larger than the page,
+    // so a Partner response is never detached from the input it answers.
+    if (selected.length && visible + units > HISTORY_PAGE_MESSAGES) break;
+    selected.push(message);
+    visible += units;
+  }
+  selected.reverse();
+  return {
+    messages: selected,
+    cursor: messages.at(-1)?.revision ?? 0,
+    hasChangesMore: false,
+    hasMore: index >= 0,
+    before: selected[0]?.sequence ?? null,
+  };
+}
 type RestoredDraft = {
   key: string;
   sourceIds: string[];
@@ -180,14 +211,13 @@ function resultOperationId(turnId: string): string {
   return `turn:${turnId}`;
 }
 
-function answerFromTurn(turn: OfficialTurn | undefined): string | null {
-  if (!turn?.items) return null;
-  const texts = turn.items
+function answersFromTurn(turn: OfficialTurn | undefined): string[] {
+  if (!turn?.items) return [];
+  return turn.items
     .filter((item) => item.type === 'agentMessage'
       && (item.phase === undefined || item.phase === null || item.phase === 'final_answer' || item.phase === 'finalAnswer'))
     .map((item) => item.text)
     .filter((value): value is string => typeof value === 'string' && value.trim().length > 0);
-  return texts.length ? texts.join('\n\n').trim() : null;
 }
 
 function errorFromTurn(turn: OfficialTurn | undefined): string | null {
@@ -225,9 +255,9 @@ function historyImage(path: string, operationId: string, index: number): StoredI
   const mediaType = imageMediaType(path);
   if (!mediaType) return undefined;
   const filename = basename(path);
-  const suffix = extname(filename);
-  const stem = suffix ? filename.slice(0, -suffix.length) : filename;
-  const id = /^[a-f0-9]{64}$/u.test(stem) ? stem : createHash('sha256').update(`${operationId}:${index}:${path}`).digest('hex');
+  // The same content-addressed historical attachment can appear in several
+  // messages. UI image identity is therefore scoped to its owning operation.
+  const id = createHash('sha256').update(`${operationId}:${index}:${path}`).digest('hex');
   return { id, operation_id: operationId, name: filename, media_type: mediaType, path: resolve(path) };
 }
 
@@ -299,6 +329,21 @@ export async function createPartner(config: Config, credentials: Credentials, de
   const persona = await readFile(config.persona, 'utf8');
   if (!persona.trim()) throw new Error('Persona must not be empty');
   const paths = partnerPaths(config.workspace!);
+  const avatarMediaType = (path: string) => ({ '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif' })[extname(path).toLowerCase()];
+  const loadAvatar = async (path: string | undefined) => {
+    if (!path) return undefined;
+    const withinWorkspace = relative(resolve(config.workspace!), resolve(path));
+    if (withinWorkspace === '..' || withinWorkspace.startsWith(`..${pathSeparator}`) || isAbsolute(withinWorkspace)) throw new Error('Avatar files must be inside the workspace');
+    const mediaType = avatarMediaType(path);
+    if (!mediaType) throw new Error(`Unsupported avatar file type: ${extname(path) || '(none)'}`);
+    const data = await readFile(path);
+    if (!data.length || data.byteLength > 5 * 1024 * 1024) throw new Error('Avatar file size is invalid');
+    return { data, mediaType };
+  };
+  const avatars = {
+    companion: await loadAvatar(config.avatars?.companion),
+    user: await loadAvatar(config.avatars?.user),
+  };
   await mkdir(paths.managedRoot, { recursive: true, mode: 0o700 });
   await mkdir(paths.attachments, { recursive: true, mode: 0o700 });
   const store = new Store(paths.database);
@@ -574,7 +619,8 @@ export async function createPartner(config: Config, credentials: Credentials, de
     const result: StoredImage[] = [];
     for (const [index, part] of content.entries()) {
       const item = record(part);
-      if (item.type !== 'localImage' || typeof item.path !== 'string' || !isUnder(paths.attachments, item.path)) continue;
+      if (item.type !== 'localImage' || typeof item.path !== 'string'
+        || (!isUnder(paths.attachments, item.path) && !isUnder(join(paths.managedRoot, 'historical-media'), item.path))) continue;
       const image = historyImage(item.path, operationId, offset + index);
       if (image) result.push(image);
     }
@@ -666,7 +712,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
     const resultBody = {
       turnId: turn.id,
       sourceIds: [...sourceIds],
-      answer: answerFromTurn(turn),
+      answers: answersFromTurn(turn),
       error: resultError,
       status: resultStatus,
       generatedIds,
@@ -1232,9 +1278,12 @@ export async function createPartner(config: Config, credentials: Credentials, de
       return transcribeAudio(config.speech.endpoint, credentials.speech, data, mediaType, signal);
     },
     image: (id: string) => store.image(id),
+    avatar: (kind: 'companion' | 'user') => avatars[kind],
     async snapshot(options: MessagePageOptions = {}) {
       await eventChain;
-      const page = await store.messagePage(options);
+      const page = options.after === undefined
+        ? visibleHistoryPage(await store.allMessages(), [...turnResults.values()], options.before)
+        : await store.messagePage(options);
       const inputRows = new Map((await store.pendingMessages()).map((message) => [message.id, message]));
       const outcomes = await store.outcomes(page.messages.map((message) => message.id));
       const inputMeta = await store.inputImageMetadata(page.messages.map((message) => message.id));
@@ -1278,7 +1327,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
         sourceIds: result.sourceIds,
         sequence: result.sequence,
         revision: result.revision,
-        answer: result.status === 'failed' || result.status === 'interrupted' || result.status === 'cancelled' ? null : result.answer,
+        answers: result.status === 'failed' || result.status === 'interrupted' || result.status === 'cancelled' ? [] : result.answers,
         error: result.error,
         status: result.status,
         images: generatedMeta.filter((image) => image.operation_id === resultOperationId(result.turnId)).map(({ id, name }) => ({ id, name, url: `/api/images/${id}` })),
@@ -1294,6 +1343,10 @@ export async function createPartner(config: Config, credentials: Credentials, de
       return {
         ...page,
         name: config.name,
+        avatars: {
+          ...(avatars.companion ? { companion: '/api/avatars/companion' } : {}),
+          ...(avatars.user ? { user: '/api/avatars/user' } : {}),
+        },
         imageLimits,
         speech: Boolean(config.speech && credentials.speech),
         storageError,

@@ -4,6 +4,16 @@ state = "./state"
 workspace = "./workspace"
 port = 3082
 
+# A one-time already-compacted physical v0 or logical v3 DSH log can be inspected or imported with:
+# pnpm --filter @lamplitisles/partner cli import-session /path/to/partner.toml /path/to/session.jsonl /path/to/.dsh/dsh-companion/state.jsonl /path/to/attachments/v1 /path/to/new-workspace /path/to/dsh/settings.yaml --dry-run
+# Every source and destination path is explicit. The destination must be new or empty; every source remains unchanged.
+
+# Avatar files must live inside workspace. The importer extracts these two
+# files from dsh-companion in the supplied DSH settings YAML.
+[avatars]
+companion = "./workspace/.lamplit/profile/companion-avatar.png"
+user = "./workspace/.lamplit/profile/user-avatar.png"
+
 [codex]
 command = "codex"
 model = "gpt-5.6-luna"
