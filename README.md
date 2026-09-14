@@ -158,13 +158,28 @@ generation or remote compaction-result behavior.
   relationship metadata, `.lamplit/thread.json` identifies the official
   thread, and `.lamplit/attachments/` contains stable image files. The app
   does not duplicate the official transcript or model payloads in SQLite.
+  The relationship drawer also reads dated `memory/YYYY-MM-DD.md` diary files
+  on demand, newest first. It is read-only, ignores other paths, and limits one
+  rendered entry to 128 KiB.
 - `avatars.companion` and `avatars.user` point to image files inside the
   workspace. The browser receives application URLs, never host filesystem
   paths or embedded base64 configuration.
-- The optional `speech` section enables DashScope transcription. Store its
-  credential with `pnpm --filter @lamplitisles/partner cli credential
-  /path/to/partner.toml speech`, supplying the value on stdin; do not put the
+- The optional `speech` section enables DashScope transcription. Successful
+  nonempty recordings are admitted as one independent voice-marked message;
+  typed text and pending images remain in the composer. Store its credential
+  with `pnpm --filter @lamplitisles/partner cli credential
+  /path/to/partner.toml speech --stdin`, supplying the value on stdin; do not put the
   key in TOML or command arguments.
+- `speech.tts` optionally enables Alibaba or ByteDance MP3 synthesis for a
+  finalized reply consisting of one short `[[tts:text]]...[[/tts:text]]`
+  passage. The browser prepares it only when asked to play; text delivery is
+  never delayed. Alibaba reuses `speech`; ByteDance uses the separate `tts`
+  credential. Cached MP3s live under `<workspace>/.lamplit/audio/`, keyed by
+  normalized passage and provider/model/voice profile, and are served only via
+  same-origin audio URLs.
+- Outgoing messages appear optimistically. A backend-admitted message uses its
+  normal presentation immediately; only input waiting behind an active turn
+  is marked as queued. Partner typing remains a separate conversation state.
 
 Before creating the official thread, the host writes a project-local Codex
 overlay under `<workspace>/.codex/config.toml`. It preserves unrelated TOML,

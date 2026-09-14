@@ -91,7 +91,7 @@ export interface CompanionProjection {
   messageUnits: readonly TimelineMessageUnit[];
   pendingCount: number;
   running: boolean;
-  status: "ready" | "working" | "reconnecting";
+  status: "ready" | "working" | "offline";
   openState: "cold" | "loading" | "open" | "error";
   hasMore: boolean;
   loadingOlder: boolean;

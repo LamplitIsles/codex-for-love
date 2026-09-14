@@ -85,6 +85,7 @@ export interface CompanionHistoryChange {
   dimension: "mood" | "affinity" | "signature";
   before?: CompanionHistoryValue;
   after: CompanionHistoryValue;
+  delta?: number;
   reason?: string;
 }
 

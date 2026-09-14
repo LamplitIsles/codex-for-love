@@ -27,6 +27,7 @@ const schema = z.object({
   }).strict().default({ command: 'codex', model: DEFAULT_CODEX_MODEL, version: SUPPORTED_CODEX_VERSION, local_compaction: false }),
   speech: z.object({
     endpoint: z.url().default('https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation'),
+    tts: z.object({ provider: z.enum(['alibaba', 'bytedance']).default('alibaba'), endpoint: z.url().default('https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation'), model: z.string().min(1).default('qwen3-tts-flash'), voice: z.string().min(1).default('Maia') }).strict().optional(),
   }).strict().optional(),
 }).strict();
 
@@ -53,7 +54,7 @@ export async function loadConfig(path: string): Promise<Config> {
 }
 
 /** Only the optional STT adapter has an application-managed secret. */
-export const credentialSchema = z.object({ speech: z.string().min(1).optional() }).strict();
+export const credentialSchema = z.object({ speech: z.string().min(1).optional(), tts: z.string().min(1).optional() }).strict();
 export type Credentials = z.infer<typeof credentialSchema>;
 
 export async function loadCredentials(state: string): Promise<Credentials> {

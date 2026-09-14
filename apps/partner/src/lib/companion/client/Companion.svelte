@@ -65,7 +65,6 @@
   import { companionHistoryChanges } from "../relationship-history.js";
   import type { CompanionHistoryChange } from "../domain.js";
   import Markdown from "./Markdown.svelte";
-  import relationshipBackground from "./assets/relationship-night-voyage.webp";
   import { resolveImageDisplaySize } from "../media.js";
   import {
     canCaptureVoice,
@@ -172,6 +171,13 @@
   let timelineReady = false;
   let timelineRevealFrame = 0;
   let detailOpen = false;
+  let drawerTab: "history" | "diary" = "history";
+  let diaryEntries: string[] = [];
+  let diaryEntry: { name: string; text: string } | undefined;
+  let diaryLoading = false;
+  let diaryError = false;
+  let diaryTooLarge = false;
+  let diaryRequest: AbortController | undefined;
   interface ImagePreviewTarget {
     id: string;
     alt: string;
@@ -263,12 +269,9 @@
       effectiveRelationshipReadiness !== "ready")
   )
     finishDetailClose(false);
-  $: statusText =
-    projection.status === "working"
-      ? t("status.typing")
-      : projection.status === "reconnecting"
-        ? t("status.connecting")
-        : t("status.online");
+  $: statusText = projection.status === "offline"
+    ? t("status.offline")
+    : projection.status === "working" ? t("status.typing") : t("status.online");
   $: imageGenerationRunning = projection.items.some(
     (item) =>
       item.kind === "image" &&
@@ -1092,9 +1095,7 @@
       );
       if (abort.signal.aborted || sessionId !== originSessionId) return;
       const text = formatVoiceTurn(transcription);
-      composer = { ...composer, draft: composer.draft ? `${composer.draft}\n${text}` : text };
-      await scheduleComposerResize();
-      composerInput?.focus();
+      await actions.send(text, []);
       liveAnnouncement = { key: "voice.sent" };
     } catch (error) {
       voiceFailure = voiceErrorKey(error);
@@ -1374,6 +1375,8 @@
     if (restoreFocus) target?.focus();
   }
   function closeDetail(restoreFocus = true): void {
+    diaryRequest?.abort();
+    diaryRequest = undefined;
     finishDetailClose(restoreFocus);
   }
   function openLightbox(item: ImagePreviewTarget): void {
@@ -1466,6 +1469,50 @@
     await tick();
     if (timeline) timeline.scrollTop += timeline.scrollHeight - previousHeight;
   }
+  function beginDiaryRequest(): AbortController {
+    diaryRequest?.abort();
+    const request = new AbortController();
+    diaryRequest = request;
+    diaryLoading = true;
+    diaryError = false;
+    diaryTooLarge = false;
+    return request;
+  }
+  async function openDiary(): Promise<void> {
+    drawerTab = "diary";
+    diaryEntry = undefined;
+    const request = beginDiaryRequest();
+    try {
+      const response = await fetch("/api/diary", { signal: request.signal });
+      if (!response.ok) throw new Error();
+      if (diaryRequest === request)
+        diaryEntries = (await response.json() as { entries: string[] }).entries;
+    } catch (error) {
+      if (diaryRequest === request && (error as Error).name !== "AbortError")
+        diaryError = true;
+    } finally {
+      if (diaryRequest === request) diaryLoading = false;
+    }
+  }
+  async function openDiaryEntry(name: string): Promise<void> {
+    const request = beginDiaryRequest();
+    try {
+      const response = await fetch(`/api/diary/${encodeURIComponent(name)}`, {
+        signal: request.signal,
+      });
+      if (response.status === 413) {
+        if (diaryRequest === request) diaryTooLarge = true;
+        return;
+      }
+      if (!response.ok) throw new Error();
+      if (diaryRequest === request) diaryEntry = await response.json();
+    } catch (error) {
+      if (diaryRequest === request && (error as Error).name !== "AbortError")
+        diaryError = true;
+    } finally {
+      if (diaryRequest === request) diaryLoading = false;
+    }
+  }
 
   onMount(() => {
     void scheduleComposerResize();
@@ -1480,6 +1527,7 @@
     clearContinuityStatusTimer();
     clearVoiceClock();
     voiceTranscriptionAbort?.abort();
+    diaryRequest?.abort();
     voiceTranscriptionAbort = undefined;
     voiceController.dispose();
     for (const audio of document.querySelectorAll<HTMLAudioElement>(
@@ -1536,11 +1584,11 @@
             <div class="companion-name">{identity.companionName}</div>
             <div class="companion-presence" aria-live="polite">
               <span
-                class="cmp-status {projection.status === 'working'
+                class="cmp-status {projection.status === 'offline'
+                  ? 'cmp-status-error'
+                  : projection.status === 'working'
                   ? 'cmp-status-warning'
-                  : projection.status === 'reconnecting'
-                    ? 'cmp-status-error'
-                    : 'cmp-status-success'}"
+                  : 'cmp-status-success'}"
               ></span>{statusText} · {identity.moodLabel}
             </div>
           </div>
@@ -2334,17 +2382,10 @@
       class="companion-history-drawer"
       role="dialog"
       aria-modal="true"
-      aria-labelledby="companion-history-title"
-      style={`--relationship-art: url("${relationshipBackground}")`}
+      aria-label={t("relationship.named", { name: identity.companionName })}
       data-testid="companion-relationship-drawer"
     >
-      <div class="companion-history-art" aria-hidden="true"></div>
-      <header class="companion-history-head">
-        <div>
-          <span class="companion-sidebar-eyebrow">{identity.companionName}</span
-          >
-          <h2 id="companion-history-title">{t("history.title")}</h2>
-        </div>
+      <div class="companion-history-controls">
         <button
           type="button"
           class="cmp-btn cmp-btn-ghost cmp-btn-circle cmp-btn-sm"
@@ -2352,8 +2393,74 @@
           on:click={() => closeDetail()}
           ><X size={16} strokeWidth={2} aria-hidden="true" /></button
         >
-      </header>
-      <div class="companion-history-scroll">
+      </div>
+      <div class="companion-diary-tabs" role="tablist">
+        <button
+          type="button"
+          role="tab"
+          id="companion-history-tab"
+          aria-controls="companion-drawer-panel"
+          aria-selected={drawerTab === "history"}
+          class="cmp-btn cmp-btn-ghost cmp-btn-sm"
+          class:cmp-btn-active={drawerTab === "history"}
+          on:click={() => drawerTab = "history"}>{t("drawer.history")}</button
+        >
+        <button
+          type="button"
+          role="tab"
+          id="companion-diary-tab"
+          aria-controls="companion-drawer-panel"
+          aria-selected={drawerTab === "diary"}
+          class="cmp-btn cmp-btn-ghost cmp-btn-sm"
+          class:cmp-btn-active={drawerTab === "diary"}
+          on:click={() => void openDiary()}>{t("drawer.diary")}</button
+        >
+      </div>
+      <div
+        id="companion-drawer-panel"
+        class="companion-history-scroll"
+        role="tabpanel"
+        aria-labelledby={drawerTab === "history"
+          ? "companion-history-tab"
+          : "companion-diary-tab"}
+      >
+        {#if drawerTab === "diary"}
+          <section class="companion-diary">
+            {#if diaryEntry}
+              <button
+                type="button"
+                class="cmp-btn cmp-btn-ghost cmp-btn-sm companion-diary-back"
+                on:click={() => diaryEntry = undefined}>← {t("diary.back")}</button
+              >
+              <article class="companion-diary-page">
+                <time datetime={diaryEntry.name.slice(0, -3)}
+                  >{diaryEntry.name.slice(0, -3)}</time
+                >
+                <Markdown text={diaryEntry.text} />
+              </article>
+            {:else if diaryLoading}
+              <p class="companion-history-state" role="status">{t("loading")}</p>
+            {:else if diaryTooLarge}
+              <p class="companion-history-state" role="alert">{t("diary.tooLarge")}</p>
+            {:else if diaryError}
+              <div class="companion-history-state" role="alert">
+                <p>{t("diary.failed")}</p>
+                <button type="button" class="cmp-btn cmp-btn-ghost cmp-btn-sm" on:click={() => void openDiary()}>{t("retry")}</button>
+              </div>
+            {:else if !diaryEntries.length}
+              <p class="companion-history-state">{t("diary.empty")}</p>
+            {:else}
+              <div class="companion-diary-list">
+                {#each diaryEntries as entry}
+                  <button type="button" class="companion-diary-list-entry" on:click={() => void openDiaryEntry(entry)}>
+                    <time datetime={entry.slice(0, -3)}>{entry.slice(0, -3)}</time>
+                    <span aria-hidden="true">›</span>
+                  </button>
+                {/each}
+              </div>
+            {/if}
+          </section>
+        {:else}
         <section
           class="companion-history-current"
           aria-labelledby="companion-history-current-title"
@@ -2436,25 +2543,7 @@
                           <strong
                             >{historyDimensionLabel(change.dimension)}</strong
                           >
-                          <div class="companion-history-values">
-                            {#if change.before}<span
-                                ><small>{t("history.before")}</small
-                                >{historyValueLabel(
-                                  change.dimension,
-                                  change.before,
-                                )}</span
-                              >{/if}
-                            <span
-                              ><small
-                                >{change.before
-                                  ? t("history.after")
-                                  : t("history.initial")}</small
-                              >{historyValueLabel(
-                                change.dimension,
-                                change.after,
-                              )}</span
-                            >
-                          </div>
+                          <div class="companion-history-values"><span>{historyValueLabel(change.dimension, change.after)}</span>{#if change.dimension === "affinity" && change.delta}<strong class="companion-history-growth">+{change.delta}</strong>{/if}</div>
                           {#if change.reason}<p
                               class="companion-history-reason"
                             >
@@ -2469,6 +2558,7 @@
             </div>
           {/if}
         </section>
+        {/if}
       </div>
     </div>
   {/if}

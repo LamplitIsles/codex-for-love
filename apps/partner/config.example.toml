@@ -23,6 +23,11 @@ version = "0.154.0"
 # local_compaction = true
 # home = "/path/to/a/Codex-home" # omit to use the existing Codex login
 
-# Optional STT only; write the DashScope API key using `credential ... speech`.
+# Optional DashScope STT and tagged TTS; write the DashScope API key using `credential ... speech`.
 # [speech]
 # endpoint = "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
+# [speech.tts]
+# provider = "alibaba" # or "bytedance" (uses the separate `tts` credential)
+# endpoint = "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
+# model = "qwen3-tts-flash"
+# voice = "Cherry"

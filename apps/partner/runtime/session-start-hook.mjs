@@ -26,7 +26,7 @@ if (startup) {
   } finally { await unlink(temporary).catch(() => undefined); }
 }
 
-const additionalContext = compact ? bootstrap.compact : bootstrap.context;
+const additionalContext = `${compact ? bootstrap.compact : bootstrap.context}\n\nFollow the workspace AGENTS.md Session Start instructions now, before replying.`;
 if (additionalContext) {
   process.stdout.write(JSON.stringify({
     hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext },

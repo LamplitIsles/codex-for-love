@@ -12,7 +12,9 @@
   import type { CompanionProjection, TimelineItem, TimelineMessageUnit } from '$lib/companion/projection.js';
   import type { CompanionStateRecord } from '$lib/companion/domain.js';
   import { CompanionPreControllerError } from '$lib/companion/client/admission.js';
-  type Message = { sequence: number; revision: number; id: string; turnId?: string | null; input: string; delivery: 'sending' | 'pending' | 'acknowledged' | 'unresolved' | 'replaced'; inputError: string | null; created: number;
+  import { parseTtsSegments } from '$lib/companion/tts.js';
+  import { outgoingDeliveryPresentation, type MessageDelivery } from '$lib/message-delivery.ts';
+  type Message = { sequence: number; revision: number; id: string; turnId?: string | null; input: string; delivery: MessageDelivery; inputError: string | null; created: number;
     inputImages: { id: string; name: string; url: string }[] };
   type TurnResult = { id: string; turnId: string; sourceIds: string[]; sequence: number; revision: number; answers: string[]; error: string | null; status: string;
     images: { id: string; name: string; url: string }[] };
@@ -47,7 +49,7 @@
       const units = result.answers.map((answer, index): TimelineMessageUnit => {
         const suffix = index === 0 ? '' : `:${index}`;
         const id = `${result.id}:answer${suffix}`;
-        return { id, side: 'incoming', items: [{ id, messageKey: id, kind: 'text', side: 'incoming', text: answer }] };
+        return { id, side: 'incoming', items: parseTtsSegments(answer).map((segment, segmentIndex): TimelineItem => segment.kind === 'voice' ? { id: `${id}:${segmentIndex}`, messageKey: id, kind: 'voice', side: 'incoming', text: segment.text, status: 'preparing' } : { id: `${id}:${segmentIndex}`, messageKey: id, kind: 'text', side: 'incoming', text: segment.text }) };
       });
       const supplemental: TimelineItem[] = [];
       for (const image of result.images) supplemental.push({ id: image.id, messageKey: result.id, kind: 'image', side: 'incoming', state: 'ready', previewUrl: image.url, alt: image.name });
@@ -61,10 +63,11 @@
       return units;
     };
     for (const [index, message] of visibleMessages.entries()) {
+      const delivery = outgoingDeliveryPresentation(message.delivery);
       const order = message.sequence > 0 ? message.sequence * 2 : Number.MAX_SAFE_INTEGER - (visibleMessages.length - index) * 2;
       const user: TimelineItem = { id: `${message.id}:user`, messageKey: `${message.id}:user`, kind: 'text', side: 'outgoing',
         text: message.input, time: message.created, pending: ['sending', 'pending', 'unresolved'].includes(message.delivery), waitsForCurrentReply: message.delivery === 'pending' };
-      ordered.push({ order, unit: { id: user.id, side: 'outgoing', items: [...(message.input ? [user] : []), ...(message.inputImages ?? []).map((image): TimelineItem => ({ id: image.id, messageKey: user.messageKey, kind: 'image', side: 'outgoing', state: 'ready', previewUrl: image.url, alt: image.name }))], time: message.created, pending: user.pending, pendingLabel: message.delivery === 'sending' ? '正在发送…' : message.delivery === 'unresolved' ? '尚未确认送达…' : message.delivery === 'pending' ? '正在回应…' : undefined } });
+      ordered.push({ order, unit: { id: user.id, side: 'outgoing', items: [...(message.input ? [user] : []), ...(message.inputImages ?? []).map((image): TimelineItem => ({ id: image.id, messageKey: user.messageKey, kind: 'image', side: 'outgoing', state: 'ready', previewUrl: image.url, alt: image.name }))], time: message.created, pending: delivery.pending, pendingLabel: delivery.label } });
       const result = resultBySource.get(message.id);
       // A turn result is rendered once, after the last source input. This
       // keeps multi-input turns readable without copying the same answer to
@@ -90,7 +93,7 @@
     const timeline = insertCompactBoundaries(units, session.compactions ?? []);
     return { items: timeline.flatMap((unit) => unit.items), messageUnits: timeline,
       pendingCount: session.pendingCount,
-      running: session.typing, status: !connected ? 'reconnecting' : session.typing ? 'working' : 'ready',
+      running: session.typing, status: !connected && loaded ? 'offline' : session.typing ? 'working' : 'ready',
       openState: loaded ? 'open' : 'loading', hasMore, loadingOlder,
       promptError: error || (session.storageError ? '暂时无法保存消息。' : undefined) };
   });
@@ -105,7 +108,7 @@
       if (cursor === undefined) { before = batch.before; hasMore = batch.hasMore; }
       session = { ...batch, messages: mergeMessages(session.messages, batch.messages), results: mergeResults(session.results ?? [], batch.results ?? []) };
       observeOutgoing();
-      cursor = batch.cursor; loaded = true;
+      cursor = batch.cursor; loaded = true; connected = true;
       if (batch.hasChangesMore) refreshAgain = true;
     } while (refreshAgain && !disposed); }
     catch { if (!disposed) connected = false; }
@@ -118,6 +121,11 @@
     if (!response.ok) throw new Error('尚未确认送达，请重试。');
   }
   const actions: CompanionActions = {
+    async prepareVoice(text) {
+      const direct = await fetch('/api/voice/synthesize', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }), signal: controller.signal });
+      if (!direct.ok) throw new Error('Speech synthesis failed');
+      return (await direct.json() as { url: string }).url;
+    },
     async loadOlder() {
       if (loadingOlder || !hasMore || before === null) return;
       loadingOlder = true;
@@ -168,7 +176,7 @@
     stream = new EventSource('/api/events');
     stream.onopen = () => { connected = true; void refresh(); };
     stream.onmessage = () => { void refresh(); };
-    stream.onerror = () => { connected = false; };
+    stream.onerror = () => { void refresh(); };
     return () => { disposed = true; controller.abort(); stream?.close(); retirements.clear(); styles.remove(); };
   });
 </script>

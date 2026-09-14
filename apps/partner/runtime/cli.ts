@@ -11,12 +11,14 @@ const cliArgs = process.argv.slice(2);
 if (cliArgs[0] === '--') cliArgs.shift();
 if (cliArgs[1] === '--') cliArgs.splice(1, 1);
 const dryRun = cliArgs.includes('--dry-run');
-const positionalArgs = cliArgs.filter((argument) => argument !== '--dry-run');
+const stdin = cliArgs.includes('--stdin');
+const positionalArgs = cliArgs.filter((argument) => argument !== '--dry-run' && argument !== '--stdin');
 const [command, configPath, name, companionStatePath, attachmentRoot, destinationPath, dshSettingsPath] = positionalArgs;
-if (!configPath) throw new Error('Usage: cli.ts <serve|credential|import-session> <config.toml> [speech|log destination]');
+if (!configPath) throw new Error('Usage: cli.ts <serve|credential|import-session> <config.toml> [speech|tts --stdin|log destination]');
 const config = await loadConfig(resolve(configPath));
 if (command === 'credential') {
-  if (name !== 'speech') throw new Error('Only the speech credential is managed by this runtime');
+  if (name !== 'speech' && name !== 'tts') throw new Error('Credential name must be speech or tts');
+  if (!stdin) throw new Error('Use --stdin to supply the credential without exposing it in command arguments');
   if (process.stdin.isTTY) throw new Error('Supply the credential through stdin, not command arguments');
   let value = '';
   for await (const chunk of process.stdin) { value += chunk; if (value.length > 16384) throw new Error('Credential too large'); }

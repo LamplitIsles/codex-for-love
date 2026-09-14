@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, writeFile, readdir, lstat } from 'node:fs/promises';
 import { basename, extname, isAbsolute, join, relative, resolve, sep as pathSeparator } from 'node:path';
 import type { z } from 'zod';
 import {
@@ -30,7 +30,7 @@ import {
   type MaterializedInputImage,
   type imageInputSchema,
 } from './images.ts';
-import { transcribeAudio } from './speech.ts';
+import { synthesizeSpeech, transcribeAudio } from './speech.ts';
 import { Store, type MessageMeta, type MessagePageOptions, type StoredImage, type StoredInput, type StoredInputSegment } from './store.ts';
 import { createTools, type DynamicToolSet } from './tools/index.ts';
 import type { CompanionState } from '../src/lib/companion/domain.ts';
@@ -70,6 +70,7 @@ type TurnResult = {
   status: string;
   generatedIds: string[];
 };
+export const MAX_DIARY_ENTRY_BYTES = 128 * 1024;
 const HISTORY_PAGE_MESSAGES = 50;
 
 /** Match DSH's 50-message history window against CFL's rendered projection. */
@@ -1273,6 +1274,35 @@ export async function createPartner(config: Config, credentials: Credentials, de
   }
 
   return {
+    async diary() {
+      const root = join(paths.workspaceRoot, 'memory');
+      let names: string[];
+      try { names = await readdir(root); } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []; throw error; }
+      const entries = await Promise.all(names.filter(name => /^\d{4}-\d{2}-\d{2}\.md$/u.test(name)).map(async name => {
+        const info = await lstat(join(root, name)); return info.isFile() && !info.isSymbolicLink() ? name : undefined;
+      }));
+      return entries.filter((name): name is string => Boolean(name)).sort().reverse();
+    },
+    async diaryEntry(name: string) {
+      if (!/^\d{4}-\d{2}-\d{2}\.md$/u.test(name)) return undefined;
+      const path = join(paths.workspaceRoot, 'memory', name);
+      try {
+        const info = await lstat(path);
+        if (!info.isFile() || info.isSymbolicLink()) return undefined;
+        if (info.size > MAX_DIARY_ENTRY_BYTES) return 'too-large' as const;
+        return await readFile(path, 'utf8');
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+        throw error;
+      }
+    },
+    async synthesize(text: string, signal?: AbortSignal) {
+      const tts = config.speech?.tts;
+      const credential = tts?.provider === 'alibaba' ? credentials.speech : credentials.tts;
+      if (!tts || !credential) throw new Error('Speech synthesis is unavailable');
+      return synthesizeSpeech({ ...tts, credential, text, audioDir: paths.audio, signal });
+    },
+    async audio(id: string) { try { return await readFile(join(paths.audio, `${id}.mp3`)); } catch { return undefined; } },
     async transcribe(data: Uint8Array, mediaType: string, signal: AbortSignal) {
       if (!config.speech || !credentials.speech) throw new Error('Speech is unavailable');
       return transcribeAudio(config.speech.endpoint, credentials.speech, data, mediaType, signal);
@@ -1301,9 +1331,11 @@ export async function createPartner(config: Config, credentials: Credentials, de
         const awaiting = pendingStarts.values().some((intent) => intent.ids.includes(meta.id))
           || pendingSteers.some((intent) => intent.ids.includes(meta.id))
           || rejectedSteers.some((intent) => intent.ids.includes(meta.id));
+        const queued = rejectedSteers.some((intent) => intent.ids.includes(meta.id));
         const delivery = outcome?.status === 'replaced'
           ? 'replaced'
           : unresolvedInputIds.has(meta.id) ? 'unresolved'
+            : queued ? 'queued'
             : awaiting || isActiveTurn(turn) ? 'pending'
               : observedInputIds.has(meta.id) ? 'acknowledged'
                 : inputRows.has(meta.id) ? 'pending' : 'acknowledged';

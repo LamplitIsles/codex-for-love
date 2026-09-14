@@ -1,6 +1,7 @@
 import { MAX_MESSAGE_LENGTH } from "../src/lib/message-input.ts";
 import { InvalidImageInput, imageInputSchema, messageBodyLimit } from './images.ts';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { extname } from 'node:path';
 import sirv from 'sirv';
 import { z } from 'zod';
 import { MAX_VOICE_DATA_URL_BYTES, normalizeVoiceMediaType } from '../src/lib/companion/voice-contract.ts';
@@ -20,7 +21,15 @@ function json(response: ServerResponse, value: unknown, status = 200) {
   response.end(JSON.stringify(value));
 }
 export function createWebServer(partner: Partner, assets: string) {
-  const serve = sirv(assets, { single: true });
+  const serve = sirv(assets, {
+    single: true,
+    setHeaders(response, pathname) {
+      if (pathname.includes('/_app/immutable/'))
+        response.setHeader('cache-control', 'public, max-age=31536000, immutable');
+      else if (pathname === '/' || pathname.endsWith('.html') || extname(pathname) === '')
+        response.setHeader('cache-control', 'no-cache');
+    },
+  });
   const streams = new Set<ServerResponse>();
   const server = createServer(async (request, response) => {
     response.setHeader('x-content-type-options', 'nosniff');
@@ -56,12 +65,33 @@ export function createWebServer(partner: Partner, assets: string) {
         const options = z.object({ before: cursor.optional(), after: cursor.optional() }).strict().refine(value => value.before === undefined || value.after === undefined).parse(params);
         return json(response, await partner.snapshot(options));
       }
+      if (path === '/api/diary' && request.method === 'GET') {
+        try { return json(response, { entries: await partner.diary() }); }
+        catch { return json(response, { error: 'Diary unavailable' }, 500); }
+      }
+      if (path.startsWith('/api/diary/') && request.method === 'GET') {
+        const name = path.slice('/api/diary/'.length);
+        try {
+          const text = await partner.diaryEntry(name);
+          return text === 'too-large' ? json(response, { error: 'Diary entry too large' }, 413) : text === undefined ? json(response, { error: 'Diary entry not found' }, 404) : json(response, { name, text });
+        } catch { return json(response, { error: 'Diary unavailable' }, 500); }
+      }
       if (path.startsWith('/api/images/') && request.method === 'GET') {
         const id = z.string().regex(/^[a-f0-9]{64}$/u).parse(path.slice('/api/images/'.length));
         const image = await partner.image(id);
         if (!image) return json(response, { error: 'Image not found' }, 404);
         response.writeHead(200, { 'content-type': image.media_type, 'cache-control': 'private, max-age=31536000, immutable' });
         response.end(image.data); return;
+      }
+      if (path === '/api/voice/synthesize' && request.method === 'POST') {
+        const parsed = z.object({ text: z.string().trim().min(1).max(240) }).strict().parse(await body(request));
+        const abort = new AbortController(); response.once('close', () => abort.abort());
+        const id = await partner.synthesize(parsed.text, abort.signal); return json(response, { url: `/api/audio/${id}.mp3` });
+      }
+      if (path.startsWith('/api/audio/') && request.method === 'GET') {
+        const id = z.string().regex(/^[a-f0-9]{64}\.mp3$/u).parse(path.slice('/api/audio/'.length));
+        const audio = await partner.audio(id.slice(0, -4)); if (!audio) return json(response, { error: 'Audio not found' }, 404);
+        response.writeHead(200, { 'content-type': 'audio/mpeg', 'cache-control': 'private, max-age=31536000, immutable' }); response.end(audio); return;
       }
       if (path.startsWith('/api/avatars/') && request.method === 'GET') {
         const kind = z.enum(['companion', 'user']).parse(path.slice('/api/avatars/'.length));

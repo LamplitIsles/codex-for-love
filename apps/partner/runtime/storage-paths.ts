@@ -6,6 +6,7 @@ export type PartnerPaths = Readonly<{
   managedRoot: string;
   database: string;
   attachments: string;
+  audio: string;
 }>;
 
 /** Resolve the one managed subtree without changing the ordinary workspace. */
@@ -17,5 +18,6 @@ export function partnerPaths(workspace: string): PartnerPaths {
     managedRoot,
     database: join(managedRoot, 'session.sqlite'),
     attachments: join(managedRoot, 'attachments'),
+    audio: join(managedRoot, 'audio'),
   };
 }

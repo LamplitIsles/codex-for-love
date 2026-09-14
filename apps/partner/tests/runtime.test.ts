@@ -199,7 +199,7 @@ test('definitively rejected steers merge in order into one eligible native turn'
     await eventually(async () => (await partner.snapshot()).typing);
     await partner.submit(second, 'rejected one', [photo]);
     await partner.submit(third, 'rejected two', [photo]);
-    assert.equal((await partner.snapshot()).messages.filter((message) => message.id === second || message.id === third).every((message) => message.delivery === 'pending'), true);
+    assert.equal((await partner.snapshot()).messages.filter((message) => message.id === second || message.id === third).every((message) => message.delivery === 'queued'), true);
     await f.holdProvider(false);
     await eventually(async () => {
       const view = await partner.snapshot();

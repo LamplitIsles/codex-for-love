@@ -179,15 +179,24 @@ export const companionStyles = `
 #dsh-companion .companion-recovery h1{margin:8px 0;font-size:1.32rem}
 #dsh-companion .companion-recovery p{opacity:.66}
 #dsh-companion .companion-mood-orb{width:86px;height:86px;margin:0 auto 17px;background:radial-gradient(circle at 34% 28%,var(--color-accent),var(--color-primary));filter:drop-shadow(0 0 10px color-mix(in srgb,var(--color-primary) 12%,transparent)) drop-shadow(0 16px 19px color-mix(in srgb,var(--color-primary) 25%,transparent))}
-#dsh-companion .companion-sidebar-eyebrow{color:var(--color-primary);font-size:.67rem;font-weight:760;letter-spacing:.08em;text-transform:uppercase}
 #dsh-companion .companion-history-backdrop{position:fixed;z-index:29;inset:0;background:color-mix(in srgb,var(--color-neutral) 42%,transparent);backdrop-filter:blur(3px);animation:companion-history-fade-in .18s ease}
 #dsh-companion .companion-history-backdrop>button{position:absolute;inset:0;width:100%;height:100%;padding:0;border:0;background:transparent;cursor:default}
 #dsh-companion .companion-history-drawer{position:fixed;z-index:30;top:0;left:0;display:flex;width:min(420px,calc(100vw - 18px));height:100dvh;flex-direction:column;overflow:hidden;border-right:1px solid color-mix(in srgb,var(--color-base-content) 14%,transparent);color:var(--color-base-content);background:color-mix(in srgb,var(--color-base-100) 96%,var(--color-secondary) 4%);box-shadow:18px 0 60px rgb(0 0 0 / .24);animation:companion-history-slide-in .24s cubic-bezier(.2,.8,.2,1);isolation:isolate}
-#dsh-companion .companion-history-art{height:100px;flex:none;background:linear-gradient(to bottom,transparent 20%,var(--color-base-100)),var(--relationship-art) center 48%/cover no-repeat;filter:saturate(.78);opacity:.82}
-#dsh-companion .companion-history-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:-22px;padding:0 22px 15px}
-#dsh-companion .companion-history-head h2{margin:3px 0 0;font-size:1.18rem;letter-spacing:-.02em}
+#dsh-companion .companion-history-controls{display:flex;flex:none;justify-content:flex-end;padding:max(12px,env(safe-area-inset-top)) 16px 8px}
 #dsh-companion .companion-history-scroll{flex:1;min-height:0;overflow-y:auto;padding:0 22px max(24px,env(safe-area-inset-bottom));overscroll-behavior:contain}
 #dsh-companion .companion-history-scroll h3{margin:0 0 10px;font-size:.78rem;font-weight:760;letter-spacing:.04em;text-transform:uppercase}
+#dsh-companion .companion-diary-tabs{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:0 20px 12px;border-bottom:1px solid var(--cmp-line)}
+#dsh-companion .companion-diary-tabs [role="tab"]{border-radius:999px;color:color-mix(in srgb,var(--color-base-content) 62%,transparent)}
+#dsh-companion .companion-diary-tabs [aria-selected="true"]{color:var(--color-base-content);background:color-mix(in srgb,var(--color-secondary) 18%,var(--color-base-200))}
+#dsh-companion .companion-diary{min-height:100%}
+#dsh-companion .companion-diary-list{display:grid;gap:8px}
+#dsh-companion .companion-diary-list-entry{display:flex;width:100%;align-items:center;justify-content:space-between;padding:14px 16px;border:1px solid color-mix(in srgb,var(--color-base-content) 9%,transparent);border-radius:13px;color:inherit;background:color-mix(in srgb,var(--color-base-100) 84%,var(--color-secondary) 4%);font:inherit;text-align:left;cursor:pointer}
+#dsh-companion .companion-diary-list-entry:hover{border-color:color-mix(in srgb,var(--color-secondary) 34%,transparent);background:color-mix(in srgb,var(--color-base-100) 76%,var(--color-secondary) 9%)}
+#dsh-companion .companion-diary-list-entry time{font-size:.8rem;letter-spacing:.03em}
+#dsh-companion .companion-diary-list-entry span{color:color-mix(in srgb,var(--color-base-content) 45%,transparent);font-size:1.1rem}
+#dsh-companion .companion-diary-back{margin:0 0 12px}
+#dsh-companion .companion-diary-page{min-height:calc(100dvh - 260px);padding:24px 22px;border:1px solid color-mix(in srgb,var(--color-secondary) 20%,transparent);border-radius:16px;background:repeating-linear-gradient(to bottom,transparent 0,transparent 30px,color-mix(in srgb,var(--color-secondary) 9%,transparent) 31px),color-mix(in srgb,var(--color-base-100) 91%,var(--color-secondary) 5%);box-shadow:0 12px 34px rgb(0 0 0 / .12);font-size:.86rem;line-height:1.82;overflow-wrap:anywhere}
+#dsh-companion .companion-diary-page>time{display:block;margin-bottom:20px;color:color-mix(in srgb,var(--color-base-content) 55%,transparent);font-size:.72rem;letter-spacing:.08em}
 #dsh-companion .companion-history-current{padding:14px 0 18px;border-bottom:1px solid var(--cmp-line)}
 #dsh-companion .companion-history-current-list{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px 15px;margin:0;font-size:.77rem;line-height:1.4}
 #dsh-companion .companion-history-current-list dt{color:color-mix(in srgb,var(--color-base-content) 52%,transparent)}
@@ -202,8 +211,9 @@ export const companionStyles = `
 #dsh-companion .companion-history-entry ul{display:grid;gap:12px;margin:0;padding:0;list-style:none}
 #dsh-companion .companion-history-entry li{display:grid;gap:6px;min-width:0;font-size:.77rem;line-height:1.4}
 #dsh-companion .companion-history-entry li+li{padding-top:10px;border-top:1px solid var(--cmp-line)}
-#dsh-companion .companion-history-values{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px;min-width:0}
-#dsh-companion .companion-history-values span{display:grid;min-width:0;gap:2px;padding:7px 8px;border-radius:9px;background:color-mix(in srgb,var(--color-base-content) 5%,transparent);overflow-wrap:anywhere}
+#dsh-companion .companion-history-values{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px;min-width:0}
+#dsh-companion .companion-history-values span{display:grid;min-width:0;place-items:center;padding:9px 14px;border-radius:999px;background:color-mix(in srgb,var(--color-base-content) 5%,transparent);text-align:center;overflow-wrap:anywhere}
+#dsh-companion .companion-history-growth{align-self:center;color:var(--color-success);font-size:.8rem}
 #dsh-companion .companion-history-values small{color:color-mix(in srgb,var(--color-base-content) 78%,transparent);font-size:.62rem;text-transform:uppercase}
 #dsh-companion .companion-history-reason{margin:0;color:color-mix(in srgb,var(--color-base-content) 62%,transparent);font-size:.7rem;overflow-wrap:anywhere}
 #dsh-companion .companion-history-initial{margin:0;color:color-mix(in srgb,var(--color-base-content) 62%,transparent);font-size:.76rem}

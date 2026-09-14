@@ -11,18 +11,9 @@ export function companionHistoryChanges(
 ): CompanionHistoryChange[] {
   if (record.changes.seed) return [];
   const changes: CompanionHistoryChange[] = [];
-  const before = predecessor?.state;
   if (record.changes.mood) {
     changes.push({
       dimension: "mood",
-      ...(before === undefined
-        ? {}
-        : {
-            before: {
-              value: before.mood as Mood,
-              ...(before.note === undefined ? {} : { note: before.note }),
-            },
-          }),
       after: {
         value: record.state.mood as Mood,
         ...(record.state.note === undefined ? {} : { note: record.state.note }),
@@ -35,8 +26,8 @@ export function companionHistoryChanges(
   if (record.changes.affinity) {
     changes.push({
       dimension: "affinity",
-      ...(before === undefined ? {} : { before: { value: before.affinity } }),
       after: { value: record.state.affinity },
+      ...(record.changes.affinity.value > 0 ? { delta: record.changes.affinity.value } : {}),
       ...(record.changes.affinity.reason === undefined
         ? {}
         : { reason: record.changes.affinity.reason }),
@@ -45,7 +36,6 @@ export function companionHistoryChanges(
   if (record.changes.signature) {
     changes.push({
       dimension: "signature",
-      ...(before === undefined ? {} : { before: { value: before.signature } }),
       after: { value: record.state.signature },
       ...(record.changes.signature.reason === undefined
         ? {}
