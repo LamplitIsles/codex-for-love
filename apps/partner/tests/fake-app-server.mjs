@@ -162,22 +162,6 @@ async function runTurn(turn) {
     if (state.active !== turn.id || turn.status !== 'inProgress') return;
     const input = turn.items.filter((item) => item.type === 'userMessage').flatMap((item) => item.content ?? []);
     const text = textOf(input);
-    if (text.includes('relationship tool')) {
-      const requestId = `tool-request-${state.next++}`;
-      send({ id: requestId, method: 'item/tool/call', params: {
-        threadId: state.threadId, turnId: turn.id, callId: `call-${requestId}`, namespace: null,
-        tool: 'companion_update_relationship', arguments: { mood: { value: 'bright', reason: 'fixture evidence' } },
-      } });
-      const result = await waitForTool(requestId);
-      if (!result?.success) {
-        turn.status = 'failed';
-        turn.error = { message: 'fixture tool failed' };
-        state.active = null;
-        save();
-        send({ method: 'turn/completed', params: { threadId: state.threadId, turn } });
-        return;
-      }
-    }
     const items = [];
     if (text.includes('generate image') || text.includes('edit image') || text.includes('/image')) {
       const itemId = `image-item-${state.next++}`;
@@ -286,6 +270,18 @@ async function handle(request) {
     }
     case 'initialized': return undefined;
     case 'modelProvider/capabilities/read': return { namespaceTools: true, imageGeneration: process.env.FAKE_IMAGE_CAPABILITY !== 'false', webSearch: true };
+    case 'config/mcpServer/reload': return {};
+    case 'mcpServerStatus/list': {
+      if (p.threadId !== state.threadId) rpcError(-32602, 'MCP status requires the current thread');
+      const defaultStatus = ['companion', 'flicknote', 'project', 'web'].map((name) => ({ name, runtimeStatus: 'connected', pluginId: null, serverInfo: null, tools: {}, toolsError: null, resources: [], resourceTemplates: [], authStatus: 'notLoggedIn' }));
+      const configured = process.env.FAKE_MCP_STATUS_PAGES ? JSON.parse(process.env.FAKE_MCP_STATUS_PAGES) : [defaultStatus];
+      state.mcpStatusObservations ??= 0;
+      const observations = Array.isArray(configured[0]?.[0]) ? configured : [configured];
+      const pages = observations[Math.min(state.mcpStatusObservations, observations.length - 1)] ?? [defaultStatus];
+      const index = Number(p.cursor ?? 0);
+      if (index === 0) { state.mcpStatusObservations += 1; save(); }
+      return { data: pages[index] ?? [], nextCursor: index + 1 < pages.length ? String(index + 1) : null };
+    }
     case 'hooks/list': return { data: [{
       cwd: p.cwds?.[0] ?? process.cwd(),
       hooks: [{ eventName: 'sessionStart', handlerType: 'command', command: process.env.FAKE_HOOK_COMMAND, async: false,

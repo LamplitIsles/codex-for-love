@@ -19,6 +19,7 @@ import {
 import { compactionPrompt, companionPrompt } from './prompts.ts';
 import { verifyCodexArtifact } from './provenance.ts';
 import { Store } from './store.ts';
+import { replaceRelationshipJournal } from './relationship-journal.ts';
 import { partnerPaths } from './storage-paths.ts';
 import {
   canonicalizeChangeReason,
@@ -947,7 +948,7 @@ export async function convertDshSession(
     }
     const store = new Store(paths.database);
     try {
-      await store.importRelationshipHistory(relationships);
+      await replaceRelationshipJournal(paths.relationshipJournal, relationships);
       for (const boundary of rollout.boundaries) await store.saveCompactBoundary(boundary);
     } finally { await store.close(); }
     const mediaRoot = join(paths.managedRoot, 'historical-media');

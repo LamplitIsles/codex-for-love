@@ -228,7 +228,7 @@ test('closing rejects an in-flight SDK RPC and a fresh Partner owns later events
     const id = randomUUID();
     await second.submit(id, 'please use the relationship tool');
     await eventually(async () => (await second.snapshot()).results?.some((result) => result.sourceIds.includes(id) && result.answers.length > 0) === true);
-    assert.equal((await readFile(f.appServer.env!.FAKE_SERVER_STATE!, 'utf8')).includes('"toolCalls":1'), true);
+    assert.equal((await f.requests()).some((request) => request.method === 'thread/start'), true);
     assert.equal(staleNotifications, notificationsBeforeClose);
   } finally {
     await second.close();

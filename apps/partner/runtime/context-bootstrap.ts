@@ -137,10 +137,13 @@ function sameValue(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
-function ensureMcpInventory(config: Record<string, unknown>): boolean {
+function ensureMcpInventory(config: Record<string, unknown>, workspace: string): boolean {
   const servers = isRecord(config.mcp_servers) ? config.mcp_servers : {};
   let changed = !isRecord(config.mcp_servers);
-  for (const [name, required] of Object.entries(selectedMcpServers)) {
+  for (const [name, required] of Object.entries({
+    companion: { command: process.execPath, args: [fileURLToPath(new URL('./companion-mcp.ts', import.meta.url)), resolve(workspace)] },
+    ...selectedMcpServers,
+  })) {
     const server = isRecord(servers[name]) ? servers[name] : {};
     for (const [key, value] of Object.entries(required)) {
       if (!sameValue(server[key], value)) {
@@ -183,7 +186,7 @@ export async function ensureHookDeclaration(workspace: string, contextPath: stri
   }
   const hooks = isRecord(config.hooks) ? config.hooks : {};
   const sessionStart = Array.isArray(hooks.SessionStart) ? hooks.SessionStart : [];
-  let changed = ensureMcpInventory(config);
+  let changed = ensureMcpInventory(config, workspace);
   let own = false;
   const normalizedGroups = sessionStart.map((group) => {
     if (!isRecord(group) || !Array.isArray(group.hooks)) return group;

@@ -7,7 +7,6 @@ import {
   CodexAppServerClient,
   type CodexAppServerClientOptions,
   type ServerNotificationFor,
-  type ServerRequestFor,
 } from '@jaminzhou/codex-app-server-client';
 import type { v2 } from '@jaminzhou/codex-app-server-client/protocol';
 import {
@@ -32,7 +31,6 @@ import {
 } from './images.ts';
 import { synthesizeSpeech, transcribeAudio } from './speech.ts';
 import { Store, type MessageMeta, type MessagePageOptions, type StoredImage, type StoredInput, type StoredInputSegment } from './store.ts';
-import { createTools, type DynamicToolSet } from './tools/index.ts';
 import type { CompanionState } from '../src/lib/companion/domain.ts';
 import { MOOD_LABELS, affinityStage } from '../src/lib/companion/domain.ts';
 import { createCompactBoundary, projectContinuity, type CompactionPhase } from '../src/lib/continuity.ts';
@@ -42,6 +40,7 @@ import { compactionPrompt, companionPrompt } from './prompts.ts';
 import { verifyCodexArtifact } from './provenance.ts';
 import { partnerPaths } from './storage-paths.ts';
 import { processError } from './logging.ts';
+import { readRelationshipJournal } from './relationship-journal.ts';
 
 type OfficialItem = Record<string, unknown>;
 type OfficialTurn = {
@@ -320,7 +319,7 @@ function versionFromUserAgent(value: unknown): string | undefined {
 /**
  * The Companion projection around the official Codex app-server.
  *
- * This module owns HTTP-facing metadata, relationship records and attachment
+ * This module owns HTTP-facing metadata and attachment
  * files. The app-server owns the thread transcript, execution and
  * compaction. Keeping that boundary explicit is what makes refresh and
  * ordinary resume safe without a second model journal.
@@ -363,7 +362,6 @@ export async function createPartner(config: Config, credentials: Credentials, de
   const presentationFingerprints = new Map<string, string>();
   const turnControllers = new Map<string, AbortController>();
   let appServer: CodexAppServerClient | undefined;
-  let tools: DynamicToolSet;
   let threadId = '';
   let activeTurnId: string | null = null;
   let activeOperationId: string | null = null;
@@ -387,7 +385,6 @@ export async function createPartner(config: Config, credentials: Credentials, de
   let compacting = false;
   let compactWaiter: { resolve: () => void; reject: (error: Error) => void } | undefined;
   let eventChain: Promise<void> = Promise.resolve();
-  const activeServerRequests = new Set<Promise<unknown>>();
   let admission: Promise<void> = Promise.resolve();
   let closePromise: Promise<void> | undefined;
 
@@ -459,7 +456,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
   }
 
   async function refreshBootstrap(): Promise<void> {
-    const history = await store.relationshipHistory();
+    const history = (await readRelationshipJournal(paths.relationshipJournal)).reverse();
     const rounds = selectTextRounds([...turns.values()] as HistoryTurnLike[], CONTEXT_TOKEN_BUDGET, CONTEXT_ROUND_LIMIT);
     await writeBootstrapFile(bootstrapPath(paths.workspaceRoot), {
       startupPending,
@@ -1126,44 +1123,6 @@ export async function createPartner(config: Config, credentials: Credentials, de
     });
   }
 
-  async function handleServerRequestImpl(
-    params: v2.DynamicToolCallParams,
-    request: ServerRequestFor<'item/tool/call'>,
-  ): Promise<v2.DynamicToolCallResponse> {
-    if (closing) throw new Error('Partner is closing');
-    const { turnId, callId, tool: toolName } = params;
-    const operationId = operationForTurn(turnId) ?? submittingOperationId ?? activeOperationId ?? undefined;
-    if (!operationId) throw new Error('Partner tool call is not associated with a user turn');
-    if (turnId && !turnInputs.has(turnId) && submittingOperationId) {
-      const pending = pendingStarts.get(submittingOperationId) ?? pendingSteers.find((intent) => intent.transportId === submittingOperationId);
-      if (pending) mergeTurnInputIds(turnId, pending.ids);
-    }
-    const controller = turnControllers.get(turnId) ?? new AbortController();
-    turnControllers.set(turnId, controller);
-    let input: unknown = params.arguments;
-    if (typeof input === 'string') input = JSON.parse(input);
-    const result = await tools.call(toolName, input, { signal: controller.signal, callId, turnId });
-    if (closing) throw new Error('Partner is closing');
-    await refreshBootstrap();
-    if (!closing) notify();
-    void request;
-    return result;
-  }
-
-  function handleServerRequest(
-    params: v2.DynamicToolCallParams,
-    request: ServerRequestFor<'item/tool/call'>,
-  ): Promise<v2.DynamicToolCallResponse> {
-    const task = handleServerRequestImpl(params, request);
-    activeServerRequests.add(task);
-    void task.then(
-      () => { activeServerRequests.delete(task); },
-      () => { activeServerRequests.delete(task); },
-    );
-    return task;
-  }
-
-  tools = createTools(store, (context) => operationForTurn(context.turnId ?? '') ?? activeOperationId ?? '');
   const contextFile = bootstrapPath(paths.workspaceRoot);
   try {
     const markerPath = join(paths.managedRoot, 'thread.json');
@@ -1209,7 +1168,6 @@ export async function createPartner(config: Config, credentials: Credentials, de
     });
     unsubscribeAppServer = [
       appServer.onError(reportAppServerError),
-      appServer.onServerRequest('item/tool/call', handleServerRequest),
       appServer.onNotification('thread/tokenUsage/updated', (_params, notification) => onServerEvent(notification)),
       appServer.onNotification('turn/started', (_params, notification) => onServerEvent(notification)),
       appServer.onNotification('item/started', (_params, notification) => onServerEvent(notification)),
@@ -1228,6 +1186,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
       throw new Error('Official Codex app-server does not advertise native imageGeneration; no alternate image provider is configured');
     }
     await trustOwnedHooks(appServer, paths.workspaceRoot, hook.configPath, hook.command);
+    await appServer.call('config/mcpServer/reload', undefined);
     const shared = {
       model: config.codex.model,
       cwd: paths.workspaceRoot,
@@ -1248,16 +1207,34 @@ export async function createPartner(config: Config, credentials: Credentials, de
       response = await appServer.call('thread/resume', resume);
       threadId = response.thread.id;
     } else {
-      const start: v2.ThreadStartParams = {
-        ...shared,
-        historyMode: 'paginated',
-        sessionStartSource: 'startup',
-        dynamicTools: tools.definitions.map((tool) => ({ type: 'function', name: tool.name, description: tool.description, inputSchema: tool.inputSchema })),
-      };
+      const start: v2.ThreadStartParams = { ...shared, historyMode: 'paginated', sessionStartSource: 'startup' };
       response = await appServer.call('thread/start', start);
       threadId = response.thread.id;
       if (!threadId) throw new Error('Codex app-server did not return a thread id');
       await writeFile(markerPath, JSON.stringify({ threadId, model: config.codex.model }), { mode: 0o600 });
+    }
+    const requiredMcpServers = ['companion', 'flicknote', 'project', 'web'];
+    const readinessDeadline = Date.now() + 10_000;
+    for (;;) {
+      const mcpStatuses = [] as Awaited<ReturnType<typeof appServer.call<'mcpServerStatus/list'>>>['data'];
+      let cursor: string | undefined;
+      do {
+        const page = await appServer.call('mcpServerStatus/list', { threadId, ...(cursor ? { cursor } : {}) });
+        mcpStatuses.push(...page.data);
+        cursor = page.nextCursor ?? undefined;
+      } while (cursor);
+      const transient: string[] = [];
+      const terminal: string[] = [];
+      for (const name of requiredMcpServers) {
+        const status = mcpStatuses.find((entry) => entry.name === name);
+        if (status?.runtimeStatus === 'connected' && (status.toolsError === null || status.toolsError === undefined)) continue;
+        if (status?.runtimeStatus === 'notStarted' || status?.runtimeStatus === 'starting') transient.push(name);
+        else terminal.push(name);
+      }
+      if (!terminal.length && !transient.length) break;
+      if (terminal.length) throw new Error(`Required workspace MCP servers unavailable: ${terminal.join(', ')}`);
+      if (Date.now() >= readinessDeadline) throw new Error(`Required workspace MCP servers unavailable after readiness timeout: ${transient.join(', ')}`);
+      await new Promise((resolve) => setTimeout(resolve, 100));
     }
     if (response.model !== undefined && response.model !== config.codex.model) throw new Error(`Codex selected ${String(response.model)} instead of configured ${config.codex.model}`);
     await hydrateHistory();
@@ -1322,7 +1299,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
         .filter((result) => result.sourceIds.some((id) => pageIds.has(id)))
         .sort((a, b) => a.sequence - b.sequence || a.revision - b.revision);
       const generatedMeta = await store.generatedImageMetadata(pageTurns.map((result) => resultOperationId(result.turnId)));
-      const history = await store.relationshipHistory();
+      const history = (await readRelationshipJournal(paths.relationshipJournal)).reverse();
       const state: CompanionState = stateFromHistory(history);
       const messages = [];
       for (const meta of page.messages) {
@@ -1482,7 +1459,6 @@ export async function createPartner(config: Config, credentials: Credentials, de
         let closeError: unknown;
         try { await serverClose; }
         catch (error) { closeError = error; }
-        await Promise.allSettled([...activeServerRequests]);
         await admission;
         await eventChain;
         listeners.clear();

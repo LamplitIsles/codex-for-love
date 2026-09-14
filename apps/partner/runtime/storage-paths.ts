@@ -5,6 +5,7 @@ export type PartnerPaths = Readonly<{
   workspaceRoot: string;
   managedRoot: string;
   database: string;
+  relationshipJournal: string;
   attachments: string;
   audio: string;
 }>;
@@ -17,6 +18,7 @@ export function partnerPaths(workspace: string): PartnerPaths {
     workspaceRoot,
     managedRoot,
     database: join(managedRoot, 'session.sqlite'),
+    relationshipJournal: join(managedRoot, 'relationship.jsonl'),
     attachments: join(managedRoot, 'attachments'),
     audio: join(managedRoot, 'audio'),
   };

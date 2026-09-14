@@ -3,7 +3,6 @@ import { readFile } from 'node:fs/promises';
 import { DatabaseSync } from 'node:sqlite';
 import type { MaterializedGeneratedImage, MaterializedInputImage } from './images.ts';
 import type { CompactBoundary, ContextObservation } from '../src/lib/continuity.ts';
-import { clampAffinity, type RelationshipUpdate, type CompanionState, type CompanionStateRecord } from '../src/lib/companion/domain.ts';
 
 /** UI/domain metadata only. Official Codex owns the conversation transcript. */
 export type MessageMeta = { id: string; created: number; sequence: number; revision: number };
@@ -70,12 +69,6 @@ export class Store {
           id INTEGER PRIMARY KEY CHECK(id=1),
           active_tokens INTEGER,
           window_tokens INTEGER
-        );
-        CREATE TABLE IF NOT EXISTS relationship (
-          call_id TEXT PRIMARY KEY,
-          operation_id TEXT NOT NULL,
-          previous_affinity INTEGER NOT NULL,
-          data TEXT NOT NULL
         );
         CREATE TABLE IF NOT EXISTS input_images (
           id TEXT PRIMARY KEY,
@@ -380,55 +373,6 @@ export class Store {
     });
   }
 
-  async relationshipHistory(): Promise<CompanionStateRecord[]> {
-    return this.transaction(() => this.db.prepare('SELECT data FROM relationship ORDER BY rowid DESC').all().map((row) => JSON.parse(String((row as { data: string }).data)) as CompanionStateRecord));
-  }
-
-  /** Import a validated chronological relationship history without replaying agent tools. */
-  async importRelationshipHistory(records: readonly CompanionStateRecord[]): Promise<void> {
-    await this.transaction(() => {
-      if (this.db.prepare('SELECT 1 FROM relationship LIMIT 1').get()) {
-        throw new Error('Relationship history already exists');
-      }
-      const statement = this.db.prepare('INSERT INTO relationship(call_id,operation_id,previous_affinity,data) VALUES(?,?,?,?)');
-      let previousAffinity = records[0]?.state.affinity ?? 50;
-      records.forEach((record, index) => {
-        statement.run(`import:${index}`, `import:${index}`, previousAffinity, JSON.stringify(record));
-        previousAffinity = record.state.affinity;
-      });
-    });
-  }
-
-  async updateRelationship(operation: string, callId: string, update: RelationshipUpdate & { signature?: { value: string; reason: string } }): Promise<CompanionState> {
-    if (!operation) throw new Error('Relationship updates require an active conversation turn');
-    return this.transaction(() => {
-      const key = `${operation}:${callId}`;
-      const existing = this.db.prepare('SELECT data FROM relationship WHERE call_id=?').get(key) as { data: string } | undefined;
-      if (existing) return (JSON.parse(existing.data) as CompanionStateRecord).state;
-      const last = this.db.prepare('SELECT data FROM relationship ORDER BY rowid DESC LIMIT 1').get() as { data: string } | undefined;
-      const previous: CompanionState = last ? (JSON.parse(last.data) as CompanionStateRecord).state : { mood: 'neutral', affinity: 50, signature: '' };
-      const state: CompanionState = { ...previous };
-      const changes: CompanionStateRecord['changes'] = {};
-      if (update.mood) {
-        state.mood = update.mood.value;
-        state.note = update.mood.note;
-        changes.mood = update.mood;
-      }
-      if (update.affinity) {
-        const first = this.db.prepare('SELECT previous_affinity FROM relationship WHERE operation_id=? ORDER BY rowid LIMIT 1').get(operation) as { previous_affinity: number } | undefined;
-        const base = first ? Number(first.previous_affinity) : previous.affinity;
-        state.affinity = clampAffinity(Math.max(base - 10, Math.min(base + 10, state.affinity + update.affinity.delta)));
-        changes.affinity = { value: state.affinity, delta: state.affinity - previous.affinity, reason: update.affinity.reason };
-      }
-      if (update.signature) {
-        state.signature = update.signature.value;
-        changes.signature = update.signature;
-      }
-      const record: CompanionStateRecord = { at: new Date().toISOString(), changes, state };
-      this.db.prepare('INSERT INTO relationship(call_id,operation_id,previous_affinity,data) VALUES(?,?,?,?)').run(key, operation, previous.affinity, JSON.stringify(record));
-      return state;
-    });
-  }
 
   async observeContext(context: ContextObservation): Promise<void> {
     await this.transaction(() => this.db.prepare(`

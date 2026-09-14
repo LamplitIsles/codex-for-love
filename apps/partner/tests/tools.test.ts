@@ -6,31 +6,9 @@ import { join } from 'node:path';
 import { once } from 'node:events';
 import { fixture, eventually } from './fixture.ts';
 import { createWebServer } from '../runtime/server.ts';
-import { createTools } from '../runtime/tools/index.ts';
-import { Store } from '../runtime/store.ts';
 import { partnerPaths } from '../runtime/storage-paths.ts';
 import { rollDice } from '../runtime/tools/dice-core.ts';
 
-test('retained tools are the only application-owned dynamic tools', async () => {
-  const f = await fixture();
-  await mkdir(join(f.workspace, '.lamplit'), { recursive: true });
-  const store = new Store(join(f.workspace, '.lamplit', 'tools.sqlite'));
-  try {
-    const tools = createTools(store, () => 'turn-one');
-    assert.deepEqual(tools.definitions.map((tool) => tool.name), [
-      'companion_update_relationship', 'companion_set_signature', 'companion_read_history', 'roll_dice',
-    ]);
-    const context = { signal: new AbortController().signal, callId: 'call-one', turnId: 'turn-one' };
-    const changed = await tools.call('companion_update_relationship', { mood: { value: 'bright', reason: 'fixture' }, affinity: { delta: 8, reason: 'fixture' } }, context);
-    assert.equal(changed.success, true);
-    assert.equal((await store.relationshipHistory())[0]?.state.affinity, 58);
-    const signature = await tools.call('companion_set_signature', { signature: 'Mica', reason: 'fixture' }, { ...context, callId: 'call-two' });
-    assert.equal(signature.success, true);
-    const dice = await tools.call('roll_dice', { count: 2, sides: 6 }, { ...context, callId: 'call-three' });
-    assert.equal(dice.success, true);
-    assert.equal(JSON.parse(dice.contentItems[0]!.text).rolls.length, 2);
-  } finally { await store.close(); await f.close(); }
-});
 
 test('native image creation and editing persist assistant attachments through refresh', async () => {
   const f = await fixture(); const partner = await f.createPartner();
@@ -102,17 +80,6 @@ test('event projection and restart reuse saved generated attachments without old
   } finally { await partner.close(); await f.close(); }
 });
 
-test('relationship tool calls from the official server update the Companion projection', async () => {
-  const f = await fixture(); const partner = await f.createPartner();
-  try {
-    const id = randomUUID(); await partner.submit(id, 'please use the relationship tool');
-    await eventually(async () => (await partner.snapshot()).results?.some((result) => result.sourceIds.includes(id) && result.answers.length > 0) === true);
-    const view = await partner.snapshot();
-    assert.equal(view.relationship.mood, 'bright');
-    assert.equal(view.history.length, 1);
-    assert.match(JSON.stringify(await f.requests()), /item\/tool\/call|companion_update_relationship/);
-  } finally { await partner.close(); await f.close(); }
-});
 
 test('dice validation happens before random drawing', () => {
   assert.deepEqual(rollDice({ count: 2, sides: 6, modifier: -1, label: '判断' }, () => 4),

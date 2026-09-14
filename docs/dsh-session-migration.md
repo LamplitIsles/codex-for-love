@@ -16,8 +16,9 @@ The destination owns these migrated files:
 
 - the native Codex rollout containing user text, separate assistant messages,
   and completed compaction boundaries;
-- `.lamplit/session.sqlite`, containing relationship history and CFL projection
-  metadata;
+- `.lamplit/relationship.jsonl`, containing the validated chronological
+  relationship journal; and `.lamplit/session.sqlite`, containing CFL
+  projection metadata only;
 - `.lamplit/historical-media/`, containing verified historical message images;
 - `.lamplit/profile/companion-avatar.png` and `user-avatar.png`, selected by
   relative paths in the Partner TOML.

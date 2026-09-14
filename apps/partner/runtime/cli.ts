@@ -6,6 +6,7 @@ import { loadConfig, loadCredentials } from './config.ts';
 import { convertDshSession } from './dsh-session-import.ts';
 import { createPartner } from './partner.ts';
 import { createWebServer } from './server.ts';
+import { migrateRelationshipJournal } from './migrate-relationship-journal.ts';
 
 const cliArgs = process.argv.slice(2);
 if (cliArgs[0] === '--') cliArgs.shift();
@@ -14,7 +15,7 @@ const dryRun = cliArgs.includes('--dry-run');
 const stdin = cliArgs.includes('--stdin');
 const positionalArgs = cliArgs.filter((argument) => argument !== '--dry-run' && argument !== '--stdin');
 const [command, configPath, name, companionStatePath, attachmentRoot, destinationPath, dshSettingsPath] = positionalArgs;
-if (!configPath) throw new Error('Usage: cli.ts <serve|credential|import-session> <config.toml> [speech|tts --stdin|log destination]');
+if (!configPath) throw new Error('Usage: cli.ts <serve|credential|import-session|migrate-relationship-journal> <config.toml> [speech|tts --stdin|log destination]');
 const config = await loadConfig(resolve(configPath));
 if (command === 'credential') {
   if (name !== 'speech' && name !== 'tts') throw new Error('Credential name must be speech or tts');
@@ -50,4 +51,6 @@ if (command === 'credential') {
   if (!name || !companionStatePath || !attachmentRoot || !destinationPath) throw new Error('Usage: cli.ts import-session <config.toml> <session.jsonl[.zstd]> <state.jsonl> <attachments/v1> <new-workspace> [dsh-settings.yaml] [--dry-run]');
   const result = await convertDshSession(config, name, companionStatePath, attachmentRoot, destinationPath, {}, { dryRun, dshSettingsPath });
   console.log(JSON.stringify(result, null, 2));
+} else if (command === 'migrate-relationship-journal') {
+  console.log(JSON.stringify(await migrateRelationshipJournal(config.workspace!), null, 2));
 } else throw new Error('Unknown command');

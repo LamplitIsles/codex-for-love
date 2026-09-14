@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { CodexAppServerClient, resolveCodexBinary } from '@jaminzhou/codex-app-server-client';
 import { compactionPrompt } from '../runtime/prompts.ts';
 import { verifyCodexArtifact } from '../runtime/provenance.ts';
@@ -59,6 +60,7 @@ async function main() {
   const xdgData = join(root, 'xdg-data');
   const xdgCache = join(root, 'xdg-cache');
   const imagePath = join(workspace, 'probe.png');
+  const companionMcp = fileURLToPath(new URL('../runtime/companion-mcp.ts', import.meta.url));
   for (const path of [workspace, codexHome, xdgConfig, xdgData, xdgCache]) await mkdir(path, { recursive: true });
   await writeFile(imagePath, PNG, { mode: 0o600 });
 
@@ -141,13 +143,27 @@ async function main() {
   });
   await new Promise((resolve) => provider.listen(0, '127.0.0.1', resolve));
   const port = provider.address().port;
-  await writeFile(join(codexHome, 'config.toml'), `model = "gpt-5.2"
+  const mcpConfig = `model = "gpt-5.2"
 model_provider = "openai"
 openai_base_url = "http://127.0.0.1:${port}/v1"
-mcp_servers = {}
+[mcp_servers.companion]
+command = ${JSON.stringify(process.execPath)}
+args = [${JSON.stringify(companionMcp)}, ${JSON.stringify(workspace)}]
+[mcp_servers.flicknote]
+command = ${JSON.stringify(process.execPath)}
+args = [${JSON.stringify(companionMcp)}, ${JSON.stringify(workspace)}]
+[mcp_servers.project]
+command = ${JSON.stringify(process.execPath)}
+args = [${JSON.stringify(companionMcp)}, ${JSON.stringify(workspace)}]
+[mcp_servers.web]
+command = ${JSON.stringify(process.execPath)}
+args = [${JSON.stringify(companionMcp)}, ${JSON.stringify(workspace)}]
 [features]
 plugins = false
-`);
+`;
+  await mkdir(join(workspace, '.codex'), { recursive: true });
+  await writeFile(join(workspace, '.codex', 'config.toml'), mcpConfig);
+  await writeFile(join(codexHome, 'config.toml'), mcpConfig);
 
   const environment = {
     PATH: process.env.PATH ?? '',
@@ -217,6 +233,30 @@ plugins = false
     });
     const threadId = started.thread.id;
     assert.ok(threadId);
+    await client.call('config/mcpServer/reload', undefined);
+    let statuses = [];
+    const mcpDeadline = Date.now() + 10_000;
+    do {
+      statuses = [];
+      let mcpCursor;
+      do {
+        const page = await client.call('mcpServerStatus/list', { threadId, ...(mcpCursor ? { cursor: mcpCursor } : {}) });
+        statuses.push(...page.data);
+        mcpCursor = page.nextCursor;
+      } while (mcpCursor);
+      if (['companion', 'flicknote', 'project', 'web'].every((name) => {
+        const status = statuses.find((entry) => entry.name === name);
+        return status?.runtimeStatus === 'connected' && (status.toolsError ?? null) === null;
+      })) break;
+      await sleep(100);
+    } while (Date.now() < mcpDeadline);
+    for (const name of ['companion', 'flicknote', 'project', 'web']) {
+      const status = statuses.find((entry) => entry.name === name);
+      assert.equal(status?.runtimeStatus, 'connected', JSON.stringify(statuses));
+      assert.equal(status?.toolsError ?? null, null);
+    }
+    const companionResult = await client.call('mcpServer/tool/call', { threadId, server: 'companion', tool: 'companion_update_relationship', arguments: { mood: { value: 'bright', reason: 'real probe' } } });
+    assert.notEqual(companionResult.isError, true);
 
     const first = await client.call('turn/start', {
       threadId,

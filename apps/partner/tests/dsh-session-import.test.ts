@@ -4,6 +4,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { convertDshSession, DshSessionImportError, inspectDshLog } from '../runtime/dsh-session-import.ts';
+import { readRelationshipJournal } from '../runtime/relationship-journal.ts';
 import { Store } from '../runtime/store.ts';
 import { fixture } from './fixture.ts';
 
@@ -240,14 +241,14 @@ test('dry-run is side-effect free and conversion creates one native candidate', 
     assert.doesNotMatch(JSON.stringify(fakeState.importedHistory), /one user|two user|three user/);
     assert.doesNotMatch(JSON.stringify(fakeState.importedHistory), /historical-media|local_image/);
     assert.equal(fakeState.turns.length, 6);
-    const store = new Store(join(f.workspace, '.lamplit', 'session.sqlite'));
-    try {
-      const history = await store.relationshipHistory(); assert.equal(history.length, 2); assert.equal(history[0]?.state.signature, 'Blueberry');
+    {
+      const history = await readRelationshipJournal(join(f.workspace, '.lamplit', 'relationship.jsonl')); assert.equal(history.length, 2); assert.equal(history.at(-1)?.state.signature, 'Blueberry');
+      const store = new Store(join(f.workspace, '.lamplit', 'session.sqlite'));
       const boundaries = await store.compactBoundaries();
       assert.equal(boundaries.length, 2);
       assert.deepEqual(boundaries.map((boundary) => boundary.id), ['dsh:first', 'dsh:second']);
       assert.ok(boundaries.every((boundary) => boundary.position === 'after' && importedUsers.some((item) => item.client_id === boundary.anchorId)));
-    } finally { await store.close(); }
+      await store.close(); }
     assert.deepEqual(await readFile(join(f.workspace, '.lamplit', 'historical-media', `${source.digest}.png`)), source.bytes);
     assert.deepEqual(await readFile(f.config.avatars.companion), companionAvatar);
     assert.deepEqual(await readFile(f.config.avatars.user), userAvatar);

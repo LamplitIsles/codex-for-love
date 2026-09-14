@@ -40,6 +40,18 @@ _Avoid_: user score, relationship quality score
 The chronological record of changes to the Partner's expressed mood, affinity, and signature, with the reasons given for those changes.
 _Avoid_: conversation history, Graph memory
 
+**Relationship Journal（关系日志）**:
+The append-only workspace record that is the source of truth for the Partner's current relationship state and relationship history.
+_Avoid_: conversation history, relationship projection, session metadata
+
+**Relationship Projection（关系投影）**:
+The current relationship state and history derived from the Relationship Journal for display or context bootstrap.
+_Avoid_: Relationship Journal, independent relationship state
+
+**Companion MCP**:
+The workspace-scoped tool service through which the Partner reads and changes relationship state and uses other Lamplit-specific capabilities.
+_Avoid_: Codex built-in tools, session tool snapshot
+
 **Affinity growth（亲近度增长）**:
 The actual positive increase in affinity recorded for one relationship change. A change with unchanged or decreased affinity has no growth.
 _Avoid_: requested increase, cumulative growth

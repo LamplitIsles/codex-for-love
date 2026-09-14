@@ -7,6 +7,15 @@ thread, model history, tools, skills, execution and compaction; this
 repository owns the Companion projection, relationship state, speech
 transcription and workspace attachments.
 
+Relationship state is an append-only workspace journal at
+`.lamplit/relationship.jsonl`. The bundled `companion` MCP is its sole runtime
+writer and exposes relationship updates, signatures, history, and dice. On
+startup CFL refreshes the workspace MCP configuration, creates or resumes its
+thread, then waits briefly for
+transient MCP startup, and refuses to start on a terminal failure or timeout
+unless `companion`, `flicknote`, `project`, and `web` are connected. This keeps
+the current tool catalogue out of persisted Codex thread history.
+
 This checkout is a local core implementation. It does not perform generic
 session migration, replace an existing Lamplit service, package Docker, or
 perform a deployment cutover. It does include one explicit, one-time import
@@ -60,6 +69,18 @@ The equivalent direct commands are useful when diagnosing startup:
 pnpm --filter @lamplitisles/partner check
 pnpm --filter @lamplitisles/partner build
 pnpm --filter @lamplitisles/partner cli serve /path/to/partner.toml
+```
+
+### One-time relationship journal conversion
+
+After this change is merged and before a migrated workspace is started, an
+operator may explicitly convert a legacy CFL SQLite relationship table. It
+refuses an existing journal, validates and atomically writes the candidate,
+checks exact record equality, and only then removes the table. Do not run it
+against a live service; stop the old runtime first and retain a database backup.
+
+```sh
+pnpm --filter @lamplitisles/partner cli migrate-relationship-journal /path/to/partner.toml
 ```
 
 ### One-time DSH session import

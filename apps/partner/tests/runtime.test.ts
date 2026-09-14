@@ -47,9 +47,7 @@ test('official app-server owns the thread, native turns and history across an or
     assert.match(String((start.params as Record<string, unknown>).baseInstructions), /You are a companion/);
     assert.match(String((start.params as Record<string, unknown>).baseInstructions), /Mica/);
     assert.doesNotMatch(JSON.stringify(start.params), /compact_prompt/);
-    assert.deepEqual(((start.params as Record<string, unknown>).dynamicTools as { name: string }[]).map((tool) => tool.name), [
-      'companion_update_relationship', 'companion_set_signature', 'companion_read_history', 'roll_dice',
-    ]);
+    assert.equal('dynamicTools' in (start.params as Record<string, unknown>), false);
     assert.equal((await f.requests()).filter((request) => String(request.method).includes('thread/queue')).length, 0);
     await partner.close();
     partner = await f.createPartner();
@@ -62,6 +60,28 @@ test('official app-server owns the thread, native turns and history across an or
     assert.equal((await f.requests()).filter((request) => request.method === 'thread/start').length, 1);
     assert.equal((await f.requests()).filter((request) => request.method === 'thread/resume').length, 1);
   } finally { await partner.close(); await f.close(); }
+});
+
+test('startup consumes all MCP status pages and rejects disconnected or failed servers', async () => {
+  const f = await fixture();
+  const status = (name: string, runtimeStatus: string, toolsError: string | null = null) => ({ name, runtimeStatus, pluginId: null, serverInfo: null, tools: {}, toolsError, resources: [], resourceTemplates: [], authStatus: 'notLoggedIn' });
+  f.appServer.env!.FAKE_MCP_STATUS_PAGES = JSON.stringify([[status('companion', 'connected'), status('flicknote', 'connected')], [status('project', 'connected'), status('web', 'connected')]]);
+  try {
+    await f.createPartner();
+    const requests = await f.requests(); const start = requests.findIndex((request) => request.method === 'thread/start'); const statuses = requests.filter((request) => request.method === 'mcpServerStatus/list');
+    assert.equal(statuses.length, 2); assert.equal(requests.findIndex((request) => request.method === 'mcpServerStatus/list') > start, true);
+    assert.equal(statuses.every((request) => (request.params as { threadId?: string }).threadId === 'thread-fake'), true);
+  } finally { await f.close(); }
+  const starting = await fixture();
+  starting.appServer.env!.FAKE_MCP_STATUS_PAGES = JSON.stringify([[
+    [status('companion', 'starting'), status('flicknote', 'notStarted')], [status('project', 'connected'), status('web', 'connected')],
+  ], [
+    [status('companion', 'connected'), status('flicknote', 'connected')], [status('project', 'connected'), status('web', 'connected')],
+  ]]);
+  try { await starting.createPartner(); const statuses = (await starting.requests()).filter((request) => request.method === 'mcpServerStatus/list'); assert.equal(statuses.length, 4); assert.equal(statuses.every((request) => (request.params as { threadId?: string }).threadId === 'thread-fake'), true); } finally { await starting.close(); }
+  const failed = await fixture();
+  failed.appServer.env!.FAKE_MCP_STATUS_PAGES = JSON.stringify([[status('companion', 'connected'), status('flicknote', 'disabled')], [status('project', 'connected'), status('web', 'connected', 'discovery failed')]]);
+  try { await assert.rejects(failed.createPartner(), /flicknote, web/); } finally { await failed.close(); }
 });
 
 test('local compaction sends the existing Owner prompt and override on start and resume', async () => {
