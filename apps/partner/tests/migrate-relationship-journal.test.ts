@@ -27,3 +27,21 @@ test('migration validates a candidate before publishing and stays retryable afte
     await assert.rejects(migrateRelationshipJournal(workspace), /already exists/);
   } finally { await rm(workspace, { recursive: true, force: true }); }
 });
+
+test('migration preserves legacy bootstrap changes without reasons', async () => {
+  const workspace = await mkdtemp(join(tmpdir(), 'relationship-migration-bootstrap-'));
+  const paths = partnerPaths(workspace); await mkdir(paths.managedRoot, { recursive: true });
+  const records = [
+    { at: '2026-01-01T00:00:00.000Z', changes: { mood: { value: 'serene', note: 'quiet' } }, state: { mood: 'serene', note: 'quiet', affinity: 50, signature: '' } },
+    { at: '2026-01-01T00:00:01.000Z', changes: { signature: { value: 'Mica' } }, state: { mood: 'serene', note: 'quiet', affinity: 50, signature: 'Mica' } },
+  ];
+  const database = new DatabaseSync(paths.database);
+  database.exec('CREATE TABLE relationship(data TEXT NOT NULL)');
+  const insert = database.prepare('INSERT INTO relationship(data) VALUES(?)');
+  for (const record of records) insert.run(JSON.stringify(record));
+  database.close();
+  try {
+    assert.deepEqual(await migrateRelationshipJournal(workspace), { records: 2 });
+    assert.deepEqual(await readRelationshipJournal(paths.relationshipJournal), records);
+  } finally { await rm(workspace, { recursive: true, force: true }); }
+});

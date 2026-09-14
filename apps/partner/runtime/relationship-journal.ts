@@ -25,20 +25,20 @@ function validateRecord(value: unknown, previous: CompanionState = initial): Com
     const change = changes.mood as Record<string, unknown>;
     if (Object.keys(change).some((key) => !['value', 'note', 'reason'].includes(key))) throw new TypeError('Relationship journal mood change is invalid');
     const changedMood = canonicalizeMood({ mood: change.value, ...(change.note === undefined ? {} : { note: change.note }) });
-    canonicalizeChangeReason(change.reason);
+    if (change.reason !== undefined) canonicalizeChangeReason(change.reason);
     if (changedMood.mood !== mood.mood || changedMood.note !== mood.note) throw new TypeError('Relationship journal mood does not match state');
   }
   if (changes.affinity) {
     if (typeof changes.affinity !== 'object' || Array.isArray(changes.affinity)) throw new TypeError('Relationship journal affinity change is invalid');
     const change = changes.affinity as Record<string, unknown>;
     if (Object.keys(change).some((key) => !['value', 'delta', 'reason'].includes(key)) || !Number.isSafeInteger(change.value) || !Number.isSafeInteger(change.delta) || change.value !== stateValue.affinity || change.value < 0 || change.value > 100 || change.delta !== stateValue.affinity - previous.affinity) throw new TypeError('Relationship journal affinity change is invalid');
-    canonicalizeChangeReason(change.reason);
+    if (change.reason !== undefined) canonicalizeChangeReason(change.reason);
   }
   if (changes.signature !== undefined) {
     if (!changes.signature || typeof changes.signature !== 'object' || Array.isArray(changes.signature)) throw new TypeError('Relationship journal signature change is invalid');
     const change = changes.signature as Record<string, unknown>;
     if (Object.keys(change).some((key) => !['value', 'reason'].includes(key)) || canonicalizeSignature(change.value) !== signature) throw new TypeError('Relationship journal signature change is invalid');
-    canonicalizeChangeReason(change.reason);
+    if (change.reason !== undefined) canonicalizeChangeReason(change.reason);
   }
   return { at: record.at, changes: changes as CompanionStateRecord['changes'], state: { ...mood, affinity: stateValue.affinity as number, signature } };
 }
