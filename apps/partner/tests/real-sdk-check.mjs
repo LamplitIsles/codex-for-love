@@ -149,15 +149,6 @@ openai_base_url = "http://127.0.0.1:${port}/v1"
 [mcp_servers.companion]
 command = ${JSON.stringify(process.execPath)}
 args = [${JSON.stringify(companionMcp)}, ${JSON.stringify(workspace)}]
-[mcp_servers.flicknote]
-command = ${JSON.stringify(process.execPath)}
-args = [${JSON.stringify(companionMcp)}, ${JSON.stringify(workspace)}]
-[mcp_servers.project]
-command = ${JSON.stringify(process.execPath)}
-args = [${JSON.stringify(companionMcp)}, ${JSON.stringify(workspace)}]
-[mcp_servers.web]
-command = ${JSON.stringify(process.execPath)}
-args = [${JSON.stringify(companionMcp)}, ${JSON.stringify(workspace)}]
 [features]
 plugins = false
 `;
@@ -245,13 +236,13 @@ plugins = false
         statuses.push(...page.data);
         mcpCursor = page.nextCursor;
       } while (mcpCursor);
-      if (['companion', 'flicknote', 'project', 'web'].every((name) => {
+      if (['companion'].every((name) => {
         const status = statuses.find((entry) => entry.name === name);
         return status?.runtimeStatus === 'connected' && (status.toolsError ?? null) === null;
       })) break;
       await sleep(100);
     } while (Date.now() < mcpDeadline);
-    for (const name of ['companion', 'flicknote', 'project', 'web']) {
+    for (const name of ['companion']) {
       const status = statuses.find((entry) => entry.name === name);
       assert.equal(status?.runtimeStatus, 'connected', JSON.stringify(statuses));
       assert.equal(status?.toolsError ?? null, null);

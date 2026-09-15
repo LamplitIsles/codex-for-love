@@ -103,12 +103,9 @@ license copies are retained in
 [`licenses/jaminzhou-codex-app-server-client-MIT.txt`](../licenses/jaminzhou-codex-app-server-client-MIT.txt)
 and [`licenses/openai-codex-generated-Apache-2.0.txt`](../licenses/openai-codex-generated-Apache-2.0.txt).
 
-The selected MCP configuration is intentionally limited to `web` (`web mcp
---provider kepos-bridge`), `project` (`project mcp`), `flicknote` (`flicknote
-mcp`) and `guion-email` (`https://mail.guion.io/mcp`). The project-local Codex
-overlay disables the known unselected `og`, `skill` and
-`openaiDeveloperDocs` entries without changing the operator's global Codex
-configuration.
+CFL configures only its bundled Companion MCP and SessionStart hook. FlickNote
+and Web are optional operator-provided MCPs documented in a static template;
+CFL does not inject, disable, or require any external MCP configuration.
 
 ## Notices
 

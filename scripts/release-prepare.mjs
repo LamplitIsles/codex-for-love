@@ -21,6 +21,7 @@ const vendor = join(mainPackage, 'vendor');
 await Promise.all([
   cp(join(root, 'apps', 'partner', 'build'), join(vendor, 'build'), { recursive: true }),
   cp(join(root, 'apps', 'partner', 'config.example.toml'), join(vendor, 'config.example.toml')),
+  cp(join(root, 'apps', 'partner', 'ecosystem-mcp.example.toml'), join(vendor, 'ecosystem-mcp.example.toml')),
   cp(join(root, 'apps', 'partner', 'persona.example.md'), join(vendor, 'persona.example.md')),
   cp(join(root, 'docs', 'IMPORTS.md'), join(vendor, 'IMPORTS.md')),
 ]);

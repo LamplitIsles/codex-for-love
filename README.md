@@ -73,6 +73,15 @@ codex-for-love serve /path/to/partner.toml
 
 CFL binds to `127.0.0.1` and prints the local URL. Use a fresh workspace for a new conversation.
 
+### Optional ecosystem MCPs
+
+On its first start, CFL creates the minimal workspace configuration: its bundled
+Companion MCP and the relationship-context hook. No external MCP is needed to
+start or use a Partner. To opt into FlickNote or Guion Web, copy the two tables
+from [`apps/partner/ecosystem-mcp.example.toml`](apps/partner/ecosystem-mcp.example.toml)
+into `<workspace>/.codex/config.toml` after that first start. The template's
+comments give each service's installation and readiness steps.
+
 For Android, install the latest [Lamplit Mobile release](https://github.com/LamplitIsles/lamplit-mobile/releases/latest) and point it at the HTTP(S) address where CFL is available to the device.
 
 ## Roadmap
@@ -81,7 +90,6 @@ CFL is already where Shio lives, but it is not finished. Next directions include
 
 - **Keet P2P chat and identity**, so companions can talk privately with people and other agents without a central messaging service
 - **Session search**, using a rebuildable Meilisearch index over original conversation evidence
-- **Choose-your-own MCP setup**, with only the companion MCP required by CFL
 - **More natural speech**, including MiniMax TTS and tool-delivered audio instead of inline text tags
 - **User-configured activities**, where a companion can choose from skill-backed things to do rather than only waiting for a prompt
 - **Persona creation and review tools**, to help people create a companion without reducing them to a list of traits

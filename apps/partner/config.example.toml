@@ -17,6 +17,7 @@ user = "./workspace/.lamplit/profile/user-avatar.png"
 [codex]
 model = "gpt-5.6-luna"
 # The installed launcher selects and verifies its matching standalone app-server.
+# A checkout configuration may set command to a verified codex-app-server path.
 # local_compaction = true
 # home = "/path/to/a/Codex-home" # omit to use the existing Codex login
 

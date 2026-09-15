@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-// The SDK supplies `app-server --listen stdio://` to the configured executable.
+// CFL supplies `--listen stdio://` to the configured direct app-server.
 // Keep the protocol fake in its own module while making this test-owned entry
 // point behave like a Codex executable.
 import { writeFileSync } from 'node:fs';

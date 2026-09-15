@@ -82,10 +82,10 @@ test('a transient event snapshot cannot re-admit a known message or block the ne
   } finally { await partner.close(); await f.close(); }
 });
 
-test('startup consumes all MCP status pages and rejects disconnected or failed servers', async () => {
+test('startup waits only for the bundled Companion MCP and ignores optional MCP failures', async () => {
   const f = await fixture();
   const status = (name: string, runtimeStatus: string, toolsError: string | null = null) => ({ name, runtimeStatus, pluginId: null, serverInfo: null, tools: {}, toolsError, resources: [], resourceTemplates: [], authStatus: 'notLoggedIn' });
-  f.appServer.env!.FAKE_MCP_STATUS_PAGES = JSON.stringify([[status('companion', 'connected'), status('flicknote', 'connected')], [status('project', 'connected'), status('web', 'connected')]]);
+  f.appServer.env!.FAKE_MCP_STATUS_PAGES = JSON.stringify([[status('companion', 'connected'), status('flicknote', 'disabled')], [status('project', 'notStarted'), status('web', 'connected', 'discovery failed')]]);
   try {
     await f.createPartner();
     const requests = await f.requests(); const start = requests.findIndex((request) => request.method === 'thread/start'); const statuses = requests.filter((request) => request.method === 'mcpServerStatus/list');
@@ -94,14 +94,14 @@ test('startup consumes all MCP status pages and rejects disconnected or failed s
   } finally { await f.close(); }
   const starting = await fixture();
   starting.appServer.env!.FAKE_MCP_STATUS_PAGES = JSON.stringify([[
-    [status('companion', 'starting'), status('flicknote', 'notStarted')], [status('project', 'connected'), status('web', 'connected')],
+    [status('companion', 'starting'), status('flicknote', 'disabled')], [status('project', 'notStarted'), status('web', 'connected', 'discovery failed')],
   ], [
-    [status('companion', 'connected'), status('flicknote', 'connected')], [status('project', 'connected'), status('web', 'connected')],
+    [status('companion', 'connected'), status('flicknote', 'disabled')], [status('project', 'notStarted'), status('web', 'connected', 'discovery failed')],
   ]]);
   try { await starting.createPartner(); const statuses = (await starting.requests()).filter((request) => request.method === 'mcpServerStatus/list'); assert.equal(statuses.length, 4); assert.equal(statuses.every((request) => (request.params as { threadId?: string }).threadId === 'thread-fake'), true); } finally { await starting.close(); }
   const failed = await fixture();
-  failed.appServer.env!.FAKE_MCP_STATUS_PAGES = JSON.stringify([[status('companion', 'connected'), status('flicknote', 'disabled')], [status('project', 'connected'), status('web', 'connected', 'discovery failed')]]);
-  try { await assert.rejects(failed.createPartner(), /flicknote, web/); } finally { await failed.close(); }
+  failed.appServer.env!.FAKE_MCP_STATUS_PAGES = JSON.stringify([[status('companion', 'disabled'), status('flicknote', 'connected')], [status('project', 'connected'), status('web', 'connected')]]);
+  try { await assert.rejects(failed.createPartner(), /companion/); } finally { await failed.close(); }
 });
 
 test('local compaction sends the existing Owner prompt and override on start and resume', async () => {

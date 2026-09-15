@@ -973,7 +973,7 @@ export async function convertDshSession(
       capabilities: { ...injected.capabilities, experimentalApi: true, requestAttestation: false },
       clientInfo: { ...injected.clientInfo, name: 'codex-for-love', title: 'Codex for Love', version: '0.1.0' },
       codexPath: selectedCodexPath,
-      codexExecutableType: config.codex.executable_type,
+      codexExecutableType: 'app-server',
       configOverrides: injected.configOverrides,
       cwd: destination,
       env: environment,

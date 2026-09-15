@@ -122,57 +122,31 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-const selectedMcpServers: Record<string, Record<string, unknown>> = {
-  web: { command: 'web', args: ['mcp', '--provider', 'kepos-bridge'] },
-  project: { command: 'project', args: ['mcp'] },
-  flicknote: { command: 'flicknote', args: ['mcp'] },
-  'guion-email': { url: 'https://mail.guion.io/mcp' },
-};
-
-// These are the other MCP entries present in the operator's current global
-// config. A project-local false override keeps them out of this conversation
-// without changing the global Codex login/configuration.
-const disabledMcpServers = ['og', 'skill', 'openaiDeveloperDocs'];
-
 function sameValue(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
-function ensureMcpInventory(config: Record<string, unknown>, workspace: string): boolean {
+/** Keep only CFL's installation-specific Companion endpoint current. */
+function ensureCompanionMcp(config: Record<string, unknown>, workspace: string): boolean {
   const servers = isRecord(config.mcp_servers) ? config.mcp_servers : {};
   let changed = !isRecord(config.mcp_servers);
-  for (const [name, required] of Object.entries({
-    companion: { command: process.execPath, args: [fileURLToPath(new URL(`./${companionMcpFileName}`, import.meta.url)), resolve(workspace)] },
-    ...selectedMcpServers,
-  })) {
-    const server = isRecord(servers[name]) ? servers[name] : {};
-    for (const [key, value] of Object.entries(required)) {
-      if (!sameValue(server[key], value)) {
-        server[key] = value;
-        changed = true;
-      }
-    }
-    if (servers[name] !== server) {
-      servers[name] = server;
+  const required = { command: process.execPath, args: [fileURLToPath(new URL(`./${companionMcpFileName}`, import.meta.url)), resolve(workspace)] };
+  const companion = isRecord(servers.companion) ? servers.companion : {};
+  for (const [key, value] of Object.entries(required)) {
+    if (!sameValue(companion[key], value)) {
+      companion[key] = value;
       changed = true;
     }
   }
-  for (const name of disabledMcpServers) {
-    const server = isRecord(servers[name]) ? servers[name] : {};
-    if (server.enabled !== false) {
-      server.enabled = false;
-      changed = true;
-    }
-    if (servers[name] !== server) {
-      servers[name] = server;
-      changed = true;
-    }
+  if (servers.companion !== companion) {
+    servers.companion = companion;
+    changed = true;
   }
   if (changed) config.mcp_servers = servers;
   return changed;
 }
 
-/** Add project-owned hooks and the selected MCP inventory while preserving config. */
+/** Add project-owned hooks and the bundled Companion MCP while preserving config. */
 export async function ensureHookDeclaration(workspace: string, contextPath: string): Promise<{ configPath: string; command: string }> {
   const configPath = join(resolve(workspace), '.codex', 'config.toml');
   const command = hookCommand(contextPath);
@@ -187,7 +161,7 @@ export async function ensureHookDeclaration(workspace: string, contextPath: stri
   }
   const hooks = isRecord(config.hooks) ? config.hooks : {};
   const sessionStart = Array.isArray(hooks.SessionStart) ? hooks.SessionStart : [];
-  let changed = ensureMcpInventory(config, workspace);
+  let changed = ensureCompanionMcp(config, workspace);
   let own = false;
   const normalizedGroups = sessionStart.map((group) => {
     if (!isRecord(group) || !Array.isArray(group.hooks)) return group;

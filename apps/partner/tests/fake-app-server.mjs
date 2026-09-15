@@ -292,7 +292,7 @@ async function handle(request) {
     case 'config/mcpServer/reload': return {};
     case 'mcpServerStatus/list': {
       if (p.threadId !== state.threadId) rpcError(-32602, 'MCP status requires the current thread');
-      const defaultStatus = ['companion', 'flicknote', 'project', 'web'].map((name) => ({ name, runtimeStatus: 'connected', pluginId: null, serverInfo: null, tools: {}, toolsError: null, resources: [], resourceTemplates: [], authStatus: 'notLoggedIn' }));
+      const defaultStatus = ['companion'].map((name) => ({ name, runtimeStatus: 'connected', pluginId: null, serverInfo: null, tools: {}, toolsError: null, resources: [], resourceTemplates: [], authStatus: 'notLoggedIn' }));
       const configured = process.env.FAKE_MCP_STATUS_PAGES ? JSON.parse(process.env.FAKE_MCP_STATUS_PAGES) : [defaultStatus];
       state.mcpStatusObservations ??= 0;
       const observations = Array.isArray(configured[0]?.[0]) ? configured : [configured];

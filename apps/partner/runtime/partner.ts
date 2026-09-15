@@ -1186,7 +1186,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
       capabilities: { ...injected.capabilities, experimentalApi: true, requestAttestation: false },
       clientInfo: { ...injected.clientInfo, name: 'codex-for-love', title: 'Codex for Love', version: '0.1.0' },
       codexPath: selectedCodexPath,
-      codexExecutableType: config.codex.executable_type,
+      codexExecutableType: 'app-server',
       configOverrides: injected.configOverrides,
       cwd: paths.workspaceRoot,
       env: environment,
@@ -1242,7 +1242,6 @@ export async function createPartner(config: Config, credentials: Credentials, de
       if (!threadId) throw new Error('Codex app-server did not return a thread id');
       await writeFile(markerPath, JSON.stringify({ threadId, model: config.codex.model }), { mode: 0o600 });
     }
-    const requiredMcpServers = ['companion', 'flicknote', 'project', 'web'];
     const readinessDeadline = Date.now() + 10_000;
     for (;;) {
       const mcpStatuses = [] as Awaited<ReturnType<typeof appServer.call<'mcpServerStatus/list'>>>['data'];
@@ -1252,17 +1251,10 @@ export async function createPartner(config: Config, credentials: Credentials, de
         mcpStatuses.push(...page.data);
         cursor = page.nextCursor ?? undefined;
       } while (cursor);
-      const transient: string[] = [];
-      const terminal: string[] = [];
-      for (const name of requiredMcpServers) {
-        const status = mcpStatuses.find((entry) => entry.name === name);
-        if (status?.runtimeStatus === 'connected' && (status.toolsError === null || status.toolsError === undefined)) continue;
-        if (status?.runtimeStatus === 'notStarted' || status?.runtimeStatus === 'starting') transient.push(name);
-        else terminal.push(name);
-      }
-      if (!terminal.length && !transient.length) break;
-      if (terminal.length) throw new Error(`Required workspace MCP servers unavailable: ${terminal.join(', ')}`);
-      if (Date.now() >= readinessDeadline) throw new Error(`Required workspace MCP servers unavailable after readiness timeout: ${transient.join(', ')}`);
+      const companion = mcpStatuses.find((entry) => entry.name === 'companion');
+      if (companion?.runtimeStatus === 'connected' && (companion.toolsError === null || companion.toolsError === undefined)) break;
+      if (companion?.runtimeStatus !== 'notStarted' && companion?.runtimeStatus !== 'starting') throw new Error('Required workspace MCP servers unavailable: companion');
+      if (Date.now() >= readinessDeadline) throw new Error('Required workspace MCP servers unavailable after readiness timeout: companion');
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
     if (response.model !== undefined && response.model !== config.codex.model) throw new Error(`Codex selected ${String(response.model)} instead of configured ${config.codex.model}`);

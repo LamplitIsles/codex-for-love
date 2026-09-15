@@ -10,11 +10,12 @@ transcription and workspace attachments.
 Relationship state is an append-only workspace journal at
 `.lamplit/relationship.jsonl`. The bundled `companion` MCP is its sole runtime
 writer and exposes relationship updates, signatures, history, and dice. On
-startup CFL refreshes the workspace MCP configuration, creates or resumes its
-thread, then waits briefly for
-transient MCP startup, and refuses to start on a terminal failure or timeout
-unless `companion`, `flicknote`, `project`, and `web` are connected. This keeps
-the current tool catalogue out of persisted Codex thread history.
+startup CFL refreshes its bundled Companion MCP configuration, creates or
+resumes its thread, then waits briefly for that MCP to connect. `flicknote` and
+`web` are optional operator integrations: their failure never prevents the
+Partner from starting. This keeps the current tool catalogue out of persisted
+Codex thread history without making the standalone runtime depend on the
+Lamplit host ecosystem.
 
 This checkout is a local core implementation. It does not perform generic
 session migration, replace an existing Lamplit service, package Docker, or
@@ -32,8 +33,8 @@ workflow is described below.
   unsupported.
 - The Partner uses `@jaminzhou/codex-app-server-client` 0.2.1 for typed,
   SDK-managed stdio. The SDK is pinned to the same Codex 0.154.0 protocol
-  baseline, but the executable in `codex.command` remains the runtime
-  authority; the bundled SDK executable is not selected implicitly.
+  baseline. CFL always invokes `codex.command` as a direct app-server; the SDK
+  does not select a CLI fallback.
 - An existing official Codex login. Run `codex login status` and complete the
   official device-auth login if necessary. The app does not read, copy, parse
   or refresh credentials itself.
@@ -219,22 +220,25 @@ generation or remote compaction-result behavior.
   is marked as queued. Partner typing remains a separate conversation state.
 
 Before creating the official thread, the host writes a project-local Codex
-overlay under `<workspace>/.codex/config.toml`. It preserves unrelated TOML,
-declares the selected MCP inventory, and disables the known host-only entries:
+overlay under `<workspace>/.codex/config.toml`. If it is absent, CFL creates
+the minimal configuration containing its installation-specific `companion` MCP
+and SessionStart hook. If it already exists, CFL updates only that Companion
+entry and hook, preserving every operator-provided MCP entry without disabling
+or adding another service.
 
-| MCP | Official configuration |
-| --- | --- |
-| `web` | `web mcp --provider kepos-bridge` |
-| `project` | `project mcp` |
-| `flicknote` | `flicknote mcp` |
-| `guion-email` | `https://mail.guion.io/mcp` |
+[`apps/partner/ecosystem-mcp.example.toml`](../apps/partner/ecosystem-mcp.example.toml)
+is an optional, static template for `flicknote` and `web`. Start CFL once, then
+copy those two tables into the workspace configuration to opt in. Its comments
+document FlickNote's daemon prerequisite and Web's npm installation. Neither
+`project` nor `guion-email` is included: Project has no supported
+Codex-targeted npm installation contract, and Guion Email is not mature enough
+to make part of the documented ecosystem surface.
 
-The mail prompt selects the intended Partner mailbox; the app does not send
-test mail. Native Codex skill discovery remains enabled. Shell, patch,
-`view_image`, code mode and the selected MCPs are provided by official Codex,
-not reimplemented as app-owned wrappers. Discovery and authentication errors
-are surfaced as failures instead of being silently replaced by another
-provider.
+Native Codex skill discovery remains enabled. Shell, patch, `view_image`, code
+mode and configured MCPs are provided by official Codex, not reimplemented as
+app-owned wrappers. A missing bundled Companion MCP is an operator-facing
+startup failure; optional integration discovery and authentication failures are
+reported by Codex without stopping the Partner.
 
 ## Conversation behavior
 

@@ -18,14 +18,13 @@ const schema = z.object({
   }).strict().optional(),
   port: z.number().int().min(1024).max(65535).default(3082),
   codex: z.object({
-    command: z.string().min(1).default('codex'),
-    executable_type: z.enum(['cli', 'app-server']).default('cli'),
+    command: z.string().min(1).default('codex-app-server'),
     model: z.string().min(1).default(DEFAULT_CODEX_MODEL),
     version: z.literal(SUPPORTED_CODEX_VERSION).default(SUPPORTED_CODEX_VERSION),
     home: z.string().min(1).optional(),
     provenance: z.string().min(1).optional(),
     local_compaction: z.boolean().default(false),
-  }).strict().default({ command: 'codex', executable_type: 'cli', model: DEFAULT_CODEX_MODEL, version: SUPPORTED_CODEX_VERSION, local_compaction: false }),
+  }).strict().default({ command: 'codex-app-server', model: DEFAULT_CODEX_MODEL, version: SUPPORTED_CODEX_VERSION, local_compaction: false }),
   speech: z.object({
     endpoint: z.url().default('https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation'),
     tts: z.object({ provider: z.enum(['alibaba', 'bytedance']).default('alibaba'), endpoint: z.url().default('https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation'), model: z.string().min(1).default('qwen3-tts-flash'), voice: z.string().min(1).default('Maia') }).strict().optional(),

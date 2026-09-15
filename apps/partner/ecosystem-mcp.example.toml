@@ -1,0 +1,25 @@
+# Optional Lamplit ecosystem MCPs.
+#
+# CFL itself needs only its bundled `companion` MCP. Start CFL once to create
+# <workspace>/.codex/config.toml, then copy the tables below into that file if
+# you want these integrations. CFL preserves operator-provided MCP entries and
+# never waits for them before starting the Partner.
+
+# FlickNote stores and retrieves local-first notes through its user daemon.
+# Install: brew install GuionAI/tap/flicknote
+# Then authenticate and install/start the daemon: flicknote login
+# Check daemon readiness before use: flicknote daemon status
+# Docs: https://github.com/GuionAI/flicknote-cli#install
+#       https://github.com/GuionAI/flicknote-cli#mcp-server
+[mcp_servers.flicknote]
+command = "flicknote"
+args = ["mcp"]
+
+# Guion Web provides search, documentation lookup, source search, and fetching.
+# Install (Node.js 20+): npm install --global @guionai/web
+# This process uses the managed Kepos Bridge search provider.
+# Docs: https://github.com/GuionAI/web#install-and-configure
+#       https://github.com/GuionAI/web#mcp
+[mcp_servers.web]
+command = "web"
+args = ["mcp", "--provider", "kepos-bridge"]

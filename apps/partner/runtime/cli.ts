@@ -34,7 +34,6 @@ if (nativePackageRoot) {
     codex: {
       ...config.codex,
       command: join(root, 'bin', 'codex-app-server'),
-      executable_type: 'app-server',
       provenance: join(root, 'provenance.json'),
     },
   };

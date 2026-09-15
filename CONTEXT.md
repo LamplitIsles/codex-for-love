@@ -4,6 +4,10 @@ Lamplit is a self-hosted, one-to-one AI partner that maintains continuity and ow
 
 ## Language
 
+**Companion connection（聊天界面连接）**:
+The owner's live access to the Partner's current conversation state. Losing this connection does not mean the Partner's active work has stopped.
+_Avoid_: Partner execution state, task cancellation
+
 **Partner（伴侣）**:
 The persistent AI identity in one person's Lamplit deployment. A Partner may be understood as a boyfriend, girlfriend, or companion according to the relationship its owner chooses.
 _Avoid_: bot, assistant, character
@@ -51,6 +55,14 @@ _Avoid_: Relationship Journal, independent relationship state
 **Companion MCP**:
 The workspace-scoped tool service through which the Partner reads and changes relationship state and uses other Lamplit-specific capabilities.
 _Avoid_: Codex built-in tools, session tool snapshot
+
+**Minimal MCP configuration（极简 MCP 配置）**:
+A Partner workspace configuration containing only CFL's bundled Companion MCP among CFL-provided integrations. It lets the Partner start without Lamplit ecosystem services.
+_Avoid_: no-tools mode, MCP-free configuration
+
+**Ecosystem MCP template（生态 MCP 模板）**:
+A static, operator-copyable Codex TOML example that adds the selected Lamplit ecosystem MCPs to the minimal configuration. It is optional and does not make those services a Partner startup prerequisite.
+_Avoid_: deployment profile, auto-provisioned integration
 
 **Affinity growth（亲近度增长）**:
 The actual positive increase in affinity recorded for one relationship change. A change with unchanged or decreased affinity has no growth.

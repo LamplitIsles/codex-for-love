@@ -26,11 +26,12 @@ call the app-server durable queue APIs. Official history is read through
 paginated thread APIs on startup, refresh and resume.
 
 The configured app-server is pinned to `0.154.0` and defaults to
-`gpt-5.6-luna`. A project-local Codex config overlay declares the selected
-`web`, `project`, `flicknote` and `guion-email` MCPs and disables the known
-unselected host MCP entries. Native tools, skills and code mode remain
-official; only the three relationship operations and `roll_dice` are dynamic
-application tools.
+`gpt-5.6-luna`. A project-local Codex config overlay declares the bundled
+Companion MCP and relationship-context hook. FlickNote and Web are optional
+operator-provided MCPs described by a static template; CFL neither injects them
+nor requires them to connect. Native tools, skills and code mode remain
+official; the relationship operations and `roll_dice` are exposed through the
+current workspace Companion MCP rather than dynamic tool definitions.
 
 Native image generation is capability-gated. The host consumes official
 `imageGeneration` item lifecycle events and their saved artifacts, copies
@@ -73,7 +74,9 @@ rejected steers can be merged for a later native start, while an ordinary stop
 restores only locally unacknowledged input; neither behavior creates a durable
 application queue.
 It also means app-server version drift, missing native image capability,
-missing selected MCP executables and official authentication failures are
-startup/operator concerns and must be reported truthfully. Docker packaging,
+a missing bundled Companion MCP and official authentication failures are
+startup/operator concerns and must be reported truthfully. Optional MCP
+failures remain visible through official Codex status without stopping the
+Partner. Docker packaging,
 deployment cutover, historical migration and crash-recovery fault testing are
 separate work.

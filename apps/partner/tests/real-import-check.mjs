@@ -54,7 +54,7 @@ try {
   await writeFile(relationship, `${JSON.stringify({ at: '2026-09-13T00:00:00.000Z', changes: { seed: true }, state: { mood: 'neutral', affinity: 50, signature: '' } })}\n`);
   await new Promise((resolve) => provider.listen(0, '127.0.0.1', resolve));
   const port = provider.address().port;
-  await writeFile(join(codexHome, 'config.toml'), `model = "gpt-5.2"\nmodel_provider = "openai"\nopenai_base_url = "http://127.0.0.1:${port}/v1"\n[mcp_servers.og]\ncommand = "true"\n[mcp_servers.skill]\ncommand = "true"\n[mcp_servers.openaiDeveloperDocs]\ncommand = "true"\n[features]\nplugins = false\n[projects.${JSON.stringify(workspace)}]\ntrust_level = "trusted"\n`);
+  await writeFile(join(codexHome, 'config.toml'), `model = "gpt-5.2"\nmodel_provider = "openai"\nopenai_base_url = "http://127.0.0.1:${port}/v1"\n[features]\nplugins = false\n[projects.${JSON.stringify(workspace)}]\ntrust_level = "trusted"\n`);
   const executable = process.env.CODEX_PATCHED_CODEX;
   if (!executable) throw new Error('CODEX_PATCHED_CODEX is required');
   const config = { name: 'Mica', persona, state: stateRoot, workspace, port: 3082, codex: { command: executable, model: 'gpt-5.2', version: '0.154.0', home: codexHome, local_compaction: false } };

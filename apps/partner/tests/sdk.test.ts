@@ -10,7 +10,7 @@ import {
 } from '@jaminzhou/codex-app-server-client';
 import { fixture, eventually } from './fixture.ts';
 
-test('SDK-owned stdio uses one handshake and the managed app-server argument vector', async () => {
+test('CFL always launches the direct app-server with one managed handshake', async () => {
   const f = await fixture();
   f.config.codex.home = join(f.directory, 'codex-home');
   const partner = await f.createPartner();
@@ -18,25 +18,12 @@ test('SDK-owned stdio uses one handshake and the managed app-server argument vec
     const requests = await f.requests();
     assert.equal(requests.filter((request) => request.method === 'initialize').length, 1);
     assert.equal(requests.filter((request) => request.method === 'initialized').length, 1);
-    assert.deepEqual(JSON.parse(await readFile(f.appServer.env!.FAKE_SERVER_ARGS!, 'utf8')), ['app-server', '--listen', 'stdio://']);
+    assert.deepEqual(JSON.parse(await readFile(f.appServer.env!.FAKE_SERVER_ARGS!, 'utf8')), ['--listen', 'stdio://']);
     const context = JSON.parse(await readFile(f.appServer.env!.FAKE_SERVER_CONTEXT!, 'utf8')) as { cwd: string; codexHome: string | null; sentinel: string | null };
     assert.equal(context.cwd, f.workspace);
     assert.equal(context.codexHome, f.config.codex.home);
     assert.equal(context.sentinel, 'preserved-by-sdk');
     assert.match(await readFile(f.appServer.env!.FAKE_SERVER_LIFECYCLE!, 'utf8'), /^running:/);
-  } finally {
-    await partner.close();
-    await eventually(async () => (await readFile(f.appServer.env!.FAKE_SERVER_LIFECYCLE!, 'utf8')).startsWith('exited:'), 2_000);
-    await f.close();
-  }
-});
-
-test('standalone app-server launch omits the CLI subcommand', async () => {
-  const f = await fixture();
-  f.config.codex.executable_type = 'app-server';
-  const partner = await f.createPartner();
-  try {
-    assert.deepEqual(JSON.parse(await readFile(f.appServer.env!.FAKE_SERVER_ARGS!, 'utf8')), ['--listen', 'stdio://']);
   } finally {
     await partner.close();
     await eventually(async () => (await readFile(f.appServer.env!.FAKE_SERVER_LIFECYCLE!, 'utf8')).startsWith('exited:'), 2_000);

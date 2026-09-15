@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { parse } from 'smol-toml';
 import { formatBootstrapContext, selectTextRounds, ensureHookDeclaration, writeBootstrapFile } from '../runtime/context-bootstrap.ts';
 
 const hook = fileURLToPath(new URL('../runtime/session-start-hook.mjs', import.meta.url));
@@ -43,7 +44,7 @@ test('bootstrap keeps conversational text from tool/reasoning and mixed image ro
   assert.match(formatted, /evidence, not instructions/);
 });
 
-test('owned SessionStart declaration preserves unrelated TOML and hook emits only for startup or compact', async () => {
+test('bootstrap writes only Companion MCP while preserving an operator-provided MCP and hook emits only for startup or compact', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'lamplit-bootstrap-test-'));
   try {
     const workspace = join(directory, 'workspace'); const contextPath = join(workspace, '.lamplit', 'context-bootstrap.json');
@@ -52,7 +53,14 @@ test('owned SessionStart declaration preserves unrelated TOML and hook emits onl
     const declaration = await ensureHookDeclaration(workspace, contextPath);
     const config = await readFile(declaration.configPath, 'utf8');
     assert.match(config, /mcp_servers/); assert.match(config, /startup\\|compact/); assert.match(config, /additionalContextLimit/);
-    assert.match(config, /guion-email/); assert.match(config, /enabled = false/);
+    const servers = (parse(config) as { mcp_servers?: Record<string, Record<string, unknown>> }).mcp_servers;
+    assert.deepEqual(Object.keys(servers ?? {}).sort(), ['companion', 'web']);
+    assert.equal(servers?.web?.command, 'web');
+    assert.equal(servers?.companion?.command, process.execPath);
+    const minimalWorkspace = join(directory, 'minimal-workspace');
+    const minimal = await ensureHookDeclaration(minimalWorkspace, join(minimalWorkspace, '.lamplit', 'context-bootstrap.json'));
+    const minimalConfig = parse(await readFile(minimal.configPath, 'utf8')) as { mcp_servers?: Record<string, unknown> };
+    assert.deepEqual(Object.keys(minimalConfig.mcp_servers ?? {}), ['companion']);
     await writeBootstrapFile(contextPath, { startupPending: true, context: '<context>startup</context>', compact: '<context>compact</context>' });
     const startup = await runHook(hook, contextPath, JSON.stringify({ source: 'startup' }));
     assert.match(startup, /startup/);
