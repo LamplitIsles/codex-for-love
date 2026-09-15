@@ -67,6 +67,7 @@ jobs:
           node scripts/release-prepare.mjs "$RUNNER_TEMP/cfl-npm-release"
           node scripts/pack-check.mjs
       - name: Smoke the packed main package with the published native package
+        timeout-minutes: 3
         working-directory: ${{ runner.temp }}/cfl-release-source
         env:
           CFL_ARTIFACT_DIR: ${{ runner.temp }}/cfl-npm-release

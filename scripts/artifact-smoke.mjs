@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { execFileSync, spawn } from 'node:child_process';
+import { once } from 'node:events';
 import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -18,7 +19,8 @@ async function waitForServer(url, child, stderr) {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     if (child.exitCode !== null) throw new Error(`Packaged runtime exited before listening (${child.exitCode}): ${stderr()}`);
     try {
-      const response = await fetch(url);
+      const response = await fetch(url, { signal: AbortSignal.timeout(1000) });
+      await response.body?.cancel();
       if (response.ok) return;
     } catch {}
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -47,7 +49,7 @@ try {
   const native = nativeArchive ? join(artifacts, nativeArchive) : `${nativePackageName}@${nativeVersion}`;
   const prefix = join(temporary, 'prefix');
   const installInputs = [native, publicRegistry ? main : join(artifacts, main)];
-  execFileSync('npm', ['install', '--global', '--ignore-scripts', '--prefer-online', '--prefix', prefix, ...installInputs], { stdio: 'inherit' });
+  execFileSync('npm', ['install', '--global', '--ignore-scripts', '--prefer-online', '--prefix', prefix, ...installInputs], { stdio: 'inherit', timeout: 120_000 });
   execFileSync(join(prefix, 'bin', 'codex-for-love'), ['--help'], { stdio: 'inherit', env: { ...process.env, HOME: join(temporary, 'home') } });
   const nativeRoot = join(prefix, 'lib', 'node_modules', '@lamplitisles', 'codex-for-love-linux-x64');
   const mainRoot = join(prefix, 'lib', 'node_modules', '@lamplitisles', 'codex-for-love');
@@ -80,15 +82,29 @@ try {
   await writeFile(join(fixture, 'partner.toml'), `name = "Mica"\npersona = "./persona.md"\nstate = "./state"\nworkspace = "./workspace"\nport = ${port}\n[codex]\nmodel = "gpt-5.6-luna"\n`);
   const workspace = join(fixture, 'workspace');
   const runtime = spawn(join(prefix, 'bin', 'codex-for-love'), ['serve', join(fixture, 'partner.toml')], {
+    detached: true,
     env: { ...process.env, HOME: join(temporary, 'home'), FAKE_SERVER_ROOT: fixture, FAKE_SERVER_STATE: join(fixture, 'fake-state.json'), FAKE_SERVER_REQUESTS: join(fixture, 'requests.jsonl'), FAKE_SERVER_CONTROL: join(fixture, 'control.json'), FAKE_HOOK_COMMAND: `'${process.execPath}' '${join(mainRoot, 'vendor', 'runtime', 'session-start-hook.mjs')}' '${join(workspace, '.lamplit', 'context-bootstrap.json')}'`, FAKE_CONFIG_PATH: join(workspace, '.codex', 'config.toml') },
     stdio: ['ignore', 'ignore', 'pipe'],
   });
+  const closed = once(runtime, 'close');
   let stderr = '';
   runtime.stderr.on('data', (chunk) => { stderr = `${stderr}${chunk}`.slice(-4000); });
   try {
     await waitForServer(`http://127.0.0.1:${port}/`, runtime, () => stderr);
   } finally {
     runtime.kill('SIGTERM');
+    let timer;
+    try {
+      const [code, signal] = await Promise.race([
+        closed,
+        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Installed runtime did not close within 10s after SIGTERM')), 10_000); }),
+      ]);
+      if (code !== 0 || signal) throw new Error(`Installed runtime stopped abnormally (${code}, ${signal}): ${stderr}`);
+    } finally {
+      clearTimeout(timer);
+      // Kill only this test-owned process group if graceful cleanup failed.
+      try { process.kill(-runtime.pid, 'SIGKILL'); } catch (error) { if (error.code !== 'ESRCH') throw error; }
+    }
   }
   console.log(JSON.stringify({ prefix, native: nativeArchive ?? native, main, nativeVersion }, null, 2));
 } finally {

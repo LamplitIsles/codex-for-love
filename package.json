@@ -10,7 +10,7 @@
   "scripts": {
     "build": "pnpm --filter @lamplitisles/partner build",
     "check": "pnpm --filter @lamplitisles/partner check",
-    "test": "pnpm --filter @lamplitisles/partner test",
+    "test": "node --test scripts/launcher.test.mjs && pnpm --filter @lamplitisles/partner test",
     "start": "pnpm --filter @lamplitisles/partner start",
     "release:prepare": "node scripts/release-prepare.mjs",
     "release:check": "node scripts/pack-check.mjs",
