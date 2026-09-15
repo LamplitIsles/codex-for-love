@@ -12,6 +12,7 @@ try {
   const packed = JSON.parse(execFileSync('npm', ['pack', '--json', '--dry-run'], { cwd: path, encoding: 'utf8' }))[0];
   const files = new Set(packed.files.map((file) => file.path));
   const manifest = JSON.parse(await readFile(join(path, 'package.json'), 'utf8'));
+  if (manifest.repository?.type !== 'git' || manifest.repository?.url !== 'git+https://github.com/LamplitIsles/codex-for-love.git') throw new Error(`${name} repository must match the case-sensitive GitHub provenance identity LamplitIsles/codex-for-love.`);
   if (manifest.name !== name || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/u.test(manifest.version)) throw new Error(`${name} has an unexpected identity.`);
   if (['install', 'preinstall', 'postinstall'].some((key) => key in (manifest.scripts ?? {}))) throw new Error(`${name} ships an install hook.`);
   if ([...files].some((file) => file.includes('.git') || file.endsWith('.tgz'))) throw new Error(`${name} contains a source-control or nested archive file.`);
