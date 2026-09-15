@@ -1,4 +1,5 @@
 packages:
   - apps/partner
 allowBuilds:
+  '@jaminzhou/codex-app-server-client@https://codeload.github.com/lamplitisles/codex-app-server-client/tar.gz/56ab11736036d6a5c3dd6e150498dec2d95b2bf5': true
   esbuild: true

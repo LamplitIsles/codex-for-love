@@ -26,6 +26,7 @@ export type BootstrapFile = {
 };
 
 const hookFileName = 'session-start-hook.mjs';
+const companionMcpFileName = import.meta.url.endsWith('.mjs') ? 'companion-mcp.mjs' : 'companion-mcp.ts';
 
 function safeState(state: CompanionState | undefined): CompanionState {
   return state ?? { mood: 'neutral', affinity: 50, signature: '' };
@@ -141,7 +142,7 @@ function ensureMcpInventory(config: Record<string, unknown>, workspace: string):
   const servers = isRecord(config.mcp_servers) ? config.mcp_servers : {};
   let changed = !isRecord(config.mcp_servers);
   for (const [name, required] of Object.entries({
-    companion: { command: process.execPath, args: [fileURLToPath(new URL('./companion-mcp.ts', import.meta.url)), resolve(workspace)] },
+    companion: { command: process.execPath, args: [fileURLToPath(new URL(`./${companionMcpFileName}`, import.meta.url)), resolve(workspace)] },
     ...selectedMcpServers,
   })) {
     const server = isRecord(servers[name]) ? servers[name] : {};

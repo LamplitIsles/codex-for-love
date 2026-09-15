@@ -6,3 +6,6 @@ node_modules/
 apps/partner/.svelte-kit/
 apps/partner/build/
 apps/partner/state/
+packages/codex-for-love/vendor/
+packages/codex-for-love-linux-x64/bin/
+packages/codex-for-love-linux-x64/provenance.json

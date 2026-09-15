@@ -80,13 +80,14 @@ provenance with the chunks; logical v3 keeps its separate final-message contract
 
 ## External official runtime
 
-The runtime targets the installed official Codex CLI/app-server `0.154.0`
-over SDK-managed JSONL stdio through the pinned
-`@jaminzhou/codex-app-server-client@0.2.1`. The SDK supplies typed protocol
-bindings, strict boundary validation and process/RPC lifecycle management; the
-configured `codex.command` remains the selected executable at runtime. The
-SDK's bundled `@openai/codex@0.154.0` dependency establishes the protocol
-baseline and is not silently selected in place of the configured executable.
+The runtime targets Codex app-server `0.154.0` over SDK-managed JSONL stdio
+through `@jaminzhou/codex-app-server-client` pinned to immutable source revision
+`56ab11736036d6a5c3dd6e150498dec2d95b2bf5` of
+`lamplitisles/codex-app-server-client`. The SDK supplies typed protocol
+bindings, strict boundary validation and process/RPC lifecycle management. The
+published CFL package vendors that pinned SDK revision and supplies an explicit
+LamplitIsles standalone app-server binary, so end-user installation does not
+clone the SDK or select its bundled official CLI fallback.
 The runtime relies on the operator's existing official device-auth login for
 model transport and uses official native tools, skill discovery, selected MCP
 clients, history and compaction. The Companion does not use the official
@@ -115,21 +116,32 @@ The imported LamplitIsles source described above is Apache-2.0; the repository
 root [`LICENSE`](../LICENSE) supplies its terms.
 
 Noto Sans SC is supplied through `@fontsource/noto-sans-sc` under SIL Open Font
-License 1.1. The package's upstream notice remains in its installed package
-metadata; release packaging must carry the corresponding font notice if this
-app is bundled.
+License 1.1. Release preparation copies its upstream `LICENSE` verbatim to
+`vendor/licenses/NotoSansSC-OFL-1.1.txt` in the packed main package. The same
+directory retains the SDK MIT and generated Codex Apache-2.0 license texts from
+the repository's `licenses/` directory.
 
 No obsolete nanocodex package artifacts, source checkout, or release claim is
 part of the current application. The old artifact-preparation script was
 removed with that runtime.
 
-## Maintained Codex patches
+## Native release artifact
 
-`patches/0001-local-compaction.patch` and
-`patches/0002-neutral-summary-prefix.patch` modify OpenAI Codex 0.154.0,
-revision `6b9826e3aa83b1a5947db50f4332cb9c65f1b340`, from
-<https://github.com/openai/codex>. Codex is Apache-2.0 licensed; the build-owned
-source retains its upstream license and notices. The patches add an explicit
-local compaction override and replace the shared continuity summary prefix.
-The repository stores patches and build scripts, not the upstream source tree
-or compiled artifacts. The SDK remains pinned to 0.2.1 and protocol 0.154.0.
+The Linux x64 native npm package contains candidate
+`cfl/v0.154.0-app-server-musl.1` from the LamplitIsles Codex fork revision
+`445477b6a83514611ac206d2ab04b79374555a4c`. Its checked-in manifest at
+`release/codex-artifact.json` pins the archive and executable SHA-256 values.
+`@lamplitisles/codex-for-love-linux-x64@0.1.0-beta.0` is the published
+distribution artifact and preserves its native `provenance.json`, license and
+notice. Later CFL main releases continue to pin that exact native version until
+an explicitly reviewed binary update publishes a replacement.
+
+## npm publication workflow
+
+`.github/workflows/publish.yml` and the narrow `scripts/release-*.mjs` helpers
+adapt the OIDC publication sequence from `LamplitIsles/dsh-plugins`: strict
+semver release authority, frozen Node/pnpm setup, immutable tarball comparison,
+provenance publication, and bounded registry propagation. CFL deliberately
+uses one tag-authoritative main package rather than DSH's main-push change
+detection and package matrix. It has no DSH runtime dependency, native Rust
+build, GitHub Release, npm token fallback, or automatic native publication.

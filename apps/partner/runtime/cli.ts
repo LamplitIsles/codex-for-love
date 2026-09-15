@@ -11,12 +11,34 @@ import { migrateRelationshipJournal } from './migrate-relationship-journal.ts';
 const cliArgs = process.argv.slice(2);
 if (cliArgs[0] === '--') cliArgs.shift();
 if (cliArgs[1] === '--') cliArgs.splice(1, 1);
+const nativeRootIndex = cliArgs.indexOf('--native-package-root');
+const nativePackageRoot = nativeRootIndex === -1 ? undefined : cliArgs[nativeRootIndex + 1];
+if (nativeRootIndex !== -1) {
+  if (!nativePackageRoot) throw new Error('--native-package-root requires a package root');
+  cliArgs.splice(nativeRootIndex, 2);
+}
+if (cliArgs.includes('--help') || cliArgs.includes('-h')) {
+  console.log('Usage: codex-for-love <serve|credential|import-session|migrate-relationship-journal> <config.toml>');
+  process.exit(0);
+}
 const dryRun = cliArgs.includes('--dry-run');
 const stdin = cliArgs.includes('--stdin');
 const positionalArgs = cliArgs.filter((argument) => argument !== '--dry-run' && argument !== '--stdin');
 const [command, configPath, name, companionStatePath, attachmentRoot, destinationPath, dshSettingsPath] = positionalArgs;
 if (!configPath) throw new Error('Usage: cli.ts <serve|credential|import-session|migrate-relationship-journal> <config.toml> [speech|tts --stdin|log destination]');
-const config = await loadConfig(resolve(configPath));
+let config = await loadConfig(resolve(configPath));
+if (nativePackageRoot) {
+  const root = resolve(nativePackageRoot);
+  config = {
+    ...config,
+    codex: {
+      ...config.codex,
+      command: join(root, 'bin', 'codex-app-server'),
+      executable_type: 'app-server',
+      provenance: join(root, 'provenance.json'),
+    },
+  };
+}
 if (command === 'credential') {
   if (name !== 'speech' && name !== 'tts') throw new Error('Credential name must be speech or tts');
   if (!stdin) throw new Error('Use --stdin to supply the credential without exposing it in command arguments');

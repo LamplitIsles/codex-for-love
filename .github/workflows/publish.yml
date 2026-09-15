@@ -1,0 +1,108 @@
+name: Publish CFL npm package
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    if: github.repository == 'LamplitIsles/codex-for-love'
+    concurrency:
+      group: npm-publish-codex-for-love
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.11.0'
+          package-manager-cache: false
+      - name: Require a strict tag on reviewed main history
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          git tag --points-at "$GITHUB_SHA" | grep -Fx "$RELEASE_TAG"
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          node scripts/release-shared.mjs "$RELEASE_TAG" >/dev/null
+      - name: Verify the exact published native package
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: node scripts/publish-preflight.mjs "$RELEASE_TAG"
+      - name: Create disposable tag-authoritative release source
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          stage="$RUNNER_TEMP/cfl-release-source"
+          mkdir -p "$stage"
+          git archive "$GITHUB_SHA" | tar -x -C "$stage"
+          node scripts/release-stage.mjs "$stage" "$RELEASE_TAG"
+      - name: Install pinned toolchain and dependencies
+        working-directory: ${{ runner.temp }}/cfl-release-source
+        run: |
+          npm install --global npm@11.17.0 corepack@0.35.0
+          corepack enable
+          corepack pnpm install --frozen-lockfile
+      - name: Typecheck and test CFL
+        working-directory: ${{ runner.temp }}/cfl-release-source
+        run: |
+          corepack pnpm check
+          corepack pnpm test
+      - name: Build, inspect, and pack the staged main package
+        working-directory: ${{ runner.temp }}/cfl-release-source
+        run: |
+          mkdir -p "$RUNNER_TEMP/cfl-npm-release"
+          node scripts/release-prepare.mjs "$RUNNER_TEMP/cfl-npm-release"
+          node scripts/pack-check.mjs
+      - name: Smoke the packed main package with the published native package
+        working-directory: ${{ runner.temp }}/cfl-release-source
+        env:
+          CFL_ARTIFACT_DIR: ${{ runner.temp }}/cfl-npm-release
+        run: node scripts/artifact-smoke.mjs
+      - name: Verify immutable tarball and registry state
+        id: preflight
+        working-directory: ${{ runner.temp }}/cfl-release-source
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          shopt -s nullglob
+          artifacts=("$RUNNER_TEMP/cfl-npm-release/"*.tgz)
+          test "${#artifacts[@]}" -eq 1
+          node scripts/publish-preflight.mjs "$RELEASE_TAG" "${artifacts[0]}"
+      - name: Publish verified tarball using OIDC
+        if: steps.preflight.outputs.skip != 'true'
+        env:
+          NPM_CHANNEL: ${{ steps.preflight.outputs.channel }}
+        run: |
+          shopt -s nullglob
+          artifacts=("$RUNNER_TEMP/cfl-npm-release/"*.tgz)
+          test "${#artifacts[@]}" -eq 1
+          npm publish "${artifacts[0]}" --registry=https://registry.npmjs.org --access public --tag "$NPM_CHANNEL" --provenance
+      - name: Verify public registry propagation
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+          NPM_INTEGRITY: ${{ steps.preflight.outputs.integrity }}
+        run: |
+          version="${RELEASE_VERSION#v}"
+          for attempt in $(seq 1 24); do
+            echo "Registry verification attempt $attempt/24"
+            if actual=$(npm view "@lamplitisles/codex-for-love@$version" dist.integrity --registry=https://registry.npmjs.org --prefer-online); then
+              test "$actual" = "$NPM_INTEGRITY"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo 'Publication did not propagate with the verified tarball integrity; inspect npm before retrying.' >&2
+          exit 1

@@ -1186,6 +1186,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
       capabilities: { ...injected.capabilities, experimentalApi: true, requestAttestation: false },
       clientInfo: { ...injected.clientInfo, name: 'codex-for-love', title: 'Codex for Love', version: '0.1.0' },
       codexPath: selectedCodexPath,
+      codexExecutableType: config.codex.executable_type,
       configOverrides: injected.configOverrides,
       cwd: paths.workspaceRoot,
       env: environment,

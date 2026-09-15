@@ -31,6 +31,19 @@ test('SDK-owned stdio uses one handshake and the managed app-server argument vec
   }
 });
 
+test('standalone app-server launch omits the CLI subcommand', async () => {
+  const f = await fixture();
+  f.config.codex.executable_type = 'app-server';
+  const partner = await f.createPartner();
+  try {
+    assert.deepEqual(JSON.parse(await readFile(f.appServer.env!.FAKE_SERVER_ARGS!, 'utf8')), ['--listen', 'stdio://']);
+  } finally {
+    await partner.close();
+    await eventually(async () => (await readFile(f.appServer.env!.FAKE_SERVER_LIFECYCLE!, 'utf8')).startsWith('exited:'), 2_000);
+    await f.close();
+  }
+});
+
 test('wrong version and missing executable fail after SDK cleanup', async () => {
   const wrongVersion = await fixture();
   wrongVersion.appServer.env!.FAKE_SERVER_VERSION = '0.153.0';

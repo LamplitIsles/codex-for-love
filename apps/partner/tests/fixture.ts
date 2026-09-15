@@ -6,7 +6,6 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { CodexAppServerClientOptions } from '@jaminzhou/codex-app-server-client';
 import type { Config, Credentials } from '../runtime/config.ts';
 import { createPartner, type Partner } from '../runtime/partner.ts';
-import { CODEX_PATCHES, CODEX_SOURCE_REVISION } from '../runtime/provenance.ts';
 
 const fakeServer = fileURLToPath(new URL('./fake-app-server-entry.mjs', import.meta.url));
 const hookScript = fileURLToPath(new URL('../runtime/session-start-hook.mjs', import.meta.url));
@@ -30,7 +29,7 @@ export async function fixture() {
   await writeFile(controlPath, '{}', { mode: 0o600 });
   const config: Config = {
     name: 'Mica', persona, state: directory, workspace, port: 3082,
-    codex: { command: fakeServer, model: 'gpt-5.6-luna', version: '0.154.0', home: join(directory, 'codex-home'), local_compaction: false },
+    codex: { command: fakeServer, executable_type: 'cli', model: 'gpt-5.6-luna', version: '0.154.0', home: join(directory, 'codex-home'), local_compaction: false },
   };
   const credentials: Credentials = {};
   const environment: Record<string, string> = {
@@ -64,19 +63,19 @@ export async function fixture() {
       config.codex.command = executable;
       const helper = 'test-owned code-mode host';
       await writeFile(join(directory, 'codex-code-mode-host'), helper, { mode: 0o755 });
-      const provenance = join(directory, 'codex.provenance.json');
+      const provenance = join(directory, 'provenance.json');
       const binarySha256 = createHash('sha256').update(await readFile(executable)).digest('hex');
       await writeFile(provenance, `${JSON.stringify({
         schemaVersion: 1,
+        forkRepository: 'https://github.com/lamplitisles/codex',
+        sourceRevision: '445477b6a83514611ac206d2ab04b79374555a4c',
+        releaseTag: 'cfl/v0.154.0-app-server-musl.1',
         codexVersion: '0.154.0',
-        sdkVersion: '0.2.1',
-        upstreamRepository: 'https://github.com/openai/codex',
-        sourceRevision: CODEX_SOURCE_REVISION,
-        patches: CODEX_PATCHES,
-        binaryPath: executable,
-        codeModeHostSha256: createHash('sha256').update(helper).digest('hex'),
-        binarySha256,
-        binaryIdentity: 'codex-cli 0.154.0',
+        target: 'x86_64-unknown-linux-musl',
+        executables: {
+          'bin/codex-app-server': binarySha256,
+          'bin/codex-code-mode-host': createHash('sha256').update(helper).digest('hex'),
+        },
       }, null, 2)}\n`);
       config.codex.local_compaction = true;
       config.codex.provenance = provenance;

@@ -15,11 +15,8 @@ companion = "./workspace/.lamplit/profile/companion-avatar.png"
 user = "./workspace/.lamplit/profile/user-avatar.png"
 
 [codex]
-command = "codex"
 model = "gpt-5.6-luna"
-version = "0.154.0"
-# For the customized build, replace command above with its absolute codex path:
-# provenance = "/absolute/path/to/artifact/codex.provenance.json"
+# The installed launcher selects and verifies its matching standalone app-server.
 # local_compaction = true
 # home = "/path/to/a/Codex-home" # omit to use the existing Codex login
 

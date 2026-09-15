@@ -6,35 +6,24 @@ import { dirname, join, isAbsolute, resolve } from 'node:path';
 import { z } from 'zod';
 import { SUPPORTED_CODEX_VERSION } from './config.ts';
 
-export const CODEX_SOURCE_REVISION = '6b9826e3aa83b1a5947db50f4332cb9c65f1b340';
+const CFL_FORK_REPOSITORY = 'https://github.com/lamplitisles/codex';
+const CFL_FORK_SOURCE_REVISION = '445477b6a83514611ac206d2ab04b79374555a4c';
+const CFL_MUSL_TARGET = 'x86_64-unknown-linux-musl';
 
-export const CODEX_PATCHES = [
-  {
-    path: 'patches/0001-local-compaction.patch',
-    sha256: '7cdae90c40ce112cb3a591a1890be2fd32683b7d48426ed7a51813db9ee40926',
-  },
-  {
-    path: 'patches/0002-neutral-summary-prefix.patch',
-    sha256: '1b57a1fbd311fac1a209ba2749fb8810ac858f1c897f324dee0bf5395779f3f2',
-  },
-] as const;
-
-const provenanceSchema = z.object({
+const standaloneProvenanceSchema = z.object({
   schemaVersion: z.literal(1),
+  forkRepository: z.literal(CFL_FORK_REPOSITORY),
+  sourceRevision: z.literal(CFL_FORK_SOURCE_REVISION),
+  releaseTag: z.string().regex(/^cfl\/v0\.154\.0-app-server-musl\.[0-9]+$/u),
   codexVersion: z.literal(SUPPORTED_CODEX_VERSION),
-  sdkVersion: z.literal('0.2.1'),
-  upstreamRepository: z.literal('https://github.com/openai/codex'),
-  sourceRevision: z.literal(CODEX_SOURCE_REVISION),
-  patches: z.array(z.object({
-    path: z.string().min(1),
-    sha256: z.string().regex(/^[a-f0-9]{64}$/u),
-  }).strict()).length(CODEX_PATCHES.length),
-  binaryPath: z.string().min(1),
-  binarySha256: z.string().regex(/^[a-f0-9]{64}$/u),
-  codeModeHostSha256: z.string().regex(/^[a-f0-9]{64}$/u),
-  binaryIdentity: z.string().min(1),
+  target: z.literal(CFL_MUSL_TARGET),
+  executables: z.object({
+    'bin/codex-app-server': z.string().regex(/^[a-f0-9]{64}$/u),
+    'bin/codex-code-mode-host': z.string().regex(/^[a-f0-9]{64}$/u),
+  }).strict(),
 }).strict();
 
+const provenanceSchema = standaloneProvenanceSchema;
 type CodexProvenance = z.infer<typeof provenanceSchema>;
 
 async function sha256(path: string): Promise<string> {
@@ -71,17 +60,20 @@ export async function verifyCodexArtifact(command: string, provenancePath: strin
     throw provenanceError(provenancePath, error instanceof Error ? error.message : String(error));
   }
 
-  if (provenance.patches.some((patch, index) => patch.path !== CODEX_PATCHES[index]?.path
-    || patch.sha256 !== CODEX_PATCHES[index]?.sha256)) {
-    throw provenanceError(provenancePath, 'patch set does not match the maintained Codex patch set');
-  }
-  if (!isAbsolute(provenance.binaryPath) || resolve(provenance.binaryPath) !== selectedPath) {
-    throw provenanceError(provenancePath, `binaryPath does not match configured codex.command ${selectedPath}`);
-  }
-  if (!provenance.binaryIdentity.includes(SUPPORTED_CODEX_VERSION)) {
-    throw provenanceError(provenancePath, `binary identity does not contain ${SUPPORTED_CODEX_VERSION}`);
-  }
+  await verifyExecutableHashes(
+    selectedPath,
+    provenancePath,
+    provenance.executables['bin/codex-app-server'],
+    provenance.executables['bin/codex-code-mode-host'],
+  );
+}
 
+async function verifyExecutableHashes(
+  selectedPath: string,
+  provenancePath: string,
+  expectedBinaryHash: string,
+  expectedHelperHash: string,
+): Promise<void> {
   try {
     const binary = await stat(selectedPath);
     if (!binary.isFile()) throw new Error('selected path is not a regular file');
@@ -91,12 +83,12 @@ export async function verifyCodexArtifact(command: string, provenancePath: strin
   }
 
   const actualHash = await sha256(selectedPath);
-  if (actualHash !== provenance.binarySha256) {
+  if (actualHash !== expectedBinaryHash) {
     throw provenanceError(provenancePath, `binary hash mismatch for ${selectedPath}`);
   }
   const helper = join(dirname(selectedPath), 'codex-code-mode-host');
   await access(helper, constants.X_OK);
-  if (await sha256(helper) !== provenance.codeModeHostSha256) {
+  if (await sha256(helper) !== expectedHelperHash) {
     throw provenanceError(provenancePath, 'code-mode host hash does not match');
   }
 }

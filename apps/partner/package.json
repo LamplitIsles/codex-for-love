@@ -16,7 +16,7 @@
     "@capacitor/core": "8.5.1",
     "@fontsource/noto-sans-sc": "^5.3.0",
     "@humanspeak/svelte-markdown": "1.8.5",
-    "@jaminzhou/codex-app-server-client": "0.2.1",
+    "@jaminzhou/codex-app-server-client": "github:lamplitisles/codex-app-server-client#56ab11736036d6a5c3dd6e150498dec2d95b2bf5",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "katex": "0.16.47",
     "lucide-svelte": "1.0.1",

@@ -23,8 +23,8 @@ importers:
         specifier: 1.8.5
         version: 1.8.5(katex@0.16.47)(svelte@5.57.0)
       '@jaminzhou/codex-app-server-client':
-        specifier: 0.2.1
-        version: 0.2.1
+        specifier: github:lamplitisles/codex-app-server-client#56ab11736036d6a5c3dd6e150498dec2d95b2bf5
+        version: https://codeload.github.com/lamplitisles/codex-app-server-client/tar.gz/56ab11736036d6a5c3dd6e150498dec2d95b2bf5
       '@modelcontextprotocol/sdk':
         specifier: ^1.30.0
         version: 1.30.0(zod@4.6.2)
@@ -120,8 +120,9 @@ packages:
       shiki:
         optional: true
 
-  '@jaminzhou/codex-app-server-client@0.2.1':
-    resolution: {integrity: sha512-FbhtuvWt/bGvKfbtMCUrNueDFRqqCcFuKCDNJ1wSy4Dx+EqR0jnxhDjB5hybihTAfLvBTlSicsnU+NgtQqp1GA==}
+  '@jaminzhou/codex-app-server-client@https://codeload.github.com/lamplitisles/codex-app-server-client/tar.gz/56ab11736036d6a5c3dd6e150498dec2d95b2bf5':
+    resolution: {gitHosted: true, integrity: sha512-IbBg93HLFS/D+t5spdsRLorX9/pZL+g3QosP4rh2y/9+3FIDEpZuJQ6o6+oZ9A0+eVXDE/C6QV4oDNAbbL/aRg==, tarball: https://codeload.github.com/lamplitisles/codex-app-server-client/tar.gz/56ab11736036d6a5c3dd6e150498dec2d95b2bf5}
+    version: 0.2.1
     engines: {node: '>=18'}
 
   '@jridgewell/gen-mapping@0.3.13':
@@ -1277,7 +1278,7 @@ snapshots:
     optionalDependencies:
       katex: 0.16.47
 
-  '@jaminzhou/codex-app-server-client@0.2.1':
+  '@jaminzhou/codex-app-server-client@https://codeload.github.com/lamplitisles/codex-app-server-client/tar.gz/56ab11736036d6a5c3dd6e150498dec2d95b2bf5':
     dependencies:
       '@openai/codex': 0.154.0
       '@types/node': 26.1.1

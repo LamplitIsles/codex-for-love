@@ -26,9 +26,10 @@ workflow is described below.
 
 - Node 24 (the root `package.json` declares `>=24`).
 - pnpm 11.22.0, pinned by `packageManager`.
-- Codex CLI/app-server 0.154.0 on `PATH`, or an explicit executable in the
-  TOML configuration. The runtime fails at startup when that executable is
-  unavailable or reports a different app-server version.
+- Linux x64 users can install the published beta with
+  `npm install -g @lamplitisles/codex-for-love@0.1.0-beta.0`. It brings the
+  exact matching musl app-server package; other platforms are currently
+  unsupported.
 - The Partner uses `@jaminzhou/codex-app-server-client` 0.2.1 for typed,
   SDK-managed stdio. The SDK is pinned to the same Codex 0.154.0 protocol
   baseline, but the executable in `codex.command` remains the runtime
@@ -38,6 +39,22 @@ workflow is described below.
   or refresh credentials itself.
 
 ## Install, check and run
+
+The published CLI supplies and verifies its native app-server, so an installed
+configuration omits `codex.command`, `codex.version`, and
+`codex.provenance`:
+
+```sh
+npm install -g @lamplitisles/codex-for-love@0.1.0-beta.0
+codex-for-love serve /path/to/partner.toml
+```
+
+It never compiles or downloads native code in an install hook. The main package
+pins one immutable native package version; later CFL application releases may
+keep that native version unchanged. An official Codex login remains
+operator-owned.
+
+For checkout development, retain the pinned pnpm workflow:
 
 From the repository root:
 
@@ -168,12 +185,11 @@ generation or remote compaction-result behavior.
 - `name` and `persona` select the Partner identity. The Owner-maintained
   companion base instructions are loaded from `runtime/prompts.ts`; the worker
   only assembles them with the selected persona.
-- `codex.command`, `codex.model` and `codex.version` select the official
-  app-server. The supported version is currently `0.154.0`; the default model
-  is `gpt-5.6-luna`. Omit `codex.home` to use the existing authorized Codex
-  home, or set it to an operator-owned Codex home. The SDK owns the
-  `app-server --listen stdio://` arguments and applies a strict protocol
-  validator; only additional app-server flags belong in its SDK boundary.
+- Published installs select the bundled standalone app-server and verify its
+  fork release identity and both executable hashes before startup. Their
+  configuration needs only `codex.model`, optional `codex.home`, and optional
+  `local_compaction`; the default model is `gpt-5.6-luna`. Checkout development
+  may explicitly select an app-server executable for its developer config.
 - `workspace` contains the ordinary working files and the application-owned
   `.lamplit/` subtree. `.lamplit/session.sqlite` contains presentation and
   relationship metadata, `.lamplit/thread.json` identifies the official
@@ -312,13 +328,11 @@ which consumes the Owner-authored `compactionPrompt`. Enable it explicitly:
 
 ```toml
 [codex]
-command = "/absolute/path/to/artifact/codex"
-provenance = "/absolute/path/to/artifact/codex.provenance.json"
 local_compaction = true
 ```
 
-The host verifies the artifact hash, source revision and patch declarations
-before SDK startup, and sets the override on both thread start and resume.
+The host verifies the artifact hash, exact fork revision and helper hash before
+SDK startup, and sets the override on both thread start and resume.
 The local summary uses a neutral continuity prefix; builtin OpenAI provider
 identity is unchanged. Without the override, upstream routing remains active;
 remote-v2 does not consume `compact_prompt`.
@@ -343,46 +357,25 @@ Source provenance and retained upstream licenses are recorded in
 [`docs/IMPORTS.md`](docs/IMPORTS.md). The ownership decision is recorded in
 [`docs/adr/0001-codex-app-server.md`](docs/adr/0001-codex-app-server.md).
 
-## Building the patched Codex locally
+## Publishing the main package
 
-On Linux with a user systemd manager, use the resource-limited entry point:
+`release/codex-artifact.json` is the immutable identity contract for the
+already-published Linux native package: fork revision, provenance, and both
+executable hashes. Main-package CI downloads that exact npm package and checks
+those values before building CFL; it never compiles Rust or downloads a Codex
+GitHub Release.
 
-```sh
-pnpm run codex:build
-```
+After a reviewed commit is on `main`, publish a CFL main release by pushing one
+strict semver tag through the governed Git workflow, for example
+`v0.1.0-beta.1` or `v0.1.0`. The tag is the only main-package version source.
+The workflow stages a disposable manifest at that version, leaving the checkout,
+lockfile, and native dependency pin unchanged. Prerelease tags use npm's `beta`
+dist-tag; stable tags use `latest`. The OIDC workflow verifies its packed
+tarball, performs an isolated installed-runtime HTTP smoke check, publishes
+with provenance, and checks registry propagation. It safely skips an existing
+version only when its immutable npm integrity matches the staged tarball.
 
-The pnpm command pins this host’s existing Nix pkg-config/OpenSSL/patchelf
-paths, uses `/home/neil/code/projects/openai/codex`, and writes a new
-timestamped directory under `.cache/codex-artifacts/`. For another host, call
-`bash scripts/build-codex-patches-local.sh --source CHECKOUT --output OUTPUT`
-directly. The checkout must contain the pinned upstream revision; it is read without
-modification. Choose a new output directory for each artifact. The wrapper
-waits for completion and returns the build's status, using eight Cargo jobs,
-an eight-CPU quota, a 6 GiB memory limit and at most 512 MiB of swap for the
-whole build. `CARGO_BUILD_JOBS` can lower parallelism without changing the
-limits. Exceeding the memory limit can fail the build; it does not guarantee
-that unrelated host workloads cannot exhaust resources. Check available host
-disk space before starting; this entry point does not monitor Windows disk
-space. Stop this build with `systemctl --user stop cfl-codex-build-local`.
-
-The reusable source and Cargo cache live in `.cache/codex-build`; interrupted
-builds preserve completed artifacts. The `codex` CLI is built with optimization level 1 and LTO, debug information
-and incremental compilation disabled. Its unmodified `codex-code-mode-host`
-helper is copied from the SDK’s lockfile-pinned official Codex 0.154.0 package;
-its V8 runtime is not built locally. Both executable hashes are verified at
-application startup. Cargo still reuses unchanged compiled dependencies.
-The output contains `codex`, its `codex.provenance.json` sidecar, and
-`codex-code-mode-host`. Keep both executables together; native code-mode tools
-resolve the helper beside the CLI.
-
-CI or hosts without systemd can call `scripts/build-codex-patches.sh` directly
-(default: one job). Both entry points use the installed Rust toolchain and
-require the native build prerequisites for the pinned Codex source. If Nix
-provides OpenSSL/pkg-config, export `PKG_CONFIG` and `PKG_CONFIG_PATH`; the
-local wrapper forwards them without embedding host-specific store paths.
-
-When OpenSSL is supplied by Nix, `patchelf` must also be on `PATH`. The build
-adds the discovered OpenSSL library directory to the output binary's RPATH
-before checking its version and hashing it; Cargo's cached binary is unchanged.
-This is a host-local artifact, not a portable/static release. Its referenced
-Nix store libraries must remain available on the deployment host.
+Do not use `git push` directly for this governed release operation. After the
+required review, use the repository's `og` tag-push workflow. The Trusted
+Publisher setup is a separate human-only `.scratch` wizard; no npm token or
+GitHub secret is used by this repository.

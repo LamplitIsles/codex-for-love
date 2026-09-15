@@ -12,6 +12,9 @@
     "check": "pnpm --filter @lamplitisles/partner check",
     "test": "pnpm --filter @lamplitisles/partner test",
     "start": "pnpm --filter @lamplitisles/partner start",
-    "codex:build": "PATH=\"/nix/store/3vs2fr2mazafcdwyza15bfhpmccx1k7z-patchelf-0.15.2/bin:$PATH\" PKG_CONFIG=/nix/store/j5fz28pic24azmxkv183hk6fchfs7ag8-pkg-config-0.29.2/bin/pkg-config PKG_CONFIG_PATH=/nix/store/qi22r2qc7fnvnw807pdc5p9a7yrxi6rr-openssl-3.6.2-dev/lib/pkgconfig bash scripts/build-codex-patches-local.sh --source /home/neil/code/projects/openai/codex --output \".cache/codex-artifacts/$(date -u +%Y%m%dT%H%M%S%NZ)\""
+    "release:prepare": "node scripts/release-prepare.mjs",
+    "release:check": "node scripts/pack-check.mjs",
+    "release:smoke": "node scripts/artifact-smoke.mjs",
+    "release:preflight": "node scripts/publish-preflight.mjs"
   }
 }

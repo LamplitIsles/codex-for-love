@@ -191,6 +191,7 @@ plugins = false
     }
     client = new CodexAppServerClient({
       codexPath: selectedCodex ?? resolveCodexBinary().executablePath,
+      ...(selectedCodex ? { codexExecutableType: 'app-server' } : {}),
       cwd: workspace,
       env: environment,
       protocolValidation: 'strict',

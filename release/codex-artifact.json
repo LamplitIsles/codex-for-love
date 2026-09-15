@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "archiveSha256": "5d89d2bd748e227600d7dabe2b6bdf4741820b1588a510b8a9dc7e08ac555938",
+  "forkRepository": "https://github.com/lamplitisles/codex",
+  "sourceRevision": "445477b6a83514611ac206d2ab04b79374555a4c",
+  "releaseTag": "cfl/v0.154.0-app-server-musl.1",
+  "codexVersion": "0.154.0",
+  "target": "x86_64-unknown-linux-musl",
+  "executables": {
+    "bin/codex-app-server": "c206d59b9f224aec3480cf310999b2251dc8e612a824436f146619c94899a79e",
+    "bin/codex-code-mode-host": "0c57be435e73b70d9106c850d751cd259a7f04da958a453d7ef59090d82b70f1"
+  }
+}
