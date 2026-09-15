@@ -148,7 +148,16 @@ export async function materializeGeneratedImage(
     if (!Buffer.from(existing).equals(Buffer.from(data))) throw new Error(`Generated attachment path already contains different bytes: ${path}`);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-    await writeFile(path, data, { flag: 'wx', mode: 0o600 });
+    try {
+      await writeFile(path, data, { flag: 'wx', mode: 0o600 });
+    } catch (writeError) {
+      // Realtime item and final-turn reconciliation may reach the same
+      // content-addressed artifact concurrently. The winner is authoritative
+      // only when its bytes are exactly the expected generated image.
+      if ((writeError as NodeJS.ErrnoException).code !== 'EEXIST') throw writeError;
+      const existing = await readFile(path);
+      if (!Buffer.from(existing).equals(Buffer.from(data))) throw writeError;
+    }
   }
   return { id, operation_id: operationId, name: `image-${itemId.slice(0, 12)}.png`, media_type: 'image/png', path };
 }

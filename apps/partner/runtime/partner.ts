@@ -270,6 +270,27 @@ function rpcMessage(error: unknown): string | undefined {
   return error instanceof AppServerInvalidRequestError ? error.rpcMessage : undefined;
 }
 
+function isDurableStorageError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null || !('code' in error)) return false;
+  const code = String((error as { code?: unknown }).code ?? '');
+  return code.startsWith('SQLITE_') || ['ENOSPC', 'EIO', 'EROFS', 'EDQUOT'].includes(code);
+}
+
+type ProjectionFailureCode = 'message_identity_conflict' | 'missing_input_segment' | 'protocol_reconcile_failed' | 'store_write_failed';
+
+function projectionFailure(error: unknown): { code: ProjectionFailureCode; durable: boolean } {
+  const errorCode = typeof error === 'object' && error !== null && 'code' in error
+    ? String((error as { code?: unknown }).code ?? '') : '';
+  if (isDurableStorageError(error)) return { code: 'store_write_failed', durable: true };
+  if (errorCode === 'MESSAGE_IDENTITY_CONFLICT') return { code: 'message_identity_conflict', durable: false };
+  if (errorCode === 'MISSING_INPUT_SEGMENT') return { code: 'missing_input_segment', durable: false };
+  return { code: 'protocol_reconcile_failed', durable: false };
+}
+
+function projectionError(code: 'MISSING_INPUT_SEGMENT' | 'PROTOCOL_RECONCILE_FAILED', message: string): Error & { code: string } {
+  return Object.assign(new Error(message), { code });
+}
+
 function activeTurnNotSteerable(error: unknown): boolean {
   if (!(error instanceof AppServerInvalidRequestError)) return false;
   const data = record(error.data);
@@ -603,10 +624,10 @@ export async function createPartner(config: Config, credentials: Credentials, de
       }
       await store.saveGeneratedImage(generated, itemId);
       return generated.id;
-    } catch {
+    } catch (error) {
       storageError = true;
       await markAttachmentError(sourceIds, imageFailure('unavailable'));
-      processError('image.persistence_failed', new Error(imageFailure('unavailable')), { operationId, itemId: item.id });
+      processError('image.persistence_failed', error, { operationId, itemId: item.id, failureCode: 'store_write_failed' });
       return undefined;
     }
   }
@@ -630,7 +651,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
     if (stored) return stored;
     const segment = await store.inputSegment(sourceId);
     const fallbackIds = expandClientId(typeof fallback?.clientId === 'string' ? fallback.clientId : '');
-    if (fallbackIds.length > 1 && !segment) throw new Error(`Missing acknowledged input segment metadata for ${sourceId}`);
+    if (fallbackIds.length > 1 && !segment) throw projectionError('MISSING_INPUT_SEGMENT', `Missing acknowledged input segment metadata for ${sourceId}`);
     const combinedText = fallback ? textFromUserItem(fallback) ?? '' : '';
     const images = await store.inputImageMetadata([sourceId]);
     return {
@@ -639,7 +660,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
     };
   }
 
-  async function projectTurn(turn: OfficialTurn, touchRevision = true): Promise<void> {
+  async function projectTurn(turn: OfficialTurn, touchRevision = true, strict = false): Promise<void> {
     const inputs = userItems(turn);
     if (!inputs.length) return;
     const officialIds = officialInputIds(turn);
@@ -673,7 +694,10 @@ export async function createPartner(config: Config, credentials: Credentials, de
       }
       if (ids.length > 1) {
         const expected = ids.map((sourceId) => sourceInputs.get(sourceId)?.input ?? '').join('\n');
-        if (expected !== (textFromUserItem(item) ?? '')) throw new Error(`Official merged user item ${itemId} does not match acknowledged source segments`);
+        if (expected !== (textFromUserItem(item) ?? '')) {
+          const allKnown = ids.every((sourceId) => messageIds.has(sourceId));
+          if (strict || !allKnown) throw projectionError('PROTOCOL_RECONCILE_FAILED', `Official merged user item ${itemId} does not match acknowledged source segments`);
+        }
       }
     }
     for (const sourceId of sourceIds) {
@@ -687,8 +711,13 @@ export async function createPartner(config: Config, credentials: Credentials, de
         text_offset: 0,
         text_length: source.input.length,
       };
-      await store.ensureMessage(sourceId, turnTime(turn.startedAt, now()), source.input, source.images);
-      messageIds.add(sourceId);
+      // Local admission owns an existing identity and its input fingerprint.
+      // Event snapshots can acknowledge its position but must never re-admit
+      // it with potentially in-progress provider content.
+      if (!messageIds.has(sourceId)) {
+        await store.ensureMessage(sourceId, turnTime(turn.startedAt, now()), source.input, source.images);
+        messageIds.add(sourceId);
+      }
       await store.markObserved(sourceId, segment);
     }
     acknowledgeInputIds(officialIds);
@@ -1038,10 +1067,8 @@ export async function createPartner(config: Config, credentials: Credentials, de
       case 'item/started': {
         const item = record(params.item);
         const turnId = typeof params.turnId === 'string' ? params.turnId : '';
-        if (turnId && item.type !== 'contextCompaction') {
+        if (turnId && item.type === 'imageGeneration') {
           mergeItem(turnId, item);
-          const turn = await reconcileTurn(turnId, undefined, typeof item.id !== 'string' || typeof item.type !== 'string');
-          if (turn && userItems(turn).length) await projectTurn(turn);
           syncActiveTurn();
         } else if (item.type === 'contextCompaction') {
           lifecycle = { compactionId: `compact:${typeof item.id === 'string' ? item.id : randomUUID()}`, status: 'running', startSeq: eventSequence, startedAt: now() };
@@ -1052,8 +1079,8 @@ export async function createPartner(config: Config, credentials: Credentials, de
       case 'item/completed': {
         const item = record(params.item);
         const turnId = typeof params.turnId === 'string' ? params.turnId : '';
-        if (turnId && item.type !== 'contextCompaction') {
-          mergeItem(turnId, item);
+        if (turnId) mergeItem(turnId, item);
+        if (turnId && ['userMessage', 'agentMessage', 'imageGeneration'].includes(typeof item.type === 'string' ? item.type : '')) {
           const turn = await reconcileTurn(turnId, undefined, typeof item.id !== 'string' || typeof item.type !== 'string');
           if (turn && userItems(turn).length) await projectTurn(turn);
           syncActiveTurn();
@@ -1067,7 +1094,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
         let reconciled = turn;
         if (turn && (userItems(turn).length || sourceIdsForTurn(turn.id).length)) {
           reconciled = await reconcileTurn(turn.id);
-          if (reconciled && userItems(reconciled).length) await projectTurn(reconciled);
+          if (reconciled && userItems(reconciled).length) await projectTurn(reconciled, true, true);
         }
         const completedTurnId = turn?.id;
         if (turn && activeTurnId === turn.id) {
@@ -1117,8 +1144,9 @@ export async function createPartner(config: Config, credentials: Credentials, de
     }
     eventChain = eventChain.then(() => handleServerEvent(notification)).catch((error) => {
       if (closing) return;
-      storageError = true;
-      processError('event.failed', error, { method: notification.method });
+      const failure = projectionFailure(error);
+      if (failure.durable) storageError = true;
+      processError('event.failed', error, { method: notification.method, failureCode: failure.code, recoverable: !failure.durable });
       notify();
     });
   }

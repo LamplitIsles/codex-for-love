@@ -2,7 +2,7 @@ const MAX_STRING_LENGTH = 240;
 const MAX_LOG_BYTES = 2048;
 const MAX_COLLECTION_ITEMS = 16;
 const SENSITIVE_KEY = /(?:input|prompt|content|body|data|image|audio|history|summary|frame|request|response|authorization|credential|secret|token|password)/iu;
-const SENSITIVE_ERROR = /\b(?:input|prompt|content|body|data|image|audio|history|summary|authorization|credential|secret|token|password)\b/iu;
+const SENSITIVE_ERROR = /\b(?:prompt|authorization|credential|secret|token|password)\b/iu;
 const IMAGE_DATA = /data:image\/[\w.+-]+;base64,[A-Za-z0-9+/=]+/gu;
 const BEARER = /Bearer\s+[A-Za-z0-9._~+/=-]+/giu;
 
@@ -47,5 +47,16 @@ export function processLog(event: string, details: Record<string, unknown> = {})
 /** Emit a bounded error message while keeping the original error out of logs. */
 export function processError(event: string, error: unknown, details: Record<string, unknown> = {}): void {
   const message = error instanceof Error ? error.message : String(error);
-  processLog(event, { ...details, error: redactError(message) });
+  const code = typeof error === 'object' && error !== null && 'code' in error
+    ? String((error as { code?: unknown }).code ?? '') || undefined
+    : undefined;
+  processLog(event, {
+    ...details,
+    errorName: error instanceof Error ? error.name : typeof error,
+    ...(code ? { errorCode: code } : {}),
+    // Realtime projection failures may carry an arbitrary provider snapshot.
+    // Their stable category, method, class and code are sufficient diagnostics;
+    // never serialize the untrusted message at this boundary.
+    ...(event === 'event.failed' ? {} : { error: redactError(message) }),
+  });
 }

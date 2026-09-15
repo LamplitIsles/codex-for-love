@@ -24,6 +24,10 @@ export type MessagePageOptions = { before?: number; after?: number };
 export type StoredImage = Omit<MaterializedInputImage, 'data'>;
 export type StoredGeneratedImage = MaterializedGeneratedImage;
 
+function identityConflict(): Error & { code: 'MESSAGE_IDENTITY_CONFLICT' } {
+  return Object.assign(new Error('Message ID already belongs to different content'), { code: 'MESSAGE_IDENTITY_CONFLICT' as const });
+}
+
 export class Store {
   private readonly db: DatabaseSync;
   private writes: Promise<unknown> = Promise.resolve();
@@ -133,10 +137,10 @@ export class Store {
       const existing = this.db.prepare('SELECT sequence,id,created,fingerprint FROM message_meta WHERE id=?').get(id) as { sequence: number; id: string; created: number; fingerprint: string | null } | undefined;
       if (existing) {
         const pending = this.db.prepare('SELECT input FROM pending_inputs WHERE message_id=?').get(id) as { input: string } | undefined;
-        if ((existing.fingerprint && existing.fingerprint !== fingerprint) || (pending && pending.input !== input)) throw new Error('Message ID already belongs to different content');
+        if ((existing.fingerprint && existing.fingerprint !== fingerprint) || (pending && pending.input !== input)) throw identityConflict();
         const oldImages = this.db.prepare('SELECT id FROM input_images WHERE operation_id=? ORDER BY id').all(id).map((row) => String((row as { id: string }).id));
         const newImages = images.map((image) => image.id).sort();
-        if (JSON.stringify(oldImages) !== JSON.stringify(newImages)) throw new Error('Message ID already belongs to different content');
+        if (JSON.stringify(oldImages) !== JSON.stringify(newImages)) throw identityConflict();
         return this.meta(existing);
       }
       const created = Date.now();
@@ -161,11 +165,11 @@ export class Store {
         if (fingerprint !== undefined) {
           let changed = false;
           const stored = this.db.prepare('SELECT fingerprint FROM message_meta WHERE id=?').get(id) as { fingerprint: string | null } | undefined;
-          if (stored?.fingerprint && stored.fingerprint !== fingerprint) throw new Error('Message ID already belongs to different content');
+          if (stored?.fingerprint && stored.fingerprint !== fingerprint) throw identityConflict();
           if (!stored?.fingerprint) { this.db.prepare('UPDATE message_meta SET fingerprint=? WHERE id=?').run(fingerprint, id); changed = true; }
           const oldImages = this.db.prepare('SELECT id FROM input_images WHERE operation_id=? ORDER BY id').all(id).map((row) => String((row as { id: string }).id));
           const newImages = images.map((image) => image.id).sort();
-          if (oldImages.length && JSON.stringify(oldImages) !== JSON.stringify(newImages)) throw new Error('Message ID already belongs to different content');
+          if (oldImages.length && JSON.stringify(oldImages) !== JSON.stringify(newImages)) throw identityConflict();
           for (const image of images) {
             const inserted = this.db.prepare('INSERT OR IGNORE INTO input_images(id,operation_id,name,media_type,path) VALUES(?,?,?,?,?)')
               .run(image.id, id, image.name, image.media_type, image.path);

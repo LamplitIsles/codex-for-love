@@ -227,7 +227,11 @@ through the official turn API: `turn/start` when idle and `turn/steer` with the
 required `expectedTurnId` while a regular turn is active. The Companion does
 not use the app-server's durable queue APIs. Initial and restart hydration
 reconciles the lightweight projection from paginated official turn data; after
-that, lifecycle events update only the affected turn. Browser snapshots read
+that, only transcript-relevant completed items update the affected turn; the
+completed-turn event always performs final authoritative reconciliation. A
+transient event/projection inconsistency is logged with a bounded diagnostic
+category and does not make the Partner unavailable. `storageError` means CFL
+could not durably persist its own SQLite or required attachment state. Browser snapshots read
 that projection plus the requested local message page, while the SSE endpoint
 remains an invalidation stream rather than an execution journal:
 

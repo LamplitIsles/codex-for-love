@@ -62,6 +62,26 @@ test('official app-server owns the thread, native turns and history across an or
   } finally { await partner.close(); await f.close(); }
 });
 
+test('a transient event snapshot cannot re-admit a known message or block the next send', async () => {
+  const f = await fixture();
+  f.appServer.env!.FAKE_TRANSIENT_MESSAGE_CONFLICT = 'true';
+  const partner = await f.createPartner();
+  try {
+    const first = randomUUID();
+    await partner.submit(first, 'locally admitted source remains authoritative');
+    await eventually(async () => (await partner.snapshot()).results?.some((result) => result.sourceIds.includes(first) && result.answers.length > 0) === true);
+    const reconciled = await partner.snapshot();
+    assert.equal(reconciled.messages.filter((message) => message.id === first).length, 1);
+    assert.equal(reconciled.messages.find((message) => message.id === first)?.input, 'locally admitted source remains authoritative');
+    assert.equal(reconciled.storageError, false);
+
+    const second = randomUUID();
+    await partner.submit(second, 'the Partner remains sendable');
+    await eventually(async () => (await partner.snapshot()).results?.some((result) => result.sourceIds.includes(second) && result.answers.length > 0) === true);
+    assert.equal((await partner.snapshot()).storageError, false);
+  } finally { await partner.close(); await f.close(); }
+});
+
 test('startup consumes all MCP status pages and rejects disconnected or failed servers', async () => {
   const f = await fixture();
   const status = (name: string, runtimeStatus: string, toolsError: string | null = null) => ({ name, runtimeStatus, pluginId: null, serverInfo: null, tools: {}, toolsError, resources: [], resourceTemplates: [], authStatus: 'notLoggedIn' });
@@ -237,6 +257,30 @@ test('definitively rejected steers merge in order into one eligible native turn'
     assert.equal(view.messages.find((message) => message.id === second)?.inputImages.length, 1);
     assert.equal(view.messages.find((message) => message.id === third)?.inputImages.length, 1);
   } finally { await partner.close(); await f.close(); }
+});
+
+test('a completed turn rejects a final merged-source mismatch even for admitted messages', async () => {
+  const lines: string[] = [];
+  const original = console.error;
+  console.error = (...args: unknown[]) => lines.push(args.map(String).join(' '));
+  const f = await fixture();
+  f.appServer.env!.FAKE_REJECT_STEER = 'true';
+  f.appServer.env!.FAKE_FINAL_MERGED_CONFLICT = 'true';
+  const partner = await f.createPartner();
+  try {
+    await f.holdProvider(true);
+    await partner.submit(randomUUID(), 'base turn');
+    await eventually(async () => (await partner.snapshot()).typing);
+    await partner.submit(randomUUID(), 'merged source one');
+    await partner.submit(randomUUID(), 'merged source two');
+    await f.holdProvider(false);
+    await eventually(async () => lines.some((line) => line.includes('protocol_reconcile_failed') && line.includes('turn/completed')));
+    assert.equal(lines.some((line) => line.includes('final conflicting snapshot')), false);
+  } finally {
+    console.error = original;
+    await partner.close();
+    await f.close();
+  }
 });
 
 test('retired acknowledged bodies reconstruct multiline and image-only merged sources after restart', async () => {

@@ -162,6 +162,25 @@ async function runTurn(turn) {
     if (state.active !== turn.id || turn.status !== 'inProgress') return;
     const input = turn.items.filter((item) => item.type === 'userMessage').flatMap((item) => item.content ?? []);
     const text = textOf(input);
+    if (process.env.FAKE_FINAL_MERGED_CONFLICT === 'true') {
+      const source = turn.items.find((item) => item.type === 'userMessage');
+      if (typeof source?.clientId === 'string' && source.clientId.startsWith('merged:')) {
+        source.content = [{ type: 'text', text: 'final conflicting snapshot' }];
+      }
+    }
+    if (process.env.FAKE_TRANSIENT_MESSAGE_CONFLICT === 'true') {
+      const source = turn.items.find((item) => item.type === 'userMessage');
+      if (source) {
+        // Model an in-progress event snapshot that disagrees with the locally
+        // admitted body while persisted official turn history remains correct.
+        send({ method: 'item/completed', params: {
+          threadId: state.threadId,
+          turnId: turn.id,
+          completedAtMs: Date.now(),
+          item: { ...source, content: [{ type: 'text', text: 'transient conflicting snapshot' }] },
+        } });
+      }
+    }
     const items = [];
     if (text.includes('generate image') || text.includes('edit image') || text.includes('/image')) {
       const itemId = `image-item-${state.next++}`;
