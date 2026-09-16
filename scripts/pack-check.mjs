@@ -23,7 +23,9 @@ try {
   const ecosystemServers = parse(await readFile(join(path, 'vendor', 'ecosystem-mcp.example.toml'), 'utf8')).mcp_servers;
   if (Object.keys(ecosystemServers ?? {}).sort().join(',') !== 'flicknote,web') throw new Error(`${name} has an unexpected ecosystem MCP template.`);
   if (JSON.stringify(manifest).includes('github:')) throw new Error(`${name} exposes a Git dependency.`);
-  if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/u.test(manifest.optionalDependencies?.['@lamplitisles/codex-for-love-linux-x64'] ?? '')) throw new Error(`${name} does not pin its native package exactly.`);
+  for (const native of ['@lamplitisles/codex-for-love-linux-x64', '@lamplitisles/codex-for-love-darwin-arm64']) {
+    if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/u.test(manifest.optionalDependencies?.[native] ?? '')) throw new Error(`${name} does not pin ${native} exactly.`);
+  }
   console.log(`${name}: ${packed.size} bytes, ${files.size} files`);
 } finally {
   await rm(temporary, { recursive: true, force: true });

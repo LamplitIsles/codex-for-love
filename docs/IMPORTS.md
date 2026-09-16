@@ -133,6 +133,15 @@ distribution artifact and preserves its native `provenance.json`, license and
 notice. Later CFL main releases continue to pin that exact native version until
 an explicitly reviewed binary update publishes a replacement.
 
+The macOS ARM64 package
+`@lamplitisles/codex-for-love-darwin-arm64@0.1.0-beta.0` contains the app-server
+built from fork revision `c1139f7b2793e94c14243689d756b09c0186708d` and the
+official Codex 0.154.0 ARM64 code-mode host. That revision has an identical
+`codex-rs` tree to the Linux build source. The executable hashes and local
+assembly identity are pinned in `release/codex-artifact-darwin-arm64.json`;
+the identity is not a claim that a fork GitHub Release was published. The
+package retains the same Codex Apache-2.0 license and upstream notice.
+
 ## npm publication workflow
 
 `.github/workflows/publish.yml` and the narrow `scripts/release-*.mjs` helpers

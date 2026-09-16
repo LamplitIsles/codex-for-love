@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "forkRepository": "https://github.com/lamplitisles/codex",
+  "sourceRevision": "c1139f7b2793e94c14243689d756b09c0186708d",
+  "releaseTag": "cfl/v0.154.0-app-server-darwin.1",
+  "codexVersion": "0.154.0",
+  "target": "aarch64-apple-darwin",
+  "executables": {
+    "bin/codex-app-server": "fcec6139d98143ad2563eab6a7020a954030536422d75fb5edd319e1af9f745f",
+    "bin/codex-code-mode-host": "426d73aaeb2aeef45e98b5add99e8ef9594a31673d281489bb2cb06b38c27423"
+  }
+}

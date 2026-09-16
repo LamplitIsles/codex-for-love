@@ -49,7 +49,7 @@ CFL 对 Codex 行为唯一的改动就是上下文压缩，大约是 160 行代�
 
 ## 快速开始
 
-目前发布包支持 **Linux x64**，并包含版本匹配的独立 Codex app-server。使用前需要 Node 24，以及已经登录的官方 Codex 命令行工具。
+CLI 支持 **Linux x64 和 macOS Apple Silicon**，包含版本匹配的独立 Codex app-server 与 code-mode host。使用前需要 Node 24，以及已经登录的官方 Codex 命令行工具。macOS 支持需等待下一次主包发布；已发布的 CFL 0.1.1 仅支持 Linux。
 
 ### 1. 确认 Codex 已登录
 

@@ -1,15 +1,17 @@
 import { createHash } from 'node:crypto';
 import { execFileSync, spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const root = resolve(import.meta.dirname, '..');
-const temporary = await mkdtemp(join(tmpdir(), 'cfl-artifact-smoke-'));
+const temporary = await realpath(await mkdtemp(join(tmpdir(), 'cfl-artifact-smoke-')));
 const mainPackageName = '@lamplitisles/codex-for-love';
-const nativePackageName = '@lamplitisles/codex-for-love-linux-x64';
+const mac = process.platform === 'darwin' && process.arch === 'arm64';
+if (!mac && (process.platform !== 'linux' || process.arch !== 'x64')) throw new Error('Artifact smoke supports Linux x64 and macOS ARM64 only.');
+const nativePackageName = mac ? '@lamplitisles/codex-for-love-darwin-arm64' : '@lamplitisles/codex-for-love-linux-x64';
 
 function archiveManifest(archive) {
   return JSON.parse(execFileSync('tar', ['-xOzf', archive, 'package/package.json'], { encoding: 'utf8' }));
@@ -33,11 +35,11 @@ try {
   const artifacts = process.env.CFL_ARTIFACT_DIR ? resolve(process.env.CFL_ARTIFACT_DIR) : join(temporary, 'artifacts');
   if (!process.env.CFL_ARTIFACT_DIR && !publicRegistry) {
     execFileSync('mkdir', ['-p', artifacts]);
-    for (const directory of ['packages/codex-for-love-linux-x64', 'packages/codex-for-love']) {
+    for (const directory of ['packages/codex-for-love']) {
       execFileSync('npm', ['pack', '--json', '--pack-destination', artifacts], { cwd: join(root, directory), stdio: 'inherit' });
     }
   }
-  const tarballs = publicRegistry ? [] : await readdir(artifacts);
+  const tarballs = publicRegistry ? [] : (await readdir(artifacts)).filter(name => name.endsWith('.tgz'));
   const sourceManifest = JSON.parse(await readFile(join(root, 'packages', 'codex-for-love', 'package.json'), 'utf8'));
   const releaseVersion = process.env.CFL_RELEASE_VERSION ?? sourceManifest.version;
   const main = publicRegistry ? `${mainPackageName}@${releaseVersion}` : tarballs.find((name) => archiveManifest(join(artifacts, name)).name === mainPackageName);
@@ -51,7 +53,7 @@ try {
   const installInputs = [native, publicRegistry ? main : join(artifacts, main)];
   execFileSync('npm', ['install', '--global', '--ignore-scripts', '--prefer-online', '--prefix', prefix, ...installInputs], { stdio: 'inherit', timeout: 120_000 });
   execFileSync(join(prefix, 'bin', 'codex-for-love'), ['--help'], { stdio: 'inherit', env: { ...process.env, HOME: join(temporary, 'home') } });
-  const nativeRoot = join(prefix, 'lib', 'node_modules', '@lamplitisles', 'codex-for-love-linux-x64');
+  const nativeRoot = join(prefix, 'lib', 'node_modules', '@lamplitisles', mac ? 'codex-for-love-darwin-arm64' : 'codex-for-love-linux-x64');
   const mainRoot = join(prefix, 'lib', 'node_modules', '@lamplitisles', 'codex-for-love');
   execFileSync(join(nativeRoot, 'bin', 'codex-app-server'), ['--version'], { stdio: 'inherit' });
   execFileSync(join(nativeRoot, 'bin', 'codex-code-mode-host'), ['--help'], { stdio: 'ignore' });
@@ -65,10 +67,10 @@ try {
   await writeFile(join(nativeRoot, 'provenance.json'), `${JSON.stringify({
     schemaVersion: 1,
     forkRepository: 'https://github.com/lamplitisles/codex',
-    sourceRevision: '445477b6a83514611ac206d2ab04b79374555a4c',
-    releaseTag: 'cfl/v0.154.0-app-server-musl.1',
+    sourceRevision: mac ? 'c1139f7b2793e94c14243689d756b09c0186708d' : '445477b6a83514611ac206d2ab04b79374555a4c',
+    releaseTag: mac ? 'cfl/v0.154.0-app-server-darwin.1' : 'cfl/v0.154.0-app-server-musl.1',
     codexVersion: '0.154.0',
-    target: 'x86_64-unknown-linux-musl',
+    target: mac ? 'aarch64-apple-darwin' : 'x86_64-unknown-linux-musl',
     executables: {
       'bin/codex-app-server': await hash(fakeExecutable),
       'bin/codex-code-mode-host': await hash(fakeHelper),

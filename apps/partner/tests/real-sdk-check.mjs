@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -53,7 +53,7 @@ async function readBody(request) {
 }
 
 async function main() {
-  const root = await mkdtemp(join(tmpdir(), 'codex-for-love-real-sdk-'));
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'codex-for-love-real-sdk-')));
   const workspace = join(root, 'workspace');
   const codexHome = join(root, 'codex-home');
   const xdgConfig = join(root, 'xdg-config');
@@ -203,7 +203,7 @@ plugins = false
     assert.match(initialized.userAgent, new RegExp(`\\b${CODEX_VERSION.replaceAll('.', '\\.')}\\b`));
     assert.equal(initialized.codexHome, codexHome);
     assert.equal(initialized.platformFamily, 'unix');
-    assert.equal(initialized.platformOs, 'linux');
+    assert.equal(initialized.platformOs, process.platform === 'darwin' ? 'macos' : 'linux');
 
     const started = await client.call('thread/start', {
       model: 'gpt-5.2',

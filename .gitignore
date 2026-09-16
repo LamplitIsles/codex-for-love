@@ -9,3 +9,5 @@ apps/partner/state/
 packages/codex-for-love/vendor/
 packages/codex-for-love-linux-x64/bin/
 packages/codex-for-love-linux-x64/provenance.json
+packages/codex-for-love-darwin-arm64/bin/
+packages/codex-for-love-darwin-arm64/provenance.json

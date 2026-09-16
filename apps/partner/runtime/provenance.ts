@@ -13,15 +13,22 @@ const CFL_MUSL_TARGET = 'x86_64-unknown-linux-musl';
 const standaloneProvenanceSchema = z.object({
   schemaVersion: z.literal(1),
   forkRepository: z.literal(CFL_FORK_REPOSITORY),
-  sourceRevision: z.literal(CFL_FORK_SOURCE_REVISION),
-  releaseTag: z.string().regex(/^cfl\/v0\.154\.0-app-server-musl\.[0-9]+$/u),
+  sourceRevision: z.string(),
+  releaseTag: z.string(),
   codexVersion: z.literal(SUPPORTED_CODEX_VERSION),
-  target: z.literal(CFL_MUSL_TARGET),
+  target: z.enum([CFL_MUSL_TARGET, 'aarch64-apple-darwin']),
   executables: z.object({
     'bin/codex-app-server': z.string().regex(/^[a-f0-9]{64}$/u),
     'bin/codex-code-mode-host': z.string().regex(/^[a-f0-9]{64}$/u),
   }).strict(),
-}).strict();
+}).strict().superRefine((value, context) => {
+  const mac = value.target === 'aarch64-apple-darwin';
+  const revision = mac ? 'c1139f7b2793e94c14243689d756b09c0186708d' : CFL_FORK_SOURCE_REVISION;
+  const tag = mac ? /^cfl\/v0\.154\.0-app-server-darwin\.[0-9]+$/u : /^cfl\/v0\.154\.0-app-server-musl\.[0-9]+$/u;
+  if (value.sourceRevision !== revision || !tag.test(value.releaseTag)) {
+    context.addIssue({ code: 'custom', message: 'Source revision/release identity does not match the selected platform' });
+  }
+});
 
 const provenanceSchema = standaloneProvenanceSchema;
 type CodexProvenance = z.infer<typeof provenanceSchema>;

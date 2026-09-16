@@ -27,10 +27,11 @@ workflow is described below.
 
 - Node 24 (the root `package.json` declares `>=24`).
 - pnpm 11.22.0, pinned by `packageManager`.
-- Linux x64 users can install the published package with
+- Linux x64 and macOS ARM64 users can install the package with
   `npm install -g @lamplitisles/codex-for-love`. It brings the
-  exact matching musl app-server package; other platforms are currently
-  unsupported.
+  exact matching native app-server and code-mode host package (musl on Linux).
+  Windows and Intel Macs are unsupported. macOS support requires the next
+  main-package release; already-published CFL 0.1.1 is Linux-only.
 - The Partner uses `@jaminzhou/codex-app-server-client` 0.2.1 for typed,
   SDK-managed stdio. The SDK is pinned to the same Codex 0.154.0 protocol
   baseline. CFL always invokes `codex.command` as a direct app-server; the SDK
@@ -51,8 +52,8 @@ codex-for-love serve /path/to/partner.toml
 ```
 
 It never compiles or downloads native code in an install hook. The main package
-pins one immutable native package version; later CFL application releases may
-keep that native version unchanged. An official Codex login remains
+pins an immutable native package version per supported platform; later CFL
+application releases may keep those versions unchanged. An official Codex login remains
 operator-owned.
 
 For checkout development, retain the pinned pnpm workflow:
@@ -363,9 +364,10 @@ Source provenance and retained upstream licenses are recorded in
 
 ## Publishing the main package
 
-`release/codex-artifact.json` is the immutable identity contract for the
-already-published Linux native package: fork revision, provenance, and both
-executable hashes. Main-package CI downloads that exact npm package and checks
+`release/codex-artifact.json` and `release/codex-artifact-darwin-arm64.json`
+are the immutable identity contracts for the already-published Linux and Mac
+native packages: fork revision, provenance, and both executable hashes.
+Main-package CI downloads both exact npm packages and checks
 those values before building CFL; it never compiles Rust or downloads a Codex
 GitHub Release.
 
