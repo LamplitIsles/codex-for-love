@@ -29,6 +29,13 @@ const schema = z.object({
     endpoint: z.url().default('https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation'),
     tts: z.object({ provider: z.enum(['minimax', 'alibaba', 'bytedance']), voice: z.string().min(1) }).strict().optional(),
   }).strict().optional(),
+  // Keet is deliberately all-or-nothing at runtime.  Keeping the optional
+  // fields parseable lets an operator remove one value and return to an
+  // ordinary local Partner without a migration or a second configuration.
+  keet: z.object({
+    endpoint: z.string().min(1).optional(),
+    media_root: z.string().min(1).optional(),
+  }).strict().optional(),
 }).strict();
 
 export type Config = z.infer<typeof schema> & { configPath?: string };
@@ -51,11 +58,28 @@ export async function loadConfig(path: string): Promise<Config> {
       home: config.codex.home ? resolve(base, config.codex.home) : undefined,
       provenance: config.codex.provenance ? resolve(base, config.codex.provenance) : undefined,
     },
+    keet: config.keet ? {
+      ...(config.keet.endpoint ? { endpoint: keetEndpoint(config.keet.endpoint) } : {}),
+      ...(config.keet.media_root ? { media_root: keetMediaRoot(config.keet.media_root) } : {}),
+    } : undefined,
   };
 }
 
+function keetEndpoint(value: string): string {
+  let url: URL;
+  try { url = new URL(value); } catch { throw new Error('Keet endpoint must be a loopback http URL'); }
+  if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || !url.port || url.username || url.password
+    || url.pathname !== '/' || url.search || url.hash) throw new Error('Keet endpoint must be a bare http://127.0.0.1:PORT URL');
+  return url.origin;
+}
+
+function keetMediaRoot(value: string): string {
+  if (!value.startsWith('/')) throw new Error('Keet media_root must be an absolute path');
+  return resolve(value);
+}
+
 /** Alibaba STT/TTS reuses speech; ByteDance TTS keeps its separate secret. */
-export const credentialSchema = z.object({ speech: z.string().min(1).optional(), tts: z.string().min(1).optional() }).strict();
+export const credentialSchema = z.object({ speech: z.string().min(1).optional(), tts: z.string().min(1).optional(), keet: z.string().min(1).optional() }).strict();
 export type Credentials = z.infer<typeof credentialSchema>;
 
 export async function loadCredentials(state: string): Promise<Credentials> {

@@ -92,6 +92,7 @@
   "relationship.reconnectHint": "Your workspace is still here. Continue when the connection returns.",
   "session.failed": "Conversation unavailable",
   "session.reconnectHint": "Your messages are kept. Continue when the connection returns, or check the status in DSH.",
+  "keet.recoveryLoss": "Keet could not recover messages {ranges}; affected group context was cleared.",
   "history.older": "View earlier messages",
   "welcome.prompt": "What would you like to talk about today?",
   "image.generating": "Creating an image…",

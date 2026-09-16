@@ -7,7 +7,7 @@
   root: "#dsh-companion";
   prefix: cmp-;
   include:
-    button, avatar, mask, chat, drawer, status, loading, skeleton, card, badge,
+    alert, button, avatar, mask, chat, drawer, status, loading, skeleton, card, badge,
     modal, radio;
   exclude:
     properties, rootcolor, scrollbar, rootscrolllock, rootscrollgutter, svg;

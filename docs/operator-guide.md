@@ -101,6 +101,38 @@ conversation. To create a candidate from a compacted DSH log, use the
 one-time import command below instead of pointing the normal host at the DSH
 log.
 
+## Optional Keet ingress
+
+Keet is optional for each Partner. Configure exactly one local KFA gateway only
+when KFA PR #23 is installed and running under the same local account. The
+endpoint must be a bare loopback `http://127.0.0.1:PORT` URL and `media_root`
+must be KFA's absolute CFL media directory; paths, remote hosts, and separate
+MCP/feed URLs are rejected. Put the gateway bearer token only in the existing
+owner-only credential file:
+
+```sh
+printf '%s' "$KFA_TOKEN" | codex-for-love credential /path/to/partner.toml keet --stdin
+```
+
+Never put that token in TOML, workspace files, prompts, or shell arguments.
+When endpoint, media root, and credential are all present CFL writes only its
+owned `keet` project MCP entry and passes the token only to its app-server
+child. Removing any value removes that entry and leaves normal local operation
+available.
+
+KFA classifies ingress. Ordinary Group text is a bounded per-group context
+buffer and starts no turn; a mention, current-label, or reply trigger drains
+only that group into one turn. Every DM is queued FIFO after active Codex work;
+Broadcasts are discarded. CFL never sends an automatic Keet response. Direct
+DM image files remain KFA-owned and are referenced only after containment,
+no-follow regular-file, and type checks; a deleted or invalid file is an
+attachment failure, never copied or replaced. The feed reconnects from CFL's
+durable receipt; a KFA resync records the unavailable range, clears Group
+buffers, and resumes retained replay without inventing missing messages.
+
+This feature does not deploy KFA or CFL, run an official Keet runtime, or send
+external messages.
+
 The equivalent direct commands are useful when diagnosing startup:
 
 ```sh

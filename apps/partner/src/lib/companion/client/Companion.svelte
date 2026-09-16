@@ -38,6 +38,7 @@
     CompanionContinuityView,
     CompanionRecoveredDraft,
     CompanionHistoryView,
+    KeetLossRange,
   } from "./companion-bridge.js";
   import type { PendingSubmissionRetirement } from "./contracts.js";
   import { CompanionPreControllerError } from "./admission.js";
@@ -62,6 +63,7 @@
   } from "./image-drafts.js";
   import type { CompanionReadiness } from "./readiness.js";
   import type { CompanionAppearance, CompanionLanguage } from "./preferences.js";
+  import { keetRecoveryNotice } from "./keet-recovery.js";
   import { companionHistoryChanges } from "../relationship-history.js";
   import type { CompanionHistoryChange } from "../domain.js";
   import Markdown from "./Markdown.svelte";
@@ -137,6 +139,7 @@
   export let voiceCapability: "loading" | "available" | "unavailable" =
     "unavailable";
   export let continuity: CompanionContinuityView = {};
+  export let keetLosses: readonly KeetLossRange[] = [];
   export let recoveredDraft: CompanionRecoveredDraft | undefined;
   export let history: CompanionHistoryView = {
     status: "loading",
@@ -261,6 +264,8 @@
   });
   let voiceSessionId: string | undefined;
   let voiceTranscriptionAbort: AbortController | undefined;
+
+  $: keetRecovery = keetRecoveryNotice(keetLosses, t);
 
   $: effectiveWorkspaceReadiness = workspaceReadiness;
   $: effectiveSessionReadiness = sessionReadiness;
@@ -1699,6 +1704,11 @@
             on:scroll={onScroll}
           >
             <div class="companion-timeline-content" use:keepBottomOnResize>
+              {#if keetRecovery}
+                <div data-testid="keet-recovery-notice" role="status" class="cmp-alert cmp-alert-warning">
+                  <span>{keetRecovery}</span>
+                </div>
+              {/if}
               {#if displayedProjection.hasMore}
                 <button
                   class="cmp-btn cmp-btn-ghost cmp-btn-sm"

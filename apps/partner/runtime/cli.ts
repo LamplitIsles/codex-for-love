@@ -25,7 +25,7 @@ const dryRun = cliArgs.includes('--dry-run');
 const stdin = cliArgs.includes('--stdin');
 const positionalArgs = cliArgs.filter((argument) => argument !== '--dry-run' && argument !== '--stdin');
 const [command, configPath, name, companionStatePath, attachmentRoot, destinationPath, dshSettingsPath] = positionalArgs;
-if (!configPath) throw new Error('Usage: cli.ts <serve|credential|import-session|migrate-relationship-journal> <config.toml> [speech|tts --stdin|log destination]');
+if (!configPath) throw new Error('Usage: cli.ts <serve|credential|import-session|migrate-relationship-journal> <config.toml> [speech|tts|keet --stdin|log destination]');
 let config = await loadConfig(resolve(configPath));
 if (nativePackageRoot) {
   const root = resolve(nativePackageRoot);
@@ -39,7 +39,7 @@ if (nativePackageRoot) {
   };
 }
 if (command === 'credential') {
-  if (name !== 'speech' && name !== 'tts') throw new Error('Credential name must be speech or tts');
+  if (name !== 'speech' && name !== 'tts' && name !== 'keet') throw new Error('Credential name must be speech, tts, or keet');
   if (!stdin) throw new Error('Use --stdin to supply the credential without exposing it in command arguments');
   if (process.stdin.isTTY) throw new Error('Supply the credential through stdin, not command arguments');
   let value = '';

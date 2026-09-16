@@ -74,3 +74,14 @@ test('bootstrap writes only Companion MCP while preserving an operator-provided 
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test('Keet overlay refuses an operator-owned name and does not delete it when disabled', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'lamplit-keet-overlay-test-'));
+  try {
+    const workspace = join(directory, 'workspace'); const configPath = join(workspace, '.codex', 'config.toml'); await mkdir(join(workspace, '.codex'), { recursive: true });
+    await writeFile(configPath, '[mcp_servers.keet]\ncommand = "operator-keet"\n');
+    await assert.rejects(ensureHookDeclaration(workspace, join(workspace, '.lamplit', 'context.json'), undefined, 'http://127.0.0.1:18769'), /belongs to an operator/);
+    await ensureHookDeclaration(workspace, join(workspace, '.lamplit', 'context.json'));
+    assert.match(await readFile(configPath, 'utf8'), /operator-keet/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});

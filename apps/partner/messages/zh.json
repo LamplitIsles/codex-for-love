@@ -92,6 +92,7 @@
   "relationship.reconnectHint": "聊天空间还在，连接恢复后可以继续。",
   "session.failed": "这段对话暂时打不开",
   "session.reconnectHint": "你的消息不会被悄悄丢掉。连接恢复后可以继续，或回到 DSH 检查状态。",
+  "keet.recoveryLoss": "Keet 未能恢复消息 {ranges}；受影响的群组上下文已清除。",
   "history.older": "查看更早的消息",
   "welcome.prompt": "今天想聊点什么？",
   "image.generating": "正在画一张图…",

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { mkdir, readFile, writeFile, lstat, realpath } from 'node:fs/promises';
+import { dirname, join, relative, resolve } from 'node:path';
 import { z } from 'zod';
 import type { ImageAttachmentLimits } from '../src/lib/companion/client/contracts.ts';
 import { partnerPaths } from './storage-paths.ts';
@@ -37,6 +37,26 @@ export type MaterializedGeneratedImage = {
 };
 
 export class InvalidImageInput extends Error {}
+
+/** Validate a KFA-owned filename without following an attacker-controlled link. */
+export async function keetImage(root: string, filename: string, mediaType: ImageInput['mediaType'], name?: string): Promise<StoredKeetImage & { data: Uint8Array }> {
+  if (!/^[0-9a-f-]{36}\.(png|jpg|webp|gif)$/u.test(filename)) throw new InvalidImageInput('Keet image filename is invalid');
+  const path = resolve(root, filename);
+  if (relative(resolve(root), path) !== filename) throw new InvalidImageInput('Keet image escapes the media root');
+  const info = await lstat(path);
+  if (!info.isFile() || info.isSymbolicLink()) throw new InvalidImageInput('Keet image is not a regular file');
+  const realRoot = await realpath(root); const realPath = await realpath(path);
+  if (relative(realRoot, realPath) !== filename) throw new InvalidImageInput('Keet image escapes the media root');
+  const byExtension = imageMediaTypeFromName(filename);
+  if (byExtension !== mediaType) throw new InvalidImageInput('Keet image media type disagrees with filename');
+  const data = await readFile(path);
+  if (!data.length || data.byteLength > imageLimits.maxImageBytes || !hasSignature(data, mediaType)) throw new InvalidImageInput('Keet image contents are invalid');
+  return { path, name: name?.slice(0, 160) || filename, media_type: mediaType, data };
+}
+export type StoredKeetImage = { path: string; name: string; media_type: ImageInput['mediaType'] };
+function imageMediaTypeFromName(name: string): ImageInput['mediaType'] | undefined {
+  if (name.endsWith('.png')) return 'image/png'; if (name.endsWith('.jpg')) return 'image/jpeg'; if (name.endsWith('.webp')) return 'image/webp'; if (name.endsWith('.gif')) return 'image/gif'; return undefined;
+}
 
 function decodeImageDataUrl(value: string): { data: Uint8Array; mediaType: InputImage['media_type'] } {
   const match = /^data:(image\/(?:png|jpeg|gif|webp));base64,([A-Za-z0-9+/]*={0,2})$/u.exec(value);

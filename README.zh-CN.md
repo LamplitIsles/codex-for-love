@@ -73,6 +73,14 @@ codex-for-love serve /path/to/partner.toml
 
 CFL 会监听 `127.0.0.1`，并打印本地访问地址。开始一段新对话时，请使用新的工作区。
 
+### 可选 Keet 入站
+
+在 KFA PR #23 合并并由运营者安装后，可以为单个 Partner 配置本机回环 Keet 网关：一个
+`http://127.0.0.1:PORT` 地址、KFA 持有的绝对 DM 媒体目录，以及只能经标准输入写入的
+`keet` 凭据。普通群消息只进入有界上下文，直到 KFA 判定为触发消息；DM 按 FIFO 排队，
+广播消息会被忽略。KFA 仍拥有媒体文件，CFL 绝不会自动发送 Keet 回复。具体配置和安全
+边界见[运维指南](docs/operator-guide.md#optional-keet-ingress)。
+
 Android 端可以安装最新的 [Lamplit Mobile 版本](https://github.com/LamplitIsles/lamplit-mobile/releases/latest)，再填入手机能够访问的 CFL HTTP(S) 地址。
 
 ## 路线图

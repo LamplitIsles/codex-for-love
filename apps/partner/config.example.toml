@@ -21,6 +21,12 @@ model = "gpt-5.6-luna"
 # local_compaction = true
 # home = "/path/to/a/Codex-home" # omit to use the existing Codex login
 
+# Optional local Keet-for-Agent gateway. Both fields and a stdin-only `keet`
+# credential enable it; omit either field to keep ordinary local conversation.
+#[keet]
+#endpoint = "http://127.0.0.1:18769"
+#media_root = "/private/path/to/kfa-cfl-media"
+
 # Optional DashScope STT and tool-delivered Voice messages.
 [speech]
 [speech.tts]

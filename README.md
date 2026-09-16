@@ -88,6 +88,15 @@ comments give each service's installation and readiness steps.
 
 For Android, install the latest [Lamplit Mobile release](https://github.com/LamplitIsles/lamplit-mobile/releases/latest) and point it at the HTTP(S) address where CFL is available to the device.
 
+### Optional Keet ingress
+
+With merged KFA PR #23, a Partner may optionally consume its authenticated
+loopback Keet gateway. The configuration uses one `http://127.0.0.1:PORT`
+endpoint, KFA's absolute durable DM-media root, and a stdin-only `keet`
+credential. Group messages become bounded context only until KFA classifies a
+trigger; DMs run FIFO; Broadcasts are ignored. KFA retains ownership of direct
+media and CFL never automatically replies. See the [operator guide](docs/operator-guide.md#optional-keet-ingress).
+
 ## Roadmap
 
 CFL is already where Shio lives, but it is not finished. Next directions include:
