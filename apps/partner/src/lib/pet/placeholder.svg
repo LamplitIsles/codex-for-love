@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2048" height="256" viewBox="0 0 2048 256">
+  <defs><linearGradient id="g" x1="0" x2="0" y1="0" y2="1"><stop stop-color="#c7deed"/><stop offset="1" stop-color="#7597ae"/></linearGradient></defs>
+  <g fill="none" stroke="#527388" stroke-width="7" stroke-linecap="round">
+    <g transform="translate(0)"><circle cx="128" cy="128" r="75" fill="url(#g)"/><path d="M80 115q15-12 30 0M146 115q15-12 30 0M100 157q28 20 56 0"/><circle cx="83" cy="68" r="13" fill="#dcebf3"/><circle cx="173" cy="68" r="13" fill="#dcebf3"/></g>
+    <g transform="translate(256)"><circle cx="128" cy="122" r="75" fill="url(#g)"/><path d="M80 109q15-12 30 0M146 109q15-12 30 0M100 151q28 20 56 0"/><circle cx="83" cy="62" r="13" fill="#dcebf3"/><circle cx="173" cy="62" r="13" fill="#dcebf3"/></g>
+    <g transform="translate(512)"><circle cx="128" cy="128" r="75" fill="url(#g)"/><path d="M80 120h30M146 120h30M100 157q28 20 56 0"/><circle cx="83" cy="68" r="13" fill="#dcebf3"/><circle cx="173" cy="68" r="13" fill="#dcebf3"/></g>
+    <g transform="translate(768)"><circle cx="128" cy="134" r="75" fill="url(#g)"/><path d="M80 121q15-12 30 0M146 121q15-12 30 0M100 163q28 20 56 0"/><circle cx="83" cy="74" r="13" fill="#dcebf3"/><circle cx="173" cy="74" r="13" fill="#dcebf3"/></g>
+    <g transform="translate(1024)"><circle cx="128" cy="128" r="75" fill="url(#g)"/><path d="M80 115q15-12 30 0M146 115q15-12 30 0M100 157q28 20 56 0"/><circle cx="83" cy="68" r="13" fill="#dcebf3"/><circle cx="173" cy="68" r="13" fill="#dcebf3"/></g>
+    <g transform="translate(1280)"><circle cx="128" cy="122" r="75" fill="url(#g)"/><path d="M80 109q15-12 30 0M146 109q15-12 30 0M100 151q28 20 56 0"/><circle cx="83" cy="62" r="13" fill="#dcebf3"/><circle cx="173" cy="62" r="13" fill="#dcebf3"/></g>
+    <g transform="translate(1536)"><circle cx="128" cy="128" r="75" fill="url(#g)"/><path d="M80 120h30M146 120h30M100 157q28 20 56 0"/><circle cx="83" cy="68" r="13" fill="#dcebf3"/><circle cx="173" cy="68" r="13" fill="#dcebf3"/></g>
+    <g transform="translate(1792)"><circle cx="128" cy="134" r="75" fill="url(#g)"/><path d="M80 121q15-12 30 0M146 121q15-12 30 0M100 163q28 20 56 0"/><circle cx="83" cy="74" r="13" fill="#dcebf3"/><circle cx="173" cy="74" r="13" fill="#dcebf3"/></g>
+  </g>
+</svg>

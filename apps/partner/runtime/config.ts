@@ -39,6 +39,7 @@ const schema = z.object({
     endpoint: z.string().min(1).optional(),
     media_root: z.string().min(1).optional(),
   }).strict().optional(),
+  pet: z.object({ enabled: z.boolean().default(false) }).strict().default({ enabled: false }),
 }).strict();
 
 export type Config = z.infer<typeof schema> & { configPath?: string };

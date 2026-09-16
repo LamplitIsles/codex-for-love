@@ -30,6 +30,7 @@ export async function fixture() {
   const config: Config = {
     name: 'Mica', persona, state: directory, workspace, port: 3082,
     codex: { command: fakeServer, model: 'gpt-5.6-luna', version: '0.154.0', home: join(directory, 'codex-home'), local_compaction: false },
+    pet: { enabled: false },
   };
   const credentials: Credentials = {};
   const environment: Record<string, string> = {

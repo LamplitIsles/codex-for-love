@@ -1,0 +1,3 @@
+export type ClipPlan = { frameCount: number; fps: number; loop: boolean };
+export function nextFrame(frame: number, elapsedMs: number, plan: ClipPlan): number { const step = Math.floor(elapsedMs * plan.fps / 1000); return plan.loop ? (frame + step) % plan.frameCount : Math.min(plan.frameCount - 1, frame + step); }
+export function clipPlan(headers: Headers, fallback: ClipPlan = { frameCount: 8, fps: 8, loop: true }): ClipPlan { const frameCount = Number(headers.get('x-pet-frame-count')); const fps = Number(headers.get('x-pet-fps')); return { frameCount: Number.isInteger(frameCount) && frameCount > 0 ? frameCount : fallback.frameCount, fps: Number.isFinite(fps) && fps > 0 ? fps : fallback.fps, loop: headers.get('x-pet-loop') === 'false' ? false : fallback.loop }; }

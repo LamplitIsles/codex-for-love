@@ -45,6 +45,7 @@
   "image.pending": "待发送图片",
   "sidebar.show": "显示对话列表",
   "chat.label": "Companion 私聊",
+  "pet.dockLabel": "陪伴桌宠",
   "sidebar.collapse": "收起对话列表",
   "sidebar.expand": "展开对话列表",
   "relationship.view": "查看 Companion 关系资料",

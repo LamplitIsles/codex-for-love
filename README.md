@@ -77,6 +77,17 @@ CFL binds to `127.0.0.1` and prints the local URL. Use a fresh workspace for a n
 
 The Companion header’s settings button changes language and appearance immediately without changing the conversation. These choices are browser-local preferences, not settings stored in the Partner configuration or workspace.
 
+### Optional local pet
+
+The animated companion pet is disabled by default. To enable it, add this to the Partner TOML and restart Partner:
+
+```toml
+[pet]
+enabled = true
+```
+
+The browser receives only one of seven coarse activity labels, never model text, reasoning, command lines, paths, arguments, or results. The anonymous bundled placeholder is used until an operator installs private sheets in `<state>/pet-assets/`; see the [operator guide](docs/operator-guide.md#optional-local-pet). Pet artwork and runtime assets never belong in this repository.
+
 ### Optional ecosystem MCPs
 
 On its first start, CFL creates the minimal workspace configuration: its bundled

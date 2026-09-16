@@ -43,6 +43,8 @@ import { verifyCodexArtifact } from './provenance.ts';
 import { partnerPaths } from './storage-paths.ts';
 import { processError } from './logging.ts';
 import { readRelationshipJournal } from './relationship-journal.ts';
+import { PetActivityProjection } from './pet.ts';
+import { localPetClip } from './pet-assets.ts';
 
 type OfficialItem = Record<string, unknown>;
 type OfficialTurn = {
@@ -434,6 +436,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
   let keetFeed: KeetFeed | undefined;
   let keetReconnect: NodeJS.Timeout | undefined;
   let keetConnecting = false;
+  const pet = config.pet.enabled ? new PetActivityProjection(() => { if (!closing) notify(); }) : undefined;
 
   const notify = () => { for (const listener of listeners) listener(); };
 
@@ -1136,6 +1139,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
         break;
       }
       case 'turn/started': {
+        pet?.turnStarted();
         const turn = registerTurn(params.turn);
         if (turn) {
           const reconciled = userItems(turn).length || sourceIdsForTurn(turn.id).length
@@ -1149,6 +1153,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
       }
       case 'item/started': {
         const item = record(params.item);
+        pet?.itemStarted(item);
         const turnId = typeof params.turnId === 'string' ? params.turnId : '';
         if (turnId && item.type === 'imageGeneration') {
           mergeItem(turnId, item);
@@ -1161,6 +1166,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
       }
       case 'item/completed': {
         const item = record(params.item);
+        pet?.itemCompleted(item);
         const turnId = typeof params.turnId === 'string' ? params.turnId : '';
         if (turnId) mergeItem(turnId, item);
         if (turnId && ['userMessage', 'agentMessage', 'imageGeneration', 'mcpToolCall', 'mcpToolResult'].includes(typeof item.type === 'string' ? item.type : '')) {
@@ -1174,6 +1180,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
       }
       case 'turn/completed': {
         const turn = registerTurn(params.turn);
+        pet?.turnCompleted(turn?.status);
         let reconciled = turn;
         if (turn && (userItems(turn).length || sourceIdsForTurn(turn.id).length)) {
           reconciled = await reconcileTurn(turn.id);
@@ -1400,6 +1407,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
       } catch { return undefined; }
     },
     avatar: (kind: 'companion' | 'user') => avatars[kind],
+    async petAsset(activity: import('./pet.ts').PetActivity) { return pet ? localPetClip(config.state, activity) : undefined; },
     async snapshot(options: MessagePageOptions = {}) {
       await eventChain;
       const page = options.after === undefined
@@ -1482,6 +1490,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
         pendingCount: pendingIds.size,
         cancellable,
         typing: activeTurnId !== null,
+        ...(pet ? { pet: pet.snapshot() } : {}),
         messages,
         results,
         draft: restoredDraft ? {
@@ -1565,6 +1574,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
     close() {
       if (closePromise) return closePromise;
       closing = true;
+      pet?.close();
       if (keetReconnect) clearTimeout(keetReconnect);
       keetFeed?.close();
       for (const unsubscribe of unsubscribeAppServer.splice(0)) unsubscribe();

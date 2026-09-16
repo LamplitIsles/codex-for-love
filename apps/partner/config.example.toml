@@ -21,6 +21,10 @@ model = "gpt-5.6-luna"
 # local_compaction = true
 # home = "/path/to/a/Codex-home" # omit to use the existing Codex login
 
+# Optional browser pet. Disabled by default; restart Partner after changing it.
+#[pet]
+#enabled = true
+
 # Optional local Keet-for-Agent gateway. Both fields and a stdin-only `keet`
 # credential enable it; omit either field to keep ordinary local conversation.
 #[keet]

@@ -6,6 +6,7 @@ import sirv from 'sirv';
 import { z } from 'zod';
 import { MAX_VOICE_DATA_URL_BYTES, normalizeVoiceMediaType } from '../src/lib/companion/voice-contract.ts';
 import type { Partner } from './partner.ts';
+import { PET_ACTIVITIES } from './pet.ts';
 
 async function body(request: IncomingMessage, limit = 65536): Promise<unknown> {
   let size = 0; const chunks: Buffer[] = [];
@@ -94,6 +95,15 @@ export function createWebServer(partner: Partner, assets: string, options: { hea
         if (!avatar) return json(response, { error: 'Avatar not found' }, 404);
         response.writeHead(200, { 'content-type': avatar.mediaType, 'cache-control': 'no-store' });
         response.end(avatar.data); return;
+      }
+      if (path.startsWith('/api/pet-assets/') && request.method === 'GET') {
+        const activity = path.slice('/api/pet-assets/'.length);
+        if (!PET_ACTIVITIES.includes(activity as typeof PET_ACTIVITIES[number])) return json(response, { error: 'Pet asset not found' }, 404);
+        const asset = await partner.petAsset(activity as typeof PET_ACTIVITIES[number]);
+        if (!asset) return json(response, { error: 'Pet asset not found' }, 404);
+        const metadata = asset.manifest.clips[activity as typeof PET_ACTIVITIES[number]];
+        response.writeHead(200, { 'content-type': 'image/webp', 'cache-control': 'no-store', 'x-pet-frame-count': String(metadata.frameCount), 'x-pet-fps': String(metadata.fps), 'x-pet-loop': String(metadata.loop) });
+        response.end(asset.data); return;
       }
       if (path === '/api/messages' && request.method === 'POST') {
         const parsed = z.object({ id: z.uuid(), input: z.string().trim().max(MAX_MESSAGE_LENGTH), images: z.array(imageInputSchema).max(5).default([]), replaces: z.array(z.uuid()).max(20).default([]) }).strict().refine(value => value.input.length > 0 || value.images.length > 0).safeParse(await body(request, messageBodyLimit));

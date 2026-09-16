@@ -15,6 +15,7 @@
   import { CompanionRecovery } from '$lib/companion/client/recovery.js';
   import { outgoingDeliveryPresentation, type MessageDelivery } from '$lib/message-delivery.ts';
   import { affinityStage } from '$lib/companion/domain.ts';
+  import PetDock from '$lib/pet/PetDock.svelte';
   type Message = { sequence: number; revision: number; id: string; turnId?: string | null; input: string; delivery: MessageDelivery; inputError: string | null; created: number;
     inputImages: { id: string; name: string; url: string }[] };
   type TurnResult = { id: string; turnId: string; sourceIds: string[]; sequence: number; revision: number; answers: string[]; error: string | null; status: string;
@@ -24,7 +25,7 @@
     context?: { activeTokens: number | null; windowTokens: number | null } | null;
     compactions?: CompactBoundary[]; lifecycle?: CompanionContinuitySnapshot;
     relationship?: { mood: string; moodLabel: string; note?: string; affinity: number; affinityStage: string; signature: string };
-    history?: CompanionStateRecord[]; results?: TurnResult[]; draft?: CompanionRecoveredDraft };
+    history?: CompanionStateRecord[]; results?: TurnResult[]; draft?: CompanionRecoveredDraft; pet?: { activity: 'idle' | 'thinking' | 'read' | 'work' | 'replying' | 'success' | 'concern'; revision: number } };
   let session = $state<Snapshot>({ cursor: 0, before: null, hasMore: false, hasChangesMore: false, pendingCount: 0, cancellable: [], name: 'Lamplit', typing: false, messages: [], storageError: false, results: [] });
   let before = $state<number | null>(null), hasMore = $state(false), loadingOlder = $state(false);
   let cursor: number | undefined;
@@ -216,3 +217,4 @@
       ? { contextWindow: session.context.windowTokens, projectedTokens: session.context.activeTokens } : undefined }}
   history={{ status: loaded ? 'ready' : 'loading', records: session.history ?? [], hasEarlier: false }}
   recoveredDraft={session.draft} />
+{#if session.pet}<PetDock activity={session.pet.activity} label={t('pet.dockLabel')} />{/if}

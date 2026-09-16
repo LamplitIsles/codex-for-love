@@ -15,6 +15,19 @@ they do not add TOML fields, service configuration, workspace state, or
 operator recovery steps. If browser storage is unavailable, the selection still
 applies for the open page but is not retained after reload.
 
+## Optional local pet
+
+`[pet]` is opt-in and takes effect on Partner restart:
+
+```toml
+[pet]
+enabled = true
+```
+
+With the flag omitted or `false`, Partner creates no pet projection, the browser loads no Pixi canvas, and `/api/pet-assets/*` is 404. Enabled snapshots carry only `{ activity, revision }` where activity is `idle`, `thinking`, `read`, `work`, `replying`, `success`, or `concern`; source messages, model deltas, reasoning, commands, paths, arguments, and results never cross this boundary.
+
+The first-run visual is an anonymous bundled placeholder. To replace it, install a complete set in `<configured-state>/pet-assets/` (not the workspace and never Git): `manifest.json` plus `idle.webp` through `concern.webp`. The manifest is schema version 2 with `character: "shio"` and exactly the seven clips defined in [the art delivery guide](sprite-sheet-art-direction.md). Each must be a regular non-symlink WebP no larger than 1.5 MB. Invalid, partial, path-escaping, or symlinked sets are rejected together and fall back to the placeholder. Valid clips are served only at same-origin `GET /api/pet-assets/<activity>`; state paths and manifests are not exposed.
+
 ## Companion connection recovery
 
 `/api/events` remains an invalidation stream, not a conversation log or an

@@ -45,6 +45,7 @@
   "image.pending": "Pending image",
   "sidebar.show": "Show conversations",
   "chat.label": "Companion private chat",
+  "pet.dockLabel": "Companion pet",
   "sidebar.collapse": "Collapse conversations",
   "sidebar.expand": "Expand conversations",
   "relationship.view": "View Companion relationship",
