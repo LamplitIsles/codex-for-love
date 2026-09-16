@@ -68,15 +68,15 @@ test('MiniMax uses a noninteractive selected-voice command and validates its out
   const directory = await mkdtemp(join(tmpdir(), 'lamplit-minimax-test-')); let command: unknown[] = [];
   try {
     const exec = (async (file: string, args: readonly string[] | null | undefined, options: unknown) => { command = [file, args, options]; const values = args as string[]; await writeFile(String(values[values.indexOf('--out') + 1]), 'ID3'); return { stdout: '', stderr: '' }; }) as never;
-    const id = await synthesizeSpeech({ provider: 'minimax', voice: 'Chinese (Mandarin)_Soft_Girl', text: '你好', audioDir: directory, execFileImpl: exec });
-    assert.equal(id.length, 64); assert.deepEqual((command[1] as string[]).slice(0, 9), ['--non-interactive', 'speech', 'synthesize', '--model', 'speech-2.8-hd', '--text', '你好', '--voice', 'Chinese (Mandarin)_Soft_Girl']);
+    const id = await synthesizeSpeech({ provider: 'minimax', voice: 'Chinese (Mandarin)_Soft_Girl', speed: 1.15, text: '你好', audioDir: directory, execFileImpl: exec });
+    assert.equal(id.length, 64); assert.deepEqual((command[1] as string[]).slice(0, 11), ['--non-interactive', 'speech', 'synthesize', '--model', 'speech-2.8-hd', '--text', '你好', '--voice', 'Chinese (Mandarin)_Soft_Girl', '--speed', '1.15']);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
 test('ByteDance uses its SSE protocol and one cache miss is single-flight', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'lamplit-audio-test-')); let calls = 0;
   try {
-    const options = { endpoint: 'ignored', provider: 'bytedance' as const, model: 'seed-tts-2.0', voice: 'voice', credential: 'secret', text: '你好', audioDir: directory, fetchImpl: async (url: string | URL | Request, init?: RequestInit) => { calls += 1; assert.equal(String(url), 'https://openspeech.bytedance.com/api/v3/tts/unidirectional/sse'); const headers = new Headers(init?.headers); assert.equal(headers.get('x-api-key'), 'secret'); assert.equal(headers.get('x-api-resource-id'), 'seed-tts-2.0'); assert.deepEqual(JSON.parse(String(init?.body)), { user: { uid: 'dsh-speech' }, req_params: { text: '你好', speaker: 'voice', audio_params: { format: 'mp3', sample_rate: 24000 } } }); await new Promise(resolve => setTimeout(resolve, 15)); return new Response('event: 352\ndata: {"code":0,"data":"SUQ="}\n\ndata: {"code":0,"data":"M0E="}\n\ndata: {"code":20000000}\n', { headers: { 'content-type': 'text/event-stream' } }); } };
+    const options = { endpoint: 'ignored', provider: 'bytedance' as const, model: 'seed-tts-2.0', voice: 'voice', speed: 1.15, credential: 'secret', text: '你好', audioDir: directory, fetchImpl: async (url: string | URL | Request, init?: RequestInit) => { calls += 1; assert.equal(String(url), 'https://openspeech.bytedance.com/api/v3/tts/unidirectional/sse'); const headers = new Headers(init?.headers); assert.equal(headers.get('x-api-key'), 'secret'); assert.equal(headers.get('x-api-resource-id'), 'seed-tts-2.0'); assert.deepEqual(JSON.parse(String(init?.body)), { user: { uid: 'dsh-speech' }, req_params: { text: '你好', speaker: 'voice', audio_params: { format: 'mp3', sample_rate: 24000, speech_rate: 15 } } }); await new Promise(resolve => setTimeout(resolve, 15)); return new Response('event: 352\ndata: {"code":0,"data":"SUQ="}\n\ndata: {"code":0,"data":"M0E="}\n\ndata: {"code":20000000}\n', { headers: { 'content-type': 'text/event-stream' } }); } };
     const [first, second] = await Promise.all([synthesizeSpeech(options), synthesizeSpeech(options)]); assert.equal(first, second); assert.equal(calls, 1);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });

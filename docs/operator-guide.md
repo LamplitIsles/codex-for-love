@@ -265,11 +265,14 @@ generation or remote compaction-result behavior.
   /path/to/partner.toml speech --stdin`, supplying the value on stdin; do not put the
   key in TOML or command arguments.
 - `speech.tts` enables deliberate Companion MCP `send_voice` messages. Its
-  only choices are `provider` (`minimax`, `alibaba`, or `bytedance`) and
-  `voice`. A successful tool call produces one standalone playable Voice
-  message with no text transcript; ordinary final text remains separate.
-  MiniMax uses the operator-installed, already-authenticated `mmx` CLI and
-  stores no credential in CFL. Alibaba reuses `speech`; ByteDance uses `tts`.
+  choices are `provider` (`minimax`, `alibaba`, or `bytedance`), `voice`, and
+  optional `speed` (a 0.5–2.0 multiplier). A successful tool call produces one
+  standalone playable Voice message with no text transcript; ordinary final
+  text remains separate. MiniMax uses the operator-installed,
+  already-authenticated `mmx` CLI and ByteDance maps the multiplier to its
+  native speech-rate value. Alibaba's configured non-realtime API has no speed
+  control and rejects that setting. Alibaba reuses `speech`; ByteDance uses
+  `tts`.
   Cached MP3s live under `<workspace>/.lamplit/audio/` and are served through
   same-origin URLs.
 - The Companion MCP tools are `update_relationship`, `set_signature`,

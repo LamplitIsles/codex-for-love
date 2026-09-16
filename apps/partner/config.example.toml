@@ -32,4 +32,5 @@ model = "gpt-5.6-luna"
 [speech.tts]
 provider = "minimax" # or "alibaba" (speech credential), "bytedance" (tts credential)
 voice = "Chinese (Mandarin)_Soft_Girl"
-# MiniMax requires the operator-installed, authenticated `mmx` CLI. No MiniMax secret belongs in this file.
+speed = 1.15 # Optional 0.5–2.0 multiplier; MiniMax and ByteDance support it.
+# MiniMax requires the operator-installed, authenticated `mmx` CLI. Alibaba's non-realtime API does not support speed. No MiniMax secret belongs in this file.

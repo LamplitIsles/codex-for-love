@@ -1,4 +1,4 @@
-import * as messages from "$lib/paraglide/messages.js";
+import * as messages from "../../paraglide/messages.js";
 import type { CompanionLanguage } from "./preferences.js";
 
 export type CompanionLocaleKey = keyof typeof messages;

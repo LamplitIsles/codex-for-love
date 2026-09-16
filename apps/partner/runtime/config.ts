@@ -6,6 +6,9 @@ import { z } from 'zod';
 /** The app-server protocol contract tested by this application. */
 export const SUPPORTED_CODEX_VERSION = '0.154.0';
 export const DEFAULT_CODEX_MODEL = 'gpt-5.6-luna';
+const ttsSchema = z.object({ provider: z.enum(['minimax', 'alibaba', 'bytedance']), voice: z.string().min(1), speed: z.number().finite().min(0.5).max(2).optional() }).strict().superRefine((tts, context) => {
+  if (tts.provider === 'alibaba' && tts.speed !== undefined) context.addIssue({ code: 'custom', path: ['speed'], message: 'Alibaba TTS speed is unavailable on the configured non-realtime API' });
+});
 
 const schema = z.object({
   name: z.string().min(1),
@@ -27,7 +30,7 @@ const schema = z.object({
   }).strict().default({ command: 'codex-app-server', model: DEFAULT_CODEX_MODEL, version: SUPPORTED_CODEX_VERSION, local_compaction: false }),
   speech: z.object({
     endpoint: z.url().default('https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation'),
-    tts: z.object({ provider: z.enum(['minimax', 'alibaba', 'bytedance']), voice: z.string().min(1) }).strict().optional(),
+    tts: ttsSchema.optional(),
   }).strict().optional(),
   // Keet is deliberately all-or-nothing at runtime.  Keeping the optional
   // fields parseable lets an operator remove one value and return to an
