@@ -1157,7 +1157,6 @@ export async function createPartner(config: Config, credentials: Credentials, de
     let marker: { threadId?: string; model?: string } | undefined;
     try { marker = JSON.parse(await readFile(markerPath, 'utf8')) as { threadId?: string; model?: string }; }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
-    if (marker?.model && marker.model !== config.codex.model) throw new Error(`Stored session uses ${marker.model}; configured ${config.codex.model}. Select a separate Partner workspace to use a different model.`);
     startupPending = !marker?.threadId;
     await refreshBootstrap();
     const injected = dependencies.appServer ?? {};
@@ -1258,6 +1257,9 @@ export async function createPartner(config: Config, credentials: Credentials, de
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
     if (response.model !== undefined && response.model !== config.codex.model) throw new Error(`Codex selected ${String(response.model)} instead of configured ${config.codex.model}`);
+    if (marker?.threadId && marker.model !== config.codex.model) {
+      await writeFile(markerPath, JSON.stringify({ threadId, model: config.codex.model }), { mode: 0o600 });
+    }
     await hydrateHistory();
     startupPending = false;
     await refreshBootstrap();

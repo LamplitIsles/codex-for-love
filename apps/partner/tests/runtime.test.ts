@@ -437,13 +437,30 @@ test('missing native image artifacts remain a durable local input error', async 
   } finally { await partner.close(); await f.close(); }
 });
 
-test('model mismatch and missing native image capability fail explicitly', async () => {
-  const mismatch = await fixture();
-  let partner = await mismatch.createPartner(); await partner.close();
-  mismatch.config.codex.model = 'gpt-6-astra';
-  await assert.rejects(mismatch.createPartner(), /Stored session uses/);
-  await mismatch.close();
+test('model changes resume the same thread and preserve history across restarts', async () => {
+  const f = await fixture();
+  let partner = await f.createPartner();
+  try {
+    await partner.submit(randomUUID(), 'keep this history when changing models');
+    await eventually(async () => (await partner.snapshot()).results?.[0]?.status === 'completed');
+    const before = await partner.snapshot();
+    const markerPath = join(partnerPaths(f.workspace).managedRoot, 'thread.json');
+    const original = JSON.parse(await readFile(markerPath, 'utf8'));
+    await partner.close();
+    f.config.codex.model = 'gpt-5.6-terra';
+    partner = await f.createPartner();
+    const resume = (await f.requests()).find((request) => request.method === 'thread/resume');
+    assert.equal((resume?.params as Record<string, unknown>).threadId, original.threadId);
+    assert.equal((resume?.params as Record<string, unknown>).model, 'gpt-5.6-terra');
+    assert.deepEqual((await partner.snapshot()).messages, before.messages);
+    assert.deepEqual(JSON.parse(await readFile(markerPath, 'utf8')), { threadId: original.threadId, model: 'gpt-5.6-terra' });
+    await partner.close();
+    partner = await f.createPartner();
+    assert.equal((await f.requests()).filter((request) => request.method === 'thread/start').length, 1);
+  } finally { await partner.close(); await f.close(); }
+});
 
+test('missing native image capability fails explicitly', async () => {
   const unavailable = await fixture();
   unavailable.appServer.env.FAKE_IMAGE_CAPABILITY = 'false';
   await assert.rejects(unavailable.createPartner(), /does not advertise native imageGeneration/);

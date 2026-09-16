@@ -192,6 +192,10 @@ generation or remote compaction-result behavior.
   configuration needs only `codex.model`, optional `codex.home`, and optional
   `local_compaction`; the default model is `gpt-5.6-luna`. Checkout development
   may explicitly select an app-server executable for its developer config.
+  Changing `codex.model` resumes the same official thread and preserves its
+  history; a new workspace is not required. Set `model_reasoning_effort` in
+  the workspace's `.codex/config.toml` to choose the reasoning effort without
+  changing the shared Codex-home configuration.
 - `workspace` contains the ordinary working files and the application-owned
   `.lamplit/` subtree. `.lamplit/session.sqlite` contains presentation and
   relationship metadata, `.lamplit/thread.json` identifies the official
