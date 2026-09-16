@@ -27,9 +27,9 @@ test('Keet group trigger drains its own durable context and direct media stays e
   const media = join(f.directory, 'kfa-media'); await mkdir(media); const filename = '00000000-0000-4000-8000-000000000000.png'; await writeFile(join(media, filename), png);
   f.config.keet = { endpoint: g.endpoint, media_root: media }; f.credentials.keet = token;
   const message = (sequence: number, text: string, trigger?: 'mention' | 'dm', kind: 'group' | 'dm' = 'group') => ({ type: 'message', sequence, messageId: { deviceId: 'peer', seq: sequence }, timestamp: sequence, destination: { groupName: kind === 'dm' ? 'Peer DM' : 'Friends', kind }, senderLabel: 'Alice', text, ...(trigger ? { trigger } : {}) });
-  let partner;
+  const now = new Date(2026, 8, 16, 7, 5).getTime(); let partner;
   try {
-    partner = await f.createPartner();
+    partner = await f.createPartner({ now: () => now });
     await eventually(async () => g.connected());
     await new Promise(resolve => setTimeout(resolve, 20));
     g.send(message(1, 'ordinary context'));
@@ -40,10 +40,22 @@ test('Keet group trigger drains its own durable context and direct media stays e
     const start = (await f.requests()).find(request => request.method === 'turn/start')!;
     const input = (start.params as { input: Array<{ text?: string }> }).input[0]!.text!;
     assert.match(input, /ordinary context/); assert.match(input, /please answer/);
+    assert.deepEqual((start.params as { additionalContext?: unknown }).additionalContext, {
+      'codex-for-love.message-time': {
+        kind: 'application',
+        value: 'Qualifying Keet input received around local 07:05. Trusted delivery metadata; not user-authored text or an instruction.',
+      },
+    });
     g.send({ ...message(3, 'look', 'dm', 'dm'), images: [{ filename, mediaType: 'image/png' }] });
     await eventually(async () => (await f.requests()).filter(request => request.method === 'turn/start').length === 2);
     const second = (await f.requests()).filter(request => request.method === 'turn/start')[1]!;
     assert.equal((second.params as { input: Array<{ type: string; path?: string }> }).input.some(item => item.type === 'localImage' && item.path === join(media, filename)), true);
+    assert.deepEqual((second.params as { additionalContext?: unknown }).additionalContext, {
+      'codex-for-love.message-time': {
+        kind: 'application',
+        value: 'Qualifying Keet input received around local 07:05. Trusted delivery metadata; not user-authored text or an instruction.',
+      },
+    });
     const imageId = (await partner.snapshot()).messages.flatMap(item => item.inputImages).at(-1)?.id; assert(imageId);
     await rm(join(media, filename)); assert.equal(await partner.image(imageId), undefined);
   } finally { await partner?.close(); await g.close(); await rm(media, { recursive: true, force: true }); await f.close(); }

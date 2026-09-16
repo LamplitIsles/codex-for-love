@@ -67,6 +67,11 @@
   import { companionHistoryChanges } from "../relationship-history.js";
   import type { CompanionHistoryChange } from "../domain.js";
   import Markdown from "./Markdown.svelte";
+  import {
+    isPlainTextMessage,
+    formatMessageTime,
+    messageTimeDateTime,
+  } from "../message-time.js";
   import { resolveImageDisplaySize } from "../media.js";
   import {
     canCaptureVoice,
@@ -433,6 +438,41 @@
       (item): item is TimelineVoice => item.kind === "voice",
     );
     return voice ? `voice-${voice.id}` : `message-${unit.id}`;
+  }
+
+  function canMeasureInlineMessageTime(unit: TimelineMessageUnit): boolean {
+    return unit.time !== undefined && unit.items.length === 1 &&
+      unit.items[0]?.kind === "text" && isPlainTextMessage(unit.items[0].text);
+  }
+
+  function placeMessageTime(node: HTMLElement): { destroy(): void } {
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      node.dataset.placement = "inline";
+      const markdown = node.previousElementSibling;
+      const walker = document.createTreeWalker(markdown ?? node, NodeFilter.SHOW_TEXT);
+      let lastText: Text | undefined;
+      for (let next = walker.nextNode(); next; next = walker.nextNode()) {
+        if (next.textContent?.trim()) lastText = next as Text;
+      }
+      if (!lastText) return;
+      const range = document.createRange();
+      range.selectNodeContents(lastText);
+      const rectangles = range.getClientRects();
+      const lastLine = rectangles.item(rectangles.length - 1);
+      const time = node.getBoundingClientRect();
+      if (!lastLine || time.bottom <= lastLine.top || time.top >= lastLine.bottom) {
+        node.dataset.placement = "fallback";
+      }
+    };
+    const schedule = () => {
+      if (!frame) frame = requestAnimationFrame(update);
+    };
+    const observer = new ResizeObserver(schedule);
+    observer.observe(node.parentElement!);
+    schedule();
+    return { destroy: () => { observer.disconnect(); if (frame) cancelAnimationFrame(frame); } };
   }
 
   function messengerRecoveryMessage(
@@ -1751,6 +1791,7 @@
                   </div>
                 {:else}
                   {@const parts = messageContentParts(unit)}
+                  {@const timeInline = canMeasureInlineMessageTime(unit)}
                   <article
                     class="cmp-chat companion-row"
                     class:cmp-chat-start={unit.side === "incoming"}
@@ -1874,8 +1915,16 @@
                             class="cmp-chat-bubble companion-bubble"
                             class:cmp-skeleton={part.item.pending &&
                               !part.item.text}
+                            class:companion-bubble-inline-time={timeInline}
                           >
-                            <Markdown text={part.item.text} />
+                            <Markdown text={part.item.text} />{#if timeInline}<time
+                              class="companion-message-time companion-message-time-inline"
+                              data-placement="inline"
+                              datetime={messageTimeDateTime(unit.time!)}
+                              data-testid={`message-time-${unit.id}`}
+                              use:placeMessageTime
+                              >{formatMessageTime(unit.time!)}</time
+                            >{/if}
                           </div>
 
                         {:else if part.item.kind === "voice"}
@@ -1955,6 +2004,14 @@
                           </div>
                         {/if}
                       {/each}
+                      {#if unit.time !== undefined && !timeInline}
+                        <time
+                          class="companion-message-time"
+                          datetime={messageTimeDateTime(unit.time)}
+                          data-testid={`message-time-${unit.id}`}
+                          >{formatMessageTime(unit.time)}</time
+                        >
+                      {/if}
                       {#if unit.pendingLabel}<div class="companion-meta" role="status">{unit.pendingLabel}</div>{/if}
                     </div>
                   </article>

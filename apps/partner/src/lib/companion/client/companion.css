@@ -88,6 +88,11 @@
 #dsh-companion .markdown img{height:auto;max-width:100%}
 #dsh-companion .markdown hr{border:0;border-top:1px solid color-mix(in srgb,var(--color-base-content) 16%,transparent);margin:.9em 0}
 #dsh-companion .companion-meta{margin-top:4px;opacity:.55;font-size:.68rem}
+#dsh-companion .companion-message-time{display:block;margin-top:3px;color:color-mix(in srgb,var(--color-base-content) 48%,transparent);font-size:.66rem;line-height:1.2;text-align:end}
+#dsh-companion .companion-bubble-inline-time .markdown,#dsh-companion .companion-bubble-inline-time .markdown>p{display:inline}
+#dsh-companion .companion-message-time-inline{display:inline;margin:0 0 0 .55em;white-space:nowrap}
+#dsh-companion .companion-message-time-inline[data-placement="fallback"]{display:block;margin:3px 0 0;text-align:end}
+#dsh-companion .companion-bubble:has(+ .companion-message-time){margin-bottom:0}
 #dsh-companion .companion-typing-bubble{display:flex;align-items:center;gap:9px;max-width:min(76vw,340px)}
 #dsh-companion .companion-waiting-copy{color:color-mix(in srgb,var(--color-base-content) 68%,transparent);font-size:.76rem;line-height:1.4;animation:companion-waiting-in .24s ease-out}
 #dsh-companion .companion-media{width:min(70vw,480px);overflow:hidden;border-radius:24px;background:var(--color-base-200);box-shadow:0 8px 24px color-mix(in srgb,var(--color-base-content) 10%,transparent)}

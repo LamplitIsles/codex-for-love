@@ -18,7 +18,7 @@
   import PetDock from '$lib/pet/PetDock.svelte';
   type Message = { sequence: number; revision: number; id: string; turnId?: string | null; input: string; delivery: MessageDelivery; inputError: string | null; created: number;
     inputImages: { id: string; name: string; url: string }[] };
-  type TurnResult = { id: string; turnId: string; sourceIds: string[]; sequence: number; revision: number; answers: string[]; error: string | null; status: string;
+  type TurnResult = { id: string; turnId: string; sourceIds: string[]; sequence: number; revision: number; answers: string[]; error: string | null; status: string; completedAt?: number;
     images: { id: string; name: string; url: string }[]; voices: { id: string; url: string }[] };
   type Snapshot = { cursor: number; before: number | null; hasMore: boolean; hasChangesMore: boolean; pendingCount: number; cancellable: string[]; imageLimits?: ImageAttachmentLimits; name: string; speech?: boolean; typing: boolean; messages: Message[]; storageError: boolean; keetLosses?: KeetLossRange[];
     avatars?: { companion?: string; user?: string };
@@ -63,9 +63,9 @@
       const units = result.answers.map((answer, index): TimelineMessageUnit => {
         const suffix = index === 0 ? '' : `:${index}`;
         const id = `${result.id}:answer${suffix}`;
-        return { id, side: 'incoming', items: [{ id, messageKey: id, kind: 'text', side: 'incoming', text: answer }] };
+        return { id, side: 'incoming', items: [{ id, messageKey: id, kind: 'text', side: 'incoming', text: answer }], ...(result.completedAt === undefined ? {} : { time: result.completedAt }) };
       });
-      for (const voice of result.voices) units.unshift({ id: `${result.id}:voice:${voice.id}`, side: 'incoming', items: [{ id: `${result.id}:voice:${voice.id}`, messageKey: `${result.id}:voice:${voice.id}`, kind: 'voice', side: 'incoming', url: voice.url }] });
+      for (const voice of result.voices) units.unshift({ id: `${result.id}:voice:${voice.id}`, side: 'incoming', items: [{ id: `${result.id}:voice:${voice.id}`, messageKey: `${result.id}:voice:${voice.id}`, kind: 'voice', side: 'incoming', url: voice.url }], ...(result.completedAt === undefined ? {} : { time: result.completedAt }) });
       const supplemental: TimelineItem[] = [];
       for (const image of result.images) supplemental.push({ id: image.id, messageKey: result.id, kind: 'image', side: 'incoming', state: 'ready', previewUrl: image.url, alt: image.name });
       const stopped = result.status === 'interrupted' || result.status === 'cancelled';
@@ -74,7 +74,7 @@
         const last = units.at(-1)!;
         units[units.length - 1] = { ...last, items: [...last.items, ...supplemental] };
       }
-      else if (supplemental.length) units.push({ id: `${result.id}:answer`, side: 'incoming', items: supplemental });
+      else if (supplemental.length) units.push({ id: `${result.id}:answer`, side: 'incoming', items: supplemental, ...(result.completedAt === undefined ? {} : { time: result.completedAt }) });
       return units;
     };
     for (const [index, message] of visibleMessages.entries()) {

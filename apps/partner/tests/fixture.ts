@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { CodexAppServerClientOptions } from '@jaminzhou/codex-app-server-client';
 import type { Config, Credentials } from '../runtime/config.ts';
-import { createPartner, type Partner } from '../runtime/partner.ts';
+import { createPartner, type Partner, type PartnerDependencies } from '../runtime/partner.ts';
 
 const fakeServer = fileURLToPath(new URL('./fake-app-server-entry.mjs', import.meta.url));
 const hookScript = fileURLToPath(new URL('../runtime/session-start-hook.mjs', import.meta.url));
@@ -56,7 +56,7 @@ export async function fixture() {
   };
   return {
     directory, workspace, config, credentials, appServer, requests,
-    async createPartner() { partner = await createPartner(config, credentials, { appServer }); return partner; },
+    async createPartner(dependencies: Omit<PartnerDependencies, 'appServer'> = {}) { partner = await createPartner(config, credentials, { ...dependencies, appServer }); return partner; },
     holdProvider(value: boolean) { return writeFile(controlPath, JSON.stringify({ hold: value }), { mode: 0o600 }); },
     holdVoiceFinal(value: boolean) { return writeFile(controlPath, JSON.stringify({ holdVoiceFinal: value }), { mode: 0o600 }); },
     async enableLocalCompaction() {

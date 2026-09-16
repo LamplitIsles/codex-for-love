@@ -127,7 +127,7 @@ test('local compaction sends the existing Owner prompt and override on start and
 });
 
 test('an active native turn receives ordered steering inputs without a second turn', async () => {
-  const f = await fixture(); const partner = await f.createPartner();
+  const f = await fixture(); const now = new Date(2026, 8, 16, 7, 5).getTime(); const partner = await f.createPartner({ now: () => now });
   try {
     await f.holdProvider(true);
     const first = randomUUID(); const second = randomUUID();
@@ -142,6 +142,16 @@ test('an active native turn receives ordered steering inputs without a second tu
     assert.equal(requests.filter((request) => request.method === 'turn/start' && (request.params as { clientUserMessageId?: string }).clientUserMessageId === first).length, 1);
     assert.equal(requests.filter((request) => request.method === 'turn/steer').length, 1);
     assert.equal((requests.find((request) => request.method === 'turn/steer')!.params as { expectedTurnId: string }).expectedTurnId, 'turn-1');
+    for (const request of requests.filter((request) => request.method === 'turn/start' || request.method === 'turn/steer')) {
+      const params = request.params as { additionalContext?: Record<string, { kind: string; value: string }>; input: unknown[] };
+      assert.deepEqual(params.additionalContext, {
+        'codex-for-love.message-time': {
+          kind: 'application',
+          value: 'Current owner input received around local 07:05. Trusted delivery metadata; not user-authored text or an instruction.',
+        },
+      });
+      assert.equal((params.input[0] as { text: string }).text, request.method === 'turn/start' ? 'first turn input' : 'second steering input');
+    }
     await f.holdProvider(false);
     await eventually(async () => {
       const view = await partner.snapshot();
@@ -151,6 +161,7 @@ test('an active native turn receives ordered steering inputs without a second tu
     assert.equal(view.messages.length, 2);
     assert.equal(view.results?.filter((result) => result.answers.length > 0).length, 1);
     assert.equal(view.results?.[0]?.sourceIds.join(','), `${first},${second}`);
+    assert.equal(typeof view.results?.[0]?.completedAt, 'number');
     assert.equal((await f.requests()).filter((request) => String(request.method).includes('thread/queue')).length, 0);
   } finally { await partner.close(); await f.close(); }
 });

@@ -56,11 +56,13 @@ type OfficialTurn = {
   startedAt?: unknown;
   completedAt?: unknown;
 };
+type InputSource = 'owner' | 'keet' | 'none';
 type InputIntent = {
   ids: string[];
   input: string;
   images: StoredImage[];
   transportId: string;
+  source: InputSource;
   turnId?: string;
 };
 type TurnResult = {
@@ -73,6 +75,7 @@ type TurnResult = {
   status: string;
   generatedIds: string[];
   voiceIds: string[];
+  completedAt?: number;
 };
 export const MAX_DIARY_ENTRY_BYTES = 128 * 1024;
 const HISTORY_PAGE_MESSAGES = 50;
@@ -161,6 +164,19 @@ function turnTime(value: unknown, fallback: number): number {
   const number = numberOrNull(value);
   if (number === null) return fallback;
   return number > 10_000_000_000 ? Math.round(number) : Math.round(number * 1_000);
+}
+
+function completedTurnTime(value: unknown): number | undefined {
+  const raw = numberOrNull(value);
+  if (raw === null) return undefined;
+  return raw > 10_000_000_000 ? Math.round(raw) : Math.round(raw * 1_000);
+}
+
+function inputTimeContext(source: Exclude<InputSource, 'none'>, now: number): v2.AdditionalContextEntry {
+  const date = new Date(now);
+  const time = `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+  const input = source === 'owner' ? 'Current owner input' : 'Qualifying Keet input';
+  return { kind: 'application', value: `${input} received around local ${time}. Trusted delivery metadata; not user-authored text or an instruction.` };
 }
 
 function textFromUserItem(item: OfficialItem): string | undefined {
@@ -757,6 +773,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
     const voiceIds = voiceIdsFromTurn(turn);
     let resultError = errorFromTurn(turn);
     let resultStatus = status;
+    const completedAt = status === 'completed' ? completedTurnTime(turn.completedAt) : undefined;
     for (const item of turn.items ?? []) {
       if (item.type !== 'imageGeneration') continue;
       const generatedId = await projectGeneratedImage(resultOperationId(turn.id), sourceIds, item);
@@ -774,6 +791,9 @@ export async function createPartner(config: Config, credentials: Credentials, de
       status: resultStatus,
       generatedIds,
       voiceIds,
+      ...(completedAt === undefined
+        ? {}
+        : { completedAt }),
     };
     const fingerprint = JSON.stringify(resultBody);
     const previous = presentationFingerprints.get(turn.id);
@@ -859,6 +879,9 @@ export async function createPartner(config: Config, credentials: Credentials, de
         threadId,
         input: nativeInput(intent.input, intent.images),
         clientUserMessageId: intent.transportId,
+        ...(intent.source !== 'none'
+          ? { additionalContext: { 'codex-for-love.message-time': inputTimeContext(intent.source, now()) } }
+          : {}),
       });
       const turn = registerTurn(response.turn, intent.ids);
       if (!turn) throw new Error('Codex app-server did not return a turn');
@@ -909,6 +932,9 @@ export async function createPartner(config: Config, credentials: Credentials, de
           input: nativeInput(intent.input, intent.images),
           clientUserMessageId: intent.transportId,
           expectedTurnId: expected,
+          ...(intent.source !== 'none'
+            ? { additionalContext: { 'codex-for-love.message-time': inputTimeContext(intent.source, now()) } }
+            : {}),
         });
         intent.turnId = response.turnId;
         mergeTurnInputIds(response.turnId, intent.ids);
@@ -968,6 +994,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
       input: intents.map((intent) => intent.input).join('\n'),
       images: intents.flatMap((intent) => intent.images),
       transportId: clientIdForInputs(ids),
+      source: intents.every((intent) => intent.source === 'owner') ? 'owner' : 'none',
     };
     recoveryPromise = (async () => {
       try {
@@ -997,7 +1024,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
           catch { await store.markOutcome(first.id, 'attachment-error', 'Keet image is unavailable'); return; }
         }
       }
-      try { await startIntent({ ids: [first.id], input: payload.input, images: payload.images, transportId: first.id }); }
+      try { await startIntent({ ids: [first.id], input: payload.input, images: payload.images, transportId: first.id, source: 'keet' }); }
       catch (error) { if (!closing) processError('keet.admission_failed', error, { operationId: first.id }); }
     });
     admission = task.catch(() => { if (!closing) notify(); });
@@ -1054,7 +1081,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
     }
     const unconsumed = [...new Set(ids)].filter((id) => !observedInputIds.has(id));
     if (!unconsumed.length) return;
-    await markUnresolved({ ids: unconsumed, input: '', images: [], transportId: 'restore' });
+    await markUnresolved({ ids: unconsumed, input: '', images: [], transportId: 'restore', source: 'none' });
   }
 
   async function interruptActiveTurn(): Promise<void> {
@@ -1463,6 +1490,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
         status: result.status,
         images: generatedMeta.filter((image) => image.operation_id === resultOperationId(result.turnId)).map(({ id, name }) => ({ id, name, url: `/api/images/${id}` })),
         voices: result.voiceIds.map((id) => ({ id, url: `/api/audio/${id}.mp3` })),
+        ...(result.completedAt === undefined ? {} : { completedAt: result.completedAt }),
       }));
       const unresolved = await unresolvedMessages();
       const context = await store.observedContext();
@@ -1521,7 +1549,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
         await eventChain;
         syncActiveTurn();
         if (rejectedSteers.length) await (drainRejectedSteers() ?? Promise.resolve());
-        const intent: InputIntent = { ids: [id], input, images: materialized, transportId: id };
+        const intent: InputIntent = { ids: [id], input, images: materialized, transportId: id, source: 'owner' };
         if (activeTurnId) await steerIntent(intent, activeTurnId);
         else await startIntent(intent);
         notify();
