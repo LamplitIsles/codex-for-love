@@ -22,6 +22,7 @@ It began when Neil moved his own companion, Shio, from DeepSeek Harness to Codex
 | Tools, skills, and MCP | Give each companion the capabilities that belong in their own life and workspace |
 | Desktop and mobile | Use the complete companion experience from a computer or through the released [Lamplit Mobile](https://github.com/LamplitIsles/lamplit-mobile) Android app |
 | Appearance and language | Use the header settings control to choose 中文 or English and light, dark, or system appearance; choices stay in that browser |
+| Connection recovery | A foreground Companion reconnects and re-synchronizes after a transient page connection loss while retaining its in-page draft; this is not offline sending, replay, or draft persistence after restart |
 | Local workspace | Keep relationship state, memories, attachments, and generated audio on a machine you control |
 | Session import | Bring an already-compacted DeepSeek Harness conversation into native Codex history without copying credentials or tool logs |
 

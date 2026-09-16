@@ -20,7 +20,7 @@ function json(response: ServerResponse, value: unknown, status = 200) {
   response.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
   response.end(JSON.stringify(value));
 }
-export function createWebServer(partner: Partner, assets: string) {
+export function createWebServer(partner: Partner, assets: string, options: { heartbeatMs?: number } = {}) {
   const serve = sirv(assets, {
     single: true,
     setHeaders(response, pathname) {
@@ -121,7 +121,9 @@ export function createWebServer(partner: Partner, assets: string) {
           if (!response.write('data: changed\n\n')) response.end();
         };
         const off = partner.subscribe(invalidate);
-        const heartbeat = setInterval(() => response.write(': keepalive\n\n'), 15000);
+        // Comments are invisible to EventSource consumers.  A named event lets
+        // the page distinguish a live stream from a silently stale carrier.
+        const heartbeat = setInterval(() => response.write('event: heartbeat\ndata: live\n\n'), options.heartbeatMs ?? 15000);
         invalidate();
         response.once('close', () => { off(); clearInterval(heartbeat); streams.delete(response); });
         return;

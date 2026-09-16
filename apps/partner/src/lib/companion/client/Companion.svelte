@@ -973,6 +973,7 @@
   }
 
   function submit(): void {
+    if (projection.canSubmit === false) return;
     const restoreText = composer.draft;
     const text = restoreText.trim();
     if (text.length > MAX_MESSAGE_LENGTH) return;
@@ -1110,6 +1111,7 @@
   }
 
   async function toggleVoiceInput(): Promise<void> {
+    if (projection.canSubmit === false && voiceStatus !== "recording" && voiceStatus !== "stopping") return;
     if (voiceStatus === "recording" || voiceStatus === "stopping") {
       if (voiceStatus === "recording") await stopVoiceAndTranscribe();
       return;
@@ -2224,6 +2226,7 @@
                     : voiceUnavailableText(t)}
                 disabled={voiceStatus === "stopping" ||
                   voiceStatus === "transcribing" ||
+                  projection.canSubmit === false ||
                   voiceCapability !== "available" ||
                   !actions.transcribeVoice ||
                   !voiceCaptureAvailable}
@@ -2318,7 +2321,7 @@
                   class="cmp-btn cmp-btn-primary cmp-btn-circle companion-send"
                   aria-label={t("message.send")}
                   on:click={submit}
-                  disabled={composer.draft.trim().length > MAX_MESSAGE_LENGTH || (!composer.draft.trim() && imageDrafts.length === 0)}
+                  disabled={projection.canSubmit === false || composer.draft.trim().length > MAX_MESSAGE_LENGTH || (!composer.draft.trim() && imageDrafts.length === 0)}
                   ><span aria-hidden="true">↑</span></button
                 >
               {/if}

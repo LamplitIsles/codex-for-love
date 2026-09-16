@@ -12,6 +12,7 @@
   import type { CompanionProjection, TimelineItem, TimelineMessageUnit } from '$lib/companion/projection.js';
   import type { CompanionStateRecord } from '$lib/companion/domain.js';
   import { CompanionPreControllerError } from '$lib/companion/client/admission.js';
+  import { CompanionRecovery } from '$lib/companion/client/recovery.js';
   import { parseTtsSegments } from '$lib/companion/tts.js';
   import { outgoingDeliveryPresentation, type MessageDelivery } from '$lib/message-delivery.ts';
   import { affinityStage } from '$lib/companion/domain.ts';
@@ -29,8 +30,9 @@
   let before = $state<number | null>(null), hasMore = $state(false), loadingOlder = $state(false);
   let cursor: number | undefined;
   let connected = $state(false), loaded = $state(false), error = $state('');
-  let stream: EventSource | undefined;
-  let disposed = false, refreshAgain = false, refreshing = false;
+  let disposed = false, refreshAgain = false, refreshing = false, recoveryGeneration = 0;
+  let refreshTask: Promise<void> | undefined, refreshTaskGeneration = 0;
+  let recovery: CompanionRecovery | undefined;
   const controller = new AbortController();
   let outgoing = $state<Message[]>([]);
   const retirements = new Map<string, () => void>();
@@ -104,27 +106,34 @@
     const units = ordered.map(({ unit }) => unit);
     const timeline = insertCompactBoundaries(units, session.compactions ?? []);
     return { items: timeline.flatMap((unit) => unit.items), messageUnits: timeline,
-      pendingCount: session.pendingCount,
+      pendingCount: session.pendingCount, canSubmit: connected && loaded,
       running: session.typing, status: !connected && loaded ? 'offline' : session.typing ? 'working' : 'ready',
       openState: loaded ? 'open' : 'loading', hasMore, loadingOlder,
       promptError: error || (session.storageError ? t('error.storage') : undefined) };
   });
-  async function refresh() {
-    if (refreshing) { refreshAgain = true; return; }
+  async function refresh(signal?: AbortSignal, generation = 0): Promise<void> {
+    if (generation) recoveryGeneration = Math.max(recoveryGeneration, generation);
+    if (refreshTask) {
+      if (generation && generation !== refreshTaskGeneration) return refreshTask.catch(() => undefined).then(() => refresh(signal, generation));
+      refreshAgain = true; return refreshTask;
+    }
     refreshing = true;
-    try { do {
+    const task = (async () => { try { do {
       refreshAgain = false;
-      const response = await fetch(cursor === undefined ? '/api/session' : `/api/session?after=${cursor}`, { signal: controller.signal });
+      const response = await fetch(cursor === undefined ? '/api/session' : `/api/session?after=${cursor}`, { signal: signal ? AbortSignal.any([controller.signal, signal]) : controller.signal });
       if (!response.ok) throw new Error(t('connection.interrupted'));
       const batch: Snapshot = await response.json();
+      if (disposed || (generation && generation !== recoveryGeneration)) continue;
       if (cursor === undefined) { before = batch.before; hasMore = batch.hasMore; }
       session = { ...batch, messages: mergeMessages(session.messages, batch.messages), results: mergeResults(session.results ?? [], batch.results ?? []) };
       observeOutgoing();
-      cursor = batch.cursor; loaded = true; connected = true;
+      cursor = batch.cursor; loaded = true;
       if (batch.hasChangesMore) refreshAgain = true;
     } while (refreshAgain && !disposed); }
-    catch { if (!disposed) connected = false; }
-    finally { refreshing = false; }
+    catch { throw new Error(t('connection.interrupted')); }
+    finally { refreshing = false; } })();
+    refreshTask = task; refreshTaskGeneration = generation;
+    try { await task; } finally { if (refreshTask === task) refreshTask = undefined; }
   }
   class MessageRejected extends Error {}
   async function post(path: string, data: unknown) {
@@ -157,6 +166,7 @@
       return response.json();
     },
     async send(input, images, retire) {
+      if (!connected) throw new CompanionPreControllerError(t('connection.interrupted'));
       if (input === '/compact' && !images.length) {
         try { await post('/api/compact', {}); await refresh(); } catch { throw new CompanionPreControllerError(t('compact.admissionFailed')); }
         return;
@@ -185,11 +195,17 @@
   };
   onMount(() => {
     const media = matchMedia('(prefers-color-scheme: dark)'); const updateScheme = () => { systemDark = media.matches; }; updateScheme(); media.addEventListener('change', updateScheme);
-    stream = new EventSource('/api/events');
-    stream.onopen = () => { connected = true; void refresh(); };
-    stream.onmessage = () => { void refresh(); };
-    stream.onerror = () => { void refresh(); };
-    return () => { disposed = true; controller.abort(); stream?.close(); retirements.clear(); media.removeEventListener('change', updateScheme); };
+    recovery = new CompanionRecovery({
+      open: () => new EventSource('/api/events'), sync: (signal, generation) => refresh(signal, generation), now: () => Date.now(),
+      changed: (synced) => { connected = synced; },
+      window: {
+        visible: () => document.visibilityState !== 'hidden',
+        on: (name, listener) => { window.addEventListener(name, listener); return () => window.removeEventListener(name, listener); },
+        setTimeout: (listener, ms) => window.setTimeout(listener, ms), clearTimeout: (id) => window.clearTimeout(id),
+      },
+    });
+    recovery.start();
+    return () => { disposed = true; recovery?.close(); controller.abort(); retirements.clear(); media.removeEventListener('change', updateScheme); };
   });
 </script>
 <svelte:head><title>{session.name} · Lamplit</title></svelte:head>

@@ -15,6 +15,17 @@ they do not add TOML fields, service configuration, workspace state, or
 operator recovery steps. If browser storage is unavailable, the selection still
 applies for the open page but is not retained after reload.
 
+## Companion connection recovery
+
+`/api/events` remains an invalidation stream, not a conversation log or an
+execution transport. It additionally emits a named `heartbeat` event so a
+foreground browser can detect a silent stale connection. On a transient loss,
+the Companion replaces that stream and catches its `/api/session` projection
+up before it enables another submission. Displayed history and an in-page
+draft stay mounted; CFL does not queue offline messages, replay an uncertain
+POST, or persist a draft across an app restart. The Partner's Codex work is
+independent of a browser stream closing.
+
 Relationship state is an append-only workspace journal at
 `.lamplit/relationship.jsonl`. The bundled `companion` MCP is its sole runtime
 writer and exposes relationship updates, signatures, history, and dice. On

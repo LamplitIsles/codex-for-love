@@ -9,6 +9,23 @@ import { createWebServer } from '../runtime/server.ts';
 import { partnerPaths } from '../runtime/storage-paths.ts';
 import { rollDice } from '../runtime/tools/dice-core.ts';
 
+test('event stream exposes liveness while a disconnected view does not cancel a turn', async () => {
+  const f = await fixture(); const partner = await f.createPartner();
+  const app = createWebServer(partner, join(f.directory, 'assets'), { heartbeatMs: 5 });
+  app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening');
+  const url = `http://127.0.0.1:${(app.server.address() as { port: number }).port}`;
+  try {
+    await f.holdProvider(true); await partner.submit(randomUUID(), 'keep working');
+    await eventually(async () => (await partner.snapshot()).typing);
+    const response = await fetch(`${url}/api/events`); const reader = response.body!.getReader();
+    let text = ''; while (!text.includes('event: heartbeat')) text += new TextDecoder().decode((await reader.read()).value);
+    await reader.cancel();
+    assert.equal((await partner.snapshot()).typing, true);
+    const snapshot = await (await fetch(`${url}/api/session`)).json() as { typing: boolean };
+    assert.equal(snapshot.typing, true);
+  } finally { await app.close(); await f.close(); }
+});
+
 
 test('native image creation and editing persist assistant attachments through refresh', async () => {
   const f = await fixture(); const partner = await f.createPartner();
