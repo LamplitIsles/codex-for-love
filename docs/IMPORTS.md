@@ -148,7 +148,7 @@ package retains the same Codex Apache-2.0 license and upstream notice.
 `.github/workflows/publish.yml` and the narrow `scripts/release-*.mjs` helpers
 adapt the OIDC publication sequence from `LamplitIsles/dsh-plugins`: strict
 semver release authority, frozen Node/pnpm setup, immutable tarball comparison,
-provenance publication, and bounded registry propagation. CFL deliberately
+and provenance publication. CFL deliberately
 uses one tag-authoritative main package rather than DSH's main-push change
 detection and package matrix. It has no DSH runtime dependency, native Rust
 build, GitHub Release, npm token fallback, or automatic native publication.

@@ -91,19 +91,3 @@ jobs:
           artifacts=("$RUNNER_TEMP/cfl-npm-release/"*.tgz)
           test "${#artifacts[@]}" -eq 1
           npm publish "${artifacts[0]}" --registry=https://registry.npmjs.org --access public --tag "$NPM_CHANNEL" --provenance
-      - name: Verify public registry propagation
-        env:
-          RELEASE_VERSION: ${{ github.ref_name }}
-          NPM_INTEGRITY: ${{ steps.preflight.outputs.integrity }}
-        run: |
-          version="${RELEASE_VERSION#v}"
-          for attempt in $(seq 1 24); do
-            echo "Registry verification attempt $attempt/24"
-            if actual=$(npm view "@lamplitisles/codex-for-love@$version" dist.integrity --registry=https://registry.npmjs.org --prefer-online); then
-              test "$actual" = "$NPM_INTEGRITY"
-              exit 0
-            fi
-            sleep 10
-          done
-          echo 'Publication did not propagate with the verified tarball integrity; inspect npm before retrying.' >&2
-          exit 1

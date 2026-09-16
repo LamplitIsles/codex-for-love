@@ -439,9 +439,9 @@ strict semver tag through the governed Git workflow, for example
 The workflow stages a disposable manifest at that version, leaving the checkout,
 lockfile, and native dependency pin unchanged. Prerelease tags use npm's `beta`
 dist-tag; stable tags use `latest`. The OIDC workflow verifies its packed
-tarball, performs an isolated installed-runtime HTTP smoke check, publishes
-with provenance, and checks registry propagation. It safely skips an existing
-version only when its immutable npm integrity matches the staged tarball.
+tarball, performs an isolated installed-runtime HTTP smoke check, and publishes
+with provenance. It safely skips an existing version only when its immutable
+npm integrity matches the staged tarball.
 
 Do not use `git push` directly for this governed release operation. After the
 required review, use the repository's `og` tag-push workflow. The Trusted

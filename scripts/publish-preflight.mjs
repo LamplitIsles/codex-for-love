@@ -95,5 +95,5 @@ if (archive) {
   console.log(`${mainPackage}@${version} already exists; its immutable tarball will be compared after packaging.`);
 }
 if (published && document['dist-tags']?.[channel] !== version) throw new Error(`${mainPackage}@${version} exists but is not selected by the ${channel} dist-tag.`);
-githubOutput({ channel, skip, integrity: artifactIntegrity, native_version: nativeVersion });
+githubOutput({ channel, skip, native_version: nativeVersion });
 console.log(JSON.stringify({ package: mainPackage, version, channel, nativeVersions, skip }, null, 2));
