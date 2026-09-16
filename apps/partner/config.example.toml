@@ -21,11 +21,9 @@ model = "gpt-5.6-luna"
 # local_compaction = true
 # home = "/path/to/a/Codex-home" # omit to use the existing Codex login
 
-# Optional DashScope STT and tagged TTS; write the DashScope API key using `credential ... speech`.
-# [speech]
-# endpoint = "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
-# [speech.tts]
-# provider = "alibaba" # or "bytedance" (uses the separate `tts` credential)
-# endpoint = "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
-# model = "qwen3-tts-flash"
-# voice = "Cherry"
+# Optional DashScope STT and tool-delivered Voice messages.
+[speech]
+[speech.tts]
+provider = "minimax" # or "alibaba" (speech credential), "bytedance" (tts credential)
+voice = "Chinese (Mandarin)_Soft_Girl"
+# MiniMax requires the operator-installed, authenticated `mmx` CLI. No MiniMax secret belongs in this file.

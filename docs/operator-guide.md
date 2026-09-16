@@ -232,13 +232,17 @@ generation or remote compaction-result behavior.
   with `pnpm --filter @lamplitisles/partner cli credential
   /path/to/partner.toml speech --stdin`, supplying the value on stdin; do not put the
   key in TOML or command arguments.
-- `speech.tts` optionally enables Alibaba or ByteDance MP3 synthesis for a
-  finalized reply consisting of one short `[[tts:text]]...[[/tts:text]]`
-  passage. The browser prepares it only when asked to play; text delivery is
-  never delayed. Alibaba reuses `speech`; ByteDance uses the separate `tts`
-  credential. Cached MP3s live under `<workspace>/.lamplit/audio/`, keyed by
-  normalized passage and provider/model/voice profile, and are served only via
-  same-origin audio URLs.
+- `speech.tts` enables deliberate Companion MCP `send_voice` messages. Its
+  only choices are `provider` (`minimax`, `alibaba`, or `bytedance`) and
+  `voice`. A successful tool call produces one standalone playable Voice
+  message with no text transcript; ordinary final text remains separate.
+  MiniMax uses the operator-installed, already-authenticated `mmx` CLI and
+  stores no credential in CFL. Alibaba reuses `speech`; ByteDance uses `tts`.
+  Cached MP3s live under `<workspace>/.lamplit/audio/` and are served through
+  same-origin URLs.
+- The Companion MCP tools are `update_relationship`, `set_signature`,
+  `read_relationship_history`, `roll_dice`, and `send_voice`; Codex supplies
+  the `mcp__companion__` namespace.
 - Outgoing messages appear optimistically. A backend-admitted message uses its
   normal presentation immediately; only input waiting behind an active turn
   is marked as queued. Partner typing remains a separate conversation state.

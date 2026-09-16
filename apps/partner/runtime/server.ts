@@ -83,11 +83,6 @@ export function createWebServer(partner: Partner, assets: string, options: { hea
         response.writeHead(200, { 'content-type': image.media_type, 'cache-control': 'private, max-age=31536000, immutable' });
         response.end(image.data); return;
       }
-      if (path === '/api/voice/synthesize' && request.method === 'POST') {
-        const parsed = z.object({ text: z.string().trim().min(1).max(240) }).strict().parse(await body(request));
-        const abort = new AbortController(); response.once('close', () => abort.abort());
-        const id = await partner.synthesize(parsed.text, abort.signal); return json(response, { url: `/api/audio/${id}.mp3` });
-      }
       if (path.startsWith('/api/audio/') && request.method === 'GET') {
         const id = z.string().regex(/^[a-f0-9]{64}\.mp3$/u).parse(path.slice('/api/audio/'.length));
         const audio = await partner.audio(id.slice(0, -4)); if (!audio) return json(response, { error: 'Audio not found' }, 404);

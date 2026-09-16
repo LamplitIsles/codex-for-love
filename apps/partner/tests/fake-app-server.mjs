@@ -192,6 +192,13 @@ async function runTurn(turn) {
       turn.items.push(image);
       send({ method: 'item/completed', params: { threadId: state.threadId, turnId: turn.id, completedAtMs: Date.now(), item: image } });
     }
+    if (text.includes('send voice')) {
+      const audioId = 'a'.repeat(64); mkdirSync(join(root, 'workspace', '.lamplit', 'audio'), { recursive: true });
+      writeFileSync(join(root, 'workspace', '.lamplit', 'audio', `${audioId}.mp3`), 'ID3');
+      const voice = { type: 'mcpToolCall', id: `voice-${state.next++}`, server: 'companion', tool: 'send_voice', arguments: {}, status: 'completed', result: { content: [{ type: 'text', text: JSON.stringify({ kind: 'voice', audioId }) }] } };
+      turn.items.push(voice); send({ method: 'item/completed', params: { threadId: state.threadId, turnId: turn.id, completedAtMs: Date.now(), item: voice } });
+      while (control().holdVoiceFinal) await new Promise(resolve => setTimeout(resolve, 15));
+    }
     const answer = { type: 'agentMessage', id: `answer-${state.next++}`, text: items.length ? `已完成${text.includes('edit') ? '编辑' : '创作'}。` : `fixture reply ${state.next}`, phase: 'final_answer', memoryCitation: null, delivery: null, questions: null };
     turn.items.push(answer);
     send({ method: 'item/completed', params: { threadId: state.threadId, turnId: turn.id, completedAtMs: Date.now(), item: answer } });

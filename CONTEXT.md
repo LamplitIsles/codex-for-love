@@ -56,6 +56,14 @@ _Avoid_: Relationship Journal, independent relationship state
 The workspace-scoped tool service through which the Partner reads and changes relationship state and uses other Lamplit-specific capabilities.
 _Avoid_: Codex built-in tools, session tool snapshot
 
+**Voice message（语音消息）**:
+A standalone incoming playable audio message deliberately sent by the Partner. It does not imply a transcript or an accompanying text message.
+_Avoid_: recorded owner input, text-to-speech tag
+
+**Voice dispatch（语音派发）**:
+The Companion MCP action that synthesizes and delivers a Voice message as evidence in the same official Codex turn.
+_Avoid_: automatic reply reading, a second conversation executor
+
 **Minimal MCP configuration（极简 MCP 配置）**:
 A Partner workspace configuration containing only CFL's bundled Companion MCP among CFL-provided integrations. It lets the Partner start without Lamplit ecosystem services.
 _Avoid_: no-tools mode, MCP-free configuration

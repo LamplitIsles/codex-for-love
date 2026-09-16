@@ -247,7 +247,7 @@ plugins = false
       assert.equal(status?.runtimeStatus, 'connected', JSON.stringify(statuses));
       assert.equal(status?.toolsError ?? null, null);
     }
-    const companionResult = await client.call('mcpServer/tool/call', { threadId, server: 'companion', tool: 'companion_update_relationship', arguments: { mood: { value: 'bright', reason: 'real probe' } } });
+    const companionResult = await client.call('mcpServer/tool/call', { threadId, server: 'companion', tool: 'update_relationship', arguments: { mood: { value: 'bright', reason: 'real probe' } } });
     assert.notEqual(companionResult.isError, true);
 
     const first = await client.call('turn/start', {

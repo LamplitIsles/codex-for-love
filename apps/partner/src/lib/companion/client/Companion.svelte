@@ -14,10 +14,8 @@
   import ImagePlus from "lucide-svelte/icons/image-plus";
   import Menu from "lucide-svelte/icons/menu";
   import Settings from "lucide-svelte/icons/settings";
-  import MessageSquareText from "lucide-svelte/icons/message-square-text";
   import Pause from "lucide-svelte/icons/pause";
   import Play from "lucide-svelte/icons/play";
-  import RotateCcw from "lucide-svelte/icons/rotate-ccw";
   import Square from "lucide-svelte/icons/square";
   import Mic from "lucide-svelte/icons/mic";
   import X from "lucide-svelte/icons/x";
@@ -99,7 +97,6 @@
     stop?: () => Promise<void>;
     loadOlder?: () => Promise<void>;
     attachmentUrl?: (attachment: unknown) => Promise<string>;
-    prepareVoice?: (text: string) => Promise<string>;
     transcribeVoice?: (
       recording: VoiceRecording,
       signal?: AbortSignal,
@@ -202,7 +199,6 @@
   let lightboxUrl = "";
   let voiceUrls: Record<string, string> = {};
   let voiceErrors: Record<string, boolean> = {};
-  let voicePreparing: Record<string, boolean> = {};
   let voicePlayback: Record<
     string,
     { current: number; duration: number; playing: boolean }
@@ -682,15 +678,9 @@
       )
         void loadImage(item, source);
     }
-    for (const item of value.items) {
-      if (
-        item.kind === "voice" &&
-        !voiceUrls[item.id] &&
-        !voiceErrors[item.id] &&
-        actions.prepareVoice
-      )
-        void prepareVoice(item);
-    }
+    for (const item of value.items)
+      if (item.kind === "voice" && voiceUrls[item.id] !== item.url)
+        voiceUrls = { ...voiceUrls, [item.id]: item.url };
   }
 
   function imageSource(item: TimelineImage): string {
@@ -763,28 +753,6 @@
     delete loads[item.id];
     imageLoads = loads;
     void loadImage(item, imageSource(item));
-  }
-
-  async function prepareVoice(item: TimelineVoice): Promise<void> {
-    if (!actions.prepareVoice || voiceUrls[item.id] || voicePreparing[item.id])
-      return;
-    voicePreparing = { ...voicePreparing, [item.id]: true };
-    const nextErrors = { ...voiceErrors };
-    delete nextErrors[item.id];
-    voiceErrors = nextErrors;
-    try {
-      const url = await actions.prepareVoice(item.text);
-      voiceUrls = { ...voiceUrls, [item.id]: url };
-    } catch {
-      voiceErrors = {
-        ...voiceErrors,
-        [item.id]: true,
-      };
-    } finally {
-      const next = { ...voicePreparing };
-      delete next[item.id];
-      voicePreparing = next;
-    }
   }
 
   function updateVoicePlayback(
@@ -897,7 +865,7 @@
     control: Element,
   ): Promise<void> {
     if (!voiceUrls[item.id]) {
-      await prepareVoice(item);
+      voiceUrls = { ...voiceUrls, [item.id]: item.url };
       await tick();
     }
     const audio = audioFor(control);
@@ -1973,63 +1941,7 @@
                                     >{/if}
                                 </div>
                               </div>
-                            {:else}
-                              <button
-                                class="cmp-btn cmp-btn-ghost cmp-btn-circle companion-voice-control"
-                                aria-label={voicePreparing[item.id]
-                                  ? t("voice.preparing")
-                                  : voiceErrors[item.id]
-                                    ? t("voice.retry")
-                                    : t("voice.play")}
-                                on:click={(event) =>
-                                  void toggleVoice(item, event.currentTarget)}
-                                disabled={!actions.prepareVoice ||
-                                  voicePreparing[item.id]}
-                              >
-                                {#if voicePreparing[item.id]}<span
-                                    class="cmp-loading cmp-loading-spinner cmp-loading-sm"
-                                    aria-hidden="true"
-
-                                  ></span>{:else if voiceErrors[item.id]}<RotateCcw
-                                    size={18}
-                                    aria-hidden="true"
-                                  />{:else}<Play
-                                    size={18}
-                                    fill="currentColor"
-                                    aria-hidden="true"
-                                  />{/if}
-                              </button>
-                              <div class="companion-voice-player">
-                                <div class="companion-voice-waveform">
-                                  {#each voiceWaveform(item.id) as height}<span
-                                      style={`--voice-bar:${height}%`}
-                                      aria-hidden="true"
-                                    ></span>{/each}
-                                </div>
-                                <div class="companion-voice-meta">
-                                  {#if voicePreparing[item.id]}<span
-                                      role="status"
-                                      >{t("loading.progress")}</span
-                                    >{:else if voiceErrors[item.id]}<span
-                                      role="alert">{t("voice.playFailed")}</span
-                                    >{:else}<span role="status"
-                                      >{t("loading.progress")}</span
-                                    >{/if}
-                                </div>
-                              </div>
                             {/if}
-                            <details
-                              class="companion-transcript"
-                              open={Boolean(voiceErrors[item.id])}
-                            >
-                              <summary
-                                ><MessageSquareText
-                                  size={14}
-                                  aria-hidden="true"
-                                /><span>{t("voice.transcript")}</span></summary
-                              >
-                              <p>{item.text}</p>
-                            </details>
                           </div>
                         {/if}
                       {/each}

@@ -131,6 +131,19 @@ test('short SDK timeout leaves an unresolved native turn admission and close rem
   }
 });
 
+test('a successful voice tool artifact projects once with its durable same-origin URL and keeps final text separate', async () => {
+  const f = await fixture(); await f.holdVoiceFinal(true); let partner = await f.createPartner();
+  try {
+    const id = randomUUID(); await partner.submit(id, 'please send voice');
+    await eventually(async () => (await partner.snapshot()).results?.some((result) => result.sourceIds.includes(id) && result.voices?.length === 1) === true);
+    const first = await partner.snapshot(); const result = first.results!.find((entry) => entry.sourceIds.includes(id))!;
+    assert.deepEqual(result.voices, [{ id: 'a'.repeat(64), url: `/api/audio/${'a'.repeat(64)}.mp3` }]); assert.equal(result.answers.length, 0);
+    await f.holdVoiceFinal(false); await eventually(async () => (await partner.snapshot()).results?.find((entry) => entry.sourceIds.includes(id))?.answers.length === 1);
+    await partner.close(); partner = await f.createPartner();
+    const restored = await partner.snapshot(); assert.deepEqual(restored.results!.find((entry) => entry.sourceIds.includes(id))!.voices, result.voices);
+  } finally { await partner.close(); await f.close(); }
+});
+
 test('accepted native start reconciles a dropped response without submitting a second turn', async () => {
   const f = await fixture();
   f.appServer.env!.FAKE_DROP_RESPONSE_METHOD = 'turn/start';

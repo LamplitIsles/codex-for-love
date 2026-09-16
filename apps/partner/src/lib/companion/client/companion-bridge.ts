@@ -36,7 +36,6 @@ export interface CompanionActions {
   stop?: () => Promise<void>;
   loadOlder?: () => Promise<void>;
   attachmentUrl?: (attachment: unknown) => Promise<string>;
-  prepareVoice?: (text: string) => Promise<string>;
   /** Authenticated Companion Host transcription; recording bytes never enter Session attachments. */
   transcribeVoice?: (
     recording: VoiceRecording,

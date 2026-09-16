@@ -45,8 +45,7 @@ export interface TimelineVoice {
   messageKey: string;
   kind: "voice";
   side: "incoming";
-  text: string;
-  status: "preparing";
+  url: string;
   time?: number;
 }
 

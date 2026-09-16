@@ -15,14 +15,14 @@ test('Companion MCP serves bounded journal tools over stdio', async () => {
   await client.connect(new StdioClientTransport({ command: process.execPath, args: [script, workspace], stderr: 'ignore' }));
   try {
     const tools = await client.listTools();
-    assert.deepEqual(tools.tools.map((tool) => tool.name).sort(), ['companion_read_history', 'companion_set_signature', 'companion_update_relationship', 'roll_dice']);
-    const changed = await client.callTool({ name: 'companion_update_relationship', arguments: { affinity: { delta: 10, reason: 'test' }, mood: { value: 'bright', reason: 'test' } } });
+    assert.deepEqual(tools.tools.map((tool) => tool.name).sort(), ['read_relationship_history', 'roll_dice', 'send_voice', 'set_signature', 'update_relationship']);
+    const changed = await client.callTool({ name: 'update_relationship', arguments: { affinity: { delta: 10, reason: 'test' }, mood: { value: 'bright', reason: 'test' } } });
     assert.match(JSON.stringify(changed), /\\"affinity\\":60/);
-    const invalid = await client.callTool({ name: 'companion_update_relationship', arguments: { affinity: { delta: 11, reason: 'no' } } });
+    const invalid = await client.callTool({ name: 'update_relationship', arguments: { affinity: { delta: 11, reason: 'no' } } });
     assert.equal(invalid.isError, true);
-    const signature = await client.callTool({ name: 'companion_set_signature', arguments: { signature: 'Mica', reason: 'test' } });
+    const signature = await client.callTool({ name: 'set_signature', arguments: { signature: 'Mica', reason: 'test' } });
     assert.match(JSON.stringify(signature), /Mica/);
-    const history = await client.callTool({ name: 'companion_read_history', arguments: { limit: 1 } });
+    const history = await client.callTool({ name: 'read_relationship_history', arguments: { limit: 1 } });
     assert.match(JSON.stringify(history), /Mica/);
     const dice = await client.callTool({ name: 'roll_dice', arguments: { sides: 6, count: 2 } });
     assert.match(JSON.stringify(dice), /\\"rolls\\"/);
@@ -36,8 +36,8 @@ test('separate Companion MCP processes serialize concurrent journal updates', as
   const [first, second] = await Promise.all([connect(), connect()]);
   try {
     await Promise.all([
-      first.callTool({ name: 'companion_update_relationship', arguments: { mood: { value: 'bright', reason: 'first' } } }),
-      second.callTool({ name: 'companion_set_signature', arguments: { signature: 'Mica', reason: 'second' } }),
+      first.callTool({ name: 'update_relationship', arguments: { mood: { value: 'bright', reason: 'first' } } }),
+      second.callTool({ name: 'set_signature', arguments: { signature: 'Mica', reason: 'second' } }),
     ]);
     const records = await readRelationshipJournal(join(workspace, '.lamplit', 'relationship.jsonl'));
     assert.equal(records.length, 2);

@@ -13,7 +13,7 @@ import { visibleHistoryPage } from '../runtime/partner.ts';
 
 test('history windows count visible user and Partner contributions like DSH', () => {
   const messages = Array.from({ length: 30 }, (_, index) => ({ id: `message-${index + 1}`, sequence: index + 1, revision: index + 1, created: index + 1 }));
-  const results = messages.map((message) => ({ turnId: `turn-${message.id}`, sourceIds: [message.id], sequence: message.sequence, revision: message.revision, answers: Array.from({ length: message.sequence % 6 === 0 ? 4 : 1 }, () => 'reply'), error: null, status: 'completed', generatedIds: [] }));
+  const results = messages.map((message) => ({ turnId: `turn-${message.id}`, sourceIds: [message.id], sequence: message.sequence, revision: message.revision, answers: Array.from({ length: message.sequence % 6 === 0 ? 4 : 1 }, () => 'reply'), error: null, status: 'completed', generatedIds: [], voiceIds: [] }));
   const page = visibleHistoryPage(messages, results);
   const visible = page.messages.reduce((count, message) => count + 1 + results.find((result) => result.sourceIds.at(-1) === message.id)!.answers.length, 0);
   assert.equal(visible, 50);

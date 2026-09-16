@@ -127,10 +127,10 @@ function sameValue(left: unknown, right: unknown): boolean {
 }
 
 /** Keep only CFL's installation-specific Companion endpoint current. */
-function ensureCompanionMcp(config: Record<string, unknown>, workspace: string): boolean {
+function ensureCompanionMcp(config: Record<string, unknown>, workspace: string, partnerConfigPath?: string): boolean {
   const servers = isRecord(config.mcp_servers) ? config.mcp_servers : {};
   let changed = !isRecord(config.mcp_servers);
-  const required = { command: process.execPath, args: [fileURLToPath(new URL(`./${companionMcpFileName}`, import.meta.url)), resolve(workspace)] };
+  const required = { command: process.execPath, args: [fileURLToPath(new URL(`./${companionMcpFileName}`, import.meta.url)), resolve(workspace), ...(partnerConfigPath ? [resolve(partnerConfigPath)] : [])] };
   const companion = isRecord(servers.companion) ? servers.companion : {};
   for (const [key, value] of Object.entries(required)) {
     if (!sameValue(companion[key], value)) {
@@ -147,7 +147,7 @@ function ensureCompanionMcp(config: Record<string, unknown>, workspace: string):
 }
 
 /** Add project-owned hooks and the bundled Companion MCP while preserving config. */
-export async function ensureHookDeclaration(workspace: string, contextPath: string): Promise<{ configPath: string; command: string }> {
+export async function ensureHookDeclaration(workspace: string, contextPath: string, partnerConfigPath?: string): Promise<{ configPath: string; command: string }> {
   const configPath = join(resolve(workspace), '.codex', 'config.toml');
   const command = hookCommand(contextPath);
   await mkdir(dirname(configPath), { recursive: true, mode: 0o700 });
@@ -161,7 +161,7 @@ export async function ensureHookDeclaration(workspace: string, contextPath: stri
   }
   const hooks = isRecord(config.hooks) ? config.hooks : {};
   const sessionStart = Array.isArray(hooks.SessionStart) ? hooks.SessionStart : [];
-  let changed = ensureCompanionMcp(config, workspace);
+  let changed = ensureCompanionMcp(config, workspace, partnerConfigPath);
   let own = false;
   const normalizedGroups = sessionStart.map((group) => {
     if (!isRecord(group) || !Array.isArray(group.hooks)) return group;

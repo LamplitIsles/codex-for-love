@@ -32,9 +32,10 @@ the independent compaction prompt to remote-v2, whose official path uses base
 instructions plus `CompactionTrigger`/history.
 
 `apps/partner/runtime/speech.ts` adapts the Qwen3-ASR-Flash request/response
-shape and short tagged-passage speech contracts from
+shape and retained Alibaba/ByteDance short-audio transport contracts from
 `packages/dsh-speech/src/gateway.ts` and `constants.ts` at `29ed11a`.
-CFL owns its TOML credentials, same-origin MP3 cache and HTTP routes. No DSH
+CFL owns MiniMax CLI dispatch, TOML credential boundaries, same-origin MP3
+cache and HTTP routes. No DSH
 lifecycle, settings UI, connection RPC or external messaging integration is
 imported.
 

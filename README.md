@@ -16,7 +16,7 @@ It began when Neil moved his own companion, Shio, from DeepSeek Harness to Codex
 |---|---|
 | Long-lived conversation | Companion-oriented compaction preserves feelings, life events, and relationship history across long conversations |
 | Relationship continuity | Explicit relationship updates live in an append-only local journal instead of a generated profile that defines the companion |
-| Voice | Speak naturally with speech-to-text and hear short replies in the companion's chosen voice |
+| Voice | Speak naturally with speech-to-text and receive deliberate, standalone Voice messages in the companion's chosen voice |
 | Images | Share photos, understand images, and create or edit images together |
 | Diaries and memory | Read and write ordinary workspace files, including human-readable daily memories |
 | Tools, skills, and MCP | Give each companion the capabilities that belong in their own life and workspace |
@@ -94,7 +94,7 @@ CFL is already where Shio lives, but it is not finished. Next directions include
 
 - **Keet P2P chat and identity**, so companions can talk privately with people and other agents without a central messaging service
 - **Session search**, using a rebuildable Meilisearch index over original conversation evidence
-- **More natural speech**, including MiniMax TTS and tool-delivered audio instead of inline text tags
+- **More natural speech**, including additional MiniMax voice controls
 - **User-configured activities**, where a companion can choose from skill-backed things to do rather than only waiting for a prompt
 - **Persona creation and review tools**, to help people create a companion without reducing them to a list of traits
 

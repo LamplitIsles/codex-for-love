@@ -27,17 +27,18 @@ const schema = z.object({
   }).strict().default({ command: 'codex-app-server', model: DEFAULT_CODEX_MODEL, version: SUPPORTED_CODEX_VERSION, local_compaction: false }),
   speech: z.object({
     endpoint: z.url().default('https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation'),
-    tts: z.object({ provider: z.enum(['alibaba', 'bytedance']).default('alibaba'), endpoint: z.url().default('https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation'), model: z.string().min(1).default('qwen3-tts-flash'), voice: z.string().min(1).default('Maia') }).strict().optional(),
+    tts: z.object({ provider: z.enum(['minimax', 'alibaba', 'bytedance']), voice: z.string().min(1) }).strict().optional(),
   }).strict().optional(),
 }).strict();
 
-export type Config = z.infer<typeof schema>;
+export type Config = z.infer<typeof schema> & { configPath?: string };
 
 export async function loadConfig(path: string): Promise<Config> {
   const config = schema.parse(parse(await readFile(path, 'utf8')));
   const base = dirname(resolve(path));
   return {
     ...config,
+    configPath: resolve(path),
     state: resolve(base, config.state),
     persona: resolve(base, config.persona),
     workspace: resolve(base, config.workspace ?? `${config.state}/workspace`),
@@ -53,7 +54,7 @@ export async function loadConfig(path: string): Promise<Config> {
   };
 }
 
-/** Only the optional STT adapter has an application-managed secret. */
+/** Alibaba STT/TTS reuses speech; ByteDance TTS keeps its separate secret. */
 export const credentialSchema = z.object({ speech: z.string().min(1).optional(), tts: z.string().min(1).optional() }).strict();
 export type Credentials = z.infer<typeof credentialSchema>;
 

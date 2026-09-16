@@ -57,6 +57,7 @@ export async function fixture() {
     directory, workspace, config, credentials, appServer, requests,
     async createPartner() { partner = await createPartner(config, credentials, { appServer }); return partner; },
     holdProvider(value: boolean) { return writeFile(controlPath, JSON.stringify({ hold: value }), { mode: 0o600 }); },
+    holdVoiceFinal(value: boolean) { return writeFile(controlPath, JSON.stringify({ holdVoiceFinal: value }), { mode: 0o600 }); },
     async enableLocalCompaction() {
       const executable = join(directory, 'codex.mjs');
       await writeFile(executable, `#!/usr/bin/env node\nimport ${JSON.stringify(pathToFileURL(fakeServer).href)};\n`, { mode: 0o755 });

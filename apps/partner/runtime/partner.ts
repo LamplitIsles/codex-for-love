@@ -29,7 +29,7 @@ import {
   type MaterializedInputImage,
   type imageInputSchema,
 } from './images.ts';
-import { synthesizeSpeech, transcribeAudio } from './speech.ts';
+import { transcribeAudio } from './speech.ts';
 import { Store, type MessageMeta, type MessagePageOptions, type StoredImage, type StoredInput, type StoredInputSegment } from './store.ts';
 import type { CompanionState } from '../src/lib/companion/domain.ts';
 import { MOOD_LABELS, affinityStage } from '../src/lib/companion/domain.ts';
@@ -68,6 +68,7 @@ type TurnResult = {
   error: string | null;
   status: string;
   generatedIds: string[];
+  voiceIds: string[];
 };
 export const MAX_DIARY_ENTRY_BYTES = 128 * 1024;
 const HISTORY_PAGE_MESSAGES = 50;
@@ -83,7 +84,7 @@ export function visibleHistoryPage(messages: readonly MessageMeta[], results: re
     const message = candidates[index]!;
     const result = resultByOwner.get(message.id);
     const resultUnits = result
-      ? result.answers.length + result.generatedIds.length + (result.error || ['failed', 'interrupted', 'cancelled'].includes(result.status) ? 1 : 0)
+      ? result.answers.length + result.generatedIds.length + result.voiceIds.length + (result.error || ['failed', 'interrupted', 'cancelled'].includes(result.status) ? 1 : 0)
       : 0;
     const units = 1 + resultUnits;
     // Keep one whole input/result group when it alone is larger than the page,
@@ -220,6 +221,23 @@ function answersFromTurn(turn: OfficialTurn | undefined): string[] {
     .filter((value): value is string => typeof value === 'string' && value.trim().length > 0);
 }
 
+function voiceIdsFromTurn(turn: OfficialTurn | undefined): string[] {
+  const ids = new Set<string>();
+  const visit = (value: unknown): void => {
+    if (typeof value === 'string') { try { visit(JSON.parse(value)); } catch {} }
+    else if (Array.isArray(value)) value.forEach(visit);
+    else if (value && typeof value === 'object') {
+      const entry = value as Record<string, unknown>;
+      if (entry.kind === 'voice' && typeof entry.audioId === 'string' && /^[a-f0-9]{64}$/u.test(entry.audioId)) ids.add(entry.audioId);
+      Object.values(entry).forEach(visit);
+    }
+  };
+  for (const item of turn?.items ?? []) {
+    if (item.type === 'mcpToolCall' && item.status === 'completed' && item.server === 'companion' && item.tool === 'send_voice') visit(item.result);
+  }
+  return [...ids];
+}
+
 function errorFromTurn(turn: OfficialTurn | undefined): string | null {
   if (!turn?.error) return null;
   const error = record(turn.error);
@@ -346,7 +364,8 @@ function versionFromUserAgent(value: unknown): string | undefined {
  * ordinary resume safe without a second model journal.
  */
 export async function createPartner(config: Config, credentials: Credentials, dependencies: PartnerDependencies = {}) {
-  if (config.speech && !credentials.speech) throw new Error('Configured speech requires a CLI-managed speech credential');
+  if (config.speech?.tts?.provider === 'alibaba' && !credentials.speech) throw new Error('Alibaba Voice requires a CLI-managed speech credential');
+  if (config.speech?.tts?.provider === 'bytedance' && !credentials.tts) throw new Error('ByteDance Voice requires a CLI-managed tts credential');
   const persona = await readFile(config.persona, 'utf8');
   if (!persona.trim()) throw new Error('Persona must not be empty');
   const paths = partnerPaths(config.workspace!);
@@ -725,6 +744,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
     if (status === 'completed') completedOperationId = sourceIds.at(-1) ?? completedOperationId;
 
     const generatedIds: string[] = [];
+    const voiceIds = voiceIdsFromTurn(turn);
     let resultError = errorFromTurn(turn);
     let resultStatus = status;
     for (const item of turn.items ?? []) {
@@ -743,6 +763,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
       error: resultError,
       status: resultStatus,
       generatedIds,
+      voiceIds,
     };
     const fingerprint = JSON.stringify(resultBody);
     const previous = presentationFingerprints.get(turn.id);
@@ -1080,7 +1101,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
         const item = record(params.item);
         const turnId = typeof params.turnId === 'string' ? params.turnId : '';
         if (turnId) mergeItem(turnId, item);
-        if (turnId && ['userMessage', 'agentMessage', 'imageGeneration'].includes(typeof item.type === 'string' ? item.type : '')) {
+        if (turnId && ['userMessage', 'agentMessage', 'imageGeneration', 'mcpToolCall', 'mcpToolResult'].includes(typeof item.type === 'string' ? item.type : '')) {
           const turn = await reconcileTurn(turnId, undefined, typeof item.id !== 'string' || typeof item.type !== 'string');
           if (turn && userItems(turn).length) await projectTurn(turn);
           syncActiveTurn();
@@ -1171,7 +1192,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
       ...(config.codex.home ? { CODEX_HOME: config.codex.home } : {}),
       ...(injected.env ?? {}),
     };
-    const hook = await ensureHookDeclaration(paths.workspaceRoot, contextFile);
+    const hook = await ensureHookDeclaration(paths.workspaceRoot, contextFile, config.configPath);
     let lastReportedSdkError: Error | undefined;
     const reportAppServerError = (error: Error): void => {
       if (closing) return;
@@ -1296,12 +1317,6 @@ export async function createPartner(config: Config, credentials: Credentials, de
         throw error;
       }
     },
-    async synthesize(text: string, signal?: AbortSignal) {
-      const tts = config.speech?.tts;
-      const credential = tts?.provider === 'alibaba' ? credentials.speech : credentials.tts;
-      if (!tts || !credential) throw new Error('Speech synthesis is unavailable');
-      return synthesizeSpeech({ ...tts, credential, text, audioDir: paths.audio, signal });
-    },
     async audio(id: string) { try { return await readFile(join(paths.audio, `${id}.mp3`)); } catch { return undefined; } },
     async transcribe(data: Uint8Array, mediaType: string, signal: AbortSignal) {
       if (!config.speech || !credentials.speech) throw new Error('Speech is unavailable');
@@ -1363,6 +1378,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
         error: result.error,
         status: result.status,
         images: generatedMeta.filter((image) => image.operation_id === resultOperationId(result.turnId)).map(({ id, name }) => ({ id, name, url: `/api/images/${id}` })),
+        voices: result.voiceIds.map((id) => ({ id, url: `/api/audio/${id}.mp3` })),
       }));
       const unresolved = await unresolvedMessages();
       const context = await store.observedContext();

@@ -13,13 +13,12 @@
   import type { CompanionStateRecord } from '$lib/companion/domain.js';
   import { CompanionPreControllerError } from '$lib/companion/client/admission.js';
   import { CompanionRecovery } from '$lib/companion/client/recovery.js';
-  import { parseTtsSegments } from '$lib/companion/tts.js';
   import { outgoingDeliveryPresentation, type MessageDelivery } from '$lib/message-delivery.ts';
   import { affinityStage } from '$lib/companion/domain.ts';
   type Message = { sequence: number; revision: number; id: string; turnId?: string | null; input: string; delivery: MessageDelivery; inputError: string | null; created: number;
     inputImages: { id: string; name: string; url: string }[] };
   type TurnResult = { id: string; turnId: string; sourceIds: string[]; sequence: number; revision: number; answers: string[]; error: string | null; status: string;
-    images: { id: string; name: string; url: string }[] };
+    images: { id: string; name: string; url: string }[]; voices: { id: string; url: string }[] };
   type Snapshot = { cursor: number; before: number | null; hasMore: boolean; hasChangesMore: boolean; pendingCount: number; cancellable: string[]; imageLimits?: ImageAttachmentLimits; name: string; speech?: boolean; typing: boolean; messages: Message[]; storageError: boolean;
     avatars?: { companion?: string; user?: string };
     context?: { activeTokens: number | null; windowTokens: number | null } | null;
@@ -63,8 +62,9 @@
       const units = result.answers.map((answer, index): TimelineMessageUnit => {
         const suffix = index === 0 ? '' : `:${index}`;
         const id = `${result.id}:answer${suffix}`;
-        return { id, side: 'incoming', items: parseTtsSegments(answer).map((segment, segmentIndex): TimelineItem => segment.kind === 'voice' ? { id: `${id}:${segmentIndex}`, messageKey: id, kind: 'voice', side: 'incoming', text: segment.text, status: 'preparing' } : { id: `${id}:${segmentIndex}`, messageKey: id, kind: 'text', side: 'incoming', text: segment.text }) };
+        return { id, side: 'incoming', items: [{ id, messageKey: id, kind: 'text', side: 'incoming', text: answer }] };
       });
+      for (const voice of result.voices) units.unshift({ id: `${result.id}:voice:${voice.id}`, side: 'incoming', items: [{ id: `${result.id}:voice:${voice.id}`, messageKey: `${result.id}:voice:${voice.id}`, kind: 'voice', side: 'incoming', url: voice.url }] });
       const supplemental: TimelineItem[] = [];
       for (const image of result.images) supplemental.push({ id: image.id, messageKey: result.id, kind: 'image', side: 'incoming', state: 'ready', previewUrl: image.url, alt: image.name });
       const stopped = result.status === 'interrupted' || result.status === 'cancelled';
@@ -142,11 +142,6 @@
     if (!response.ok) throw new Error(t('message.unconfirmed'));
   }
   const actions: CompanionActions = {
-    async prepareVoice(text) {
-      const direct = await fetch('/api/voice/synthesize', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }), signal: controller.signal });
-      if (!direct.ok) throw new Error('Speech synthesis failed');
-      return (await direct.json() as { url: string }).url;
-    },
     async loadOlder() {
       if (loadingOlder || !hasMore || before === null) return;
       loadingOlder = true;

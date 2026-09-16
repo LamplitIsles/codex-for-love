@@ -6,7 +6,6 @@ import { join } from 'node:path';
 import { fixture } from './fixture.ts';
 import { createWebServer } from '../runtime/server.ts';
 import { synthesizeSpeech, transcribeAudio } from '../runtime/speech.ts';
-import { parseTtsSegments } from '../src/lib/companion/tts.ts';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { spawn } from 'node:child_process';
@@ -53,9 +52,7 @@ test('voice drafts preserve transcript and allowlisted expression without invent
   }
 });
 
-test('tagged TTS preserves surrounding prose and leaves invalid or fenced tags as text', async () => {
-  assert.deepEqual(parseTtsSegments('before [[tts:text]] hello\nfriend [[/tts:text]] after'), [{ kind: 'text', text: 'before ' }, { kind: 'voice', text: 'hello friend' }, { kind: 'text', text: ' after' }]);
-  for (const text of ['[[tts:text]]unclosed', '[[tts:text]]a[[/tts:text]] [[tts:text]]b[[/tts:text]]', '```\n[[tts:text]]no[[/tts:text]]\n```', `[[tts:text]]${'x'.repeat(241)}[[/tts:text]]`]) assert.deepEqual(parseTtsSegments(text), [{ kind: 'text', text }]);
+test('provider synthesis caches provider and voice identities', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'lamplit-audio-test-')); let calls = 0;
   try {
     const options = { endpoint: 'http://fixture.invalid', provider: 'alibaba' as const, model: 'qwen3-tts-flash', voice: 'Cherry', credential: 'fixture', text: 'hello', audioDir: directory,
@@ -64,6 +61,15 @@ test('tagged TTS preserves surrounding prose and leaves invalid or fenced tags a
     assert.equal(first, again); assert.equal(calls, 1);
     const changed = await synthesizeSpeech({ ...options, voice: 'Ryan' });
     assert.notEqual(changed, first); assert.equal(calls, 2);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test('MiniMax uses a noninteractive selected-voice command and validates its output', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'lamplit-minimax-test-')); let command: unknown[] = [];
+  try {
+    const exec = (async (file: string, args: readonly string[] | null | undefined, options: unknown) => { command = [file, args, options]; const values = args as string[]; await writeFile(String(values[values.indexOf('--out') + 1]), 'ID3'); return { stdout: '', stderr: '' }; }) as never;
+    const id = await synthesizeSpeech({ provider: 'minimax', voice: 'Chinese (Mandarin)_Soft_Girl', text: '你好', audioDir: directory, execFileImpl: exec });
+    assert.equal(id.length, 64); assert.deepEqual((command[1] as string[]).slice(0, 9), ['--non-interactive', 'speech', 'synthesize', '--model', 'speech-2.8-hd', '--text', '你好', '--voice', 'Chinese (Mandarin)_Soft_Girl']);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
