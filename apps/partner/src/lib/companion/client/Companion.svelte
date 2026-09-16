@@ -13,6 +13,7 @@
   import { Camera, CameraErrorCode } from "@capacitor/camera";
   import ImagePlus from "lucide-svelte/icons/image-plus";
   import Menu from "lucide-svelte/icons/menu";
+  import Settings from "lucide-svelte/icons/settings";
   import MessageSquareText from "lucide-svelte/icons/message-square-text";
   import Pause from "lucide-svelte/icons/pause";
   import Play from "lucide-svelte/icons/play";
@@ -62,6 +63,7 @@
     type CompanionImageDraft,
   } from "./image-drafts.js";
   import type { CompanionReadiness } from "./readiness.js";
+  import type { CompanionAppearance, CompanionLanguage } from "./preferences.js";
   import { companionHistoryChanges } from "../relationship-history.js";
   import type { CompanionHistoryChange } from "../domain.js";
   import Markdown from "./Markdown.svelte";
@@ -127,7 +129,6 @@
     affinity: 50,
     affinityStage: t("affinity.familiar"),
   };
-  export let scheme: "light" | "dark" = "light";
   export let actions: CompanionActions = { send: async () => undefined };
   export let workspaceReadiness: CompanionReadiness = "loading";
   export let sessionReadiness: CompanionReadiness = "loading";
@@ -146,6 +147,9 @@
     hasEarlier: false,
   };
   export let onHistoryOpenChange: ((open: boolean) => void) | undefined;
+  export let appearance: CompanionAppearance = "system";
+  export let onAppearanceChange: (appearance: CompanionAppearance) => void = () => undefined;
+  export let onLanguageChange: (language: CompanionLanguage) => void = () => undefined;
 
   const dispatch = createEventDispatcher<{ advanced: void; recovery: void }>();
   const LONG_WAIT_DELAY_MS = 12_000;
@@ -171,6 +175,8 @@
   let timelineReady = false;
   let timelineRevealFrame = 0;
   let detailOpen = false;
+  let preferencesOpen = false;
+  let preferencesButton: HTMLButtonElement;
   let drawerTab: "history" | "diary" = "history";
   let diaryEntries: string[] = [];
   let diaryEntry: { name: string; text: string } | undefined;
@@ -600,13 +606,9 @@
   }
 
   function onWindowPointerDown(event: PointerEvent): void {
-    if (!contextMeterOpen) return;
     const target = event.target as Node | null;
-    if (
-      !target ||
-      !(target as Element).closest?.(".companion-context-meter-wrap")
-    )
-      closeContextMeter(false);
+    if (contextMeterOpen && (!target || !(target as Element).closest?.(".companion-context-meter-wrap"))) closeContextMeter(false);
+    if (preferencesOpen && (!target || !(target as Element).closest?.(".companion-preferences"))) preferencesOpen = false;
   }
 
   function rotateWaitingCopy(): void {
@@ -1414,6 +1416,7 @@
   }
   function onWindowKeydown(event: KeyboardEvent): void {
     if (event.key === "Escape") {
+      if (preferencesOpen) { event.preventDefault(); preferencesOpen = false; preferencesButton?.focus(); return; }
       if (contextMeterOpen) {
         event.preventDefault();
         closeContextMeter();
@@ -1548,7 +1551,6 @@
 <div
   id="dsh-companion"
   class="companion-shell"
-  data-theme={scheme === "dark" ? "night-voyage" : "sticker-messenger"}
   data-testid="companion-root"
 >
   <div class="companion-app">
@@ -1591,6 +1593,23 @@
                   : 'cmp-status-success'}"
               ></span>{statusText} · {identity.moodLabel}
             </div>
+          </div>
+          <div class="companion-preferences">
+            <button bind:this={preferencesButton} type="button" class="cmp-btn cmp-btn-ghost cmp-btn-circle companion-preferences-trigger" aria-label={t("preferences.open")} aria-controls="companion-preferences-panel" aria-expanded={preferencesOpen} on:click={() => preferencesOpen = !preferencesOpen}><Settings size={18} strokeWidth={1.8} aria-hidden="true" /></button>
+            {#if preferencesOpen}
+              <section id="companion-preferences-panel" class="companion-preferences-panel" aria-label={t("preferences.open")}>
+                <fieldset><legend>{t("preferences.theme")}</legend>
+                  {#each [["light", "preferences.light"], ["dark", "preferences.dark"], ["system", "preferences.system"]] as option}
+                    <label><input class="cmp-radio cmp-radio-primary" type="radio" name="companion-appearance" checked={appearance === option[0]} on:change={() => onAppearanceChange(option[0] as CompanionAppearance)} /><span>{t(option[1] as CompanionLocaleKey)}</span></label>
+                  {/each}
+                </fieldset>
+                <fieldset><legend>{t("preferences.language")}</legend>
+                  {#each [["zh", "中文"], ["en", "English"]] as option}
+                    <label><input class="cmp-radio cmp-radio-primary" type="radio" name="companion-language" checked={locale === option[0]} on:change={() => onLanguageChange(option[0] as CompanionLanguage)} /><span>{option[1]}</span></label>
+                  {/each}
+                </fieldset>
+              </section>
+            {/if}
           </div>
 
         </header>

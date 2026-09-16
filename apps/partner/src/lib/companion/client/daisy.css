@@ -8,7 +8,7 @@
   prefix: cmp-;
   include:
     button, avatar, mask, chat, drawer, status, loading, skeleton, card, badge,
-    modal;
+    modal, radio;
   exclude:
     properties, rootcolor, scrollbar, rootscrolllock, rootscrollgutter, svg;
   logs: false;

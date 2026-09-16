@@ -1,5 +1,6 @@
 @import 'tailwindcss';
 @import './lib/companion/client/daisy.css';
+@import './lib/companion/client/companion.css';
 @import '@fontsource/noto-sans-sc/400.css';
 @import 'katex/dist/katex.min.css';
 body { margin: 0; font-family: 'Noto Sans SC', sans-serif; }

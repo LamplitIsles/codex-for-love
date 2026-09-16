@@ -6,14 +6,15 @@
   import type { CompanionContinuitySnapshot } from '$lib/companion/continuity.ts';
   import { onMount } from 'svelte';
   import Companion from '$lib/companion/client/Companion.svelte';
-  import { companionStyles } from '$lib/companion/client/theme.js';
-  import { companionZh, type CompanionTranslate } from '$lib/companion/client/locale.js';
+  import { companionTranslate, type CompanionTranslate } from '$lib/companion/client/locale.js';
+  import { APPEARANCE_STORAGE_KEY, LANGUAGE_STORAGE_KEY, initialPreferences, resolveScheme, writePreference, type CompanionAppearance, type CompanionLanguage, type CompanionScheme } from '$lib/companion/client/preferences.js';
   import type { CompanionActions, CompanionRecoveredDraft } from '$lib/companion/client/companion-bridge.js';
   import type { CompanionProjection, TimelineItem, TimelineMessageUnit } from '$lib/companion/projection.js';
   import type { CompanionStateRecord } from '$lib/companion/domain.js';
   import { CompanionPreControllerError } from '$lib/companion/client/admission.js';
   import { parseTtsSegments } from '$lib/companion/tts.js';
   import { outgoingDeliveryPresentation, type MessageDelivery } from '$lib/message-delivery.ts';
+  import { affinityStage } from '$lib/companion/domain.ts';
   type Message = { sequence: number; revision: number; id: string; turnId?: string | null; input: string; delivery: MessageDelivery; inputError: string | null; created: number;
     inputImages: { id: string; name: string; url: string }[] };
   type TurnResult = { id: string; turnId: string; sourceIds: string[]; sequence: number; revision: number; answers: string[]; error: string | null; status: string;
@@ -38,7 +39,18 @@
     outgoing = outgoing.filter(message => !observed.has(message.id));
     for (const [id, retire] of retirements) if (observed.has(id)) { retirements.delete(id); retire(); }
   }
-  const t: CompanionTranslate = (key, params) => companionZh[key].replace(/\{(\w+)\}/gu, (match, name) => String(params?.[name] ?? match));
+  const initial = initialPreferences();
+  let language = $state<CompanionLanguage>(initial.language), appearance = $state<CompanionAppearance>(initial.appearance), systemDark = $state(initial.systemDark);
+  let t: CompanionTranslate = $derived(companionTranslate(language));
+  let scheme: CompanionScheme = $derived(resolveScheme(appearance, systemDark));
+  $effect(() => { document.documentElement.lang = language === "zh" ? "zh-Hans" : "en"; document.documentElement.dataset.theme = scheme === "dark" ? "night-voyage" : "sticker-messenger"; });
+  function selectLanguage(value: CompanionLanguage): void { language = value; writePreference(LANGUAGE_STORAGE_KEY, value); }
+  function selectAppearance(value: CompanionAppearance): void { appearance = value; writePreference(APPEARANCE_STORAGE_KEY, value); }
+  function moodText(mood: string): string { return t(`mood.${mood}` as Parameters<CompanionTranslate>[0]); }
+  function affinityText(value: number): string {
+    const key = ({ "疏离": "affinity.distant", "生疏": "affinity.unfamiliar", "熟悉": "affinity.familiar", "亲近": "affinity.close", "深厚": "affinity.deep" } as const)[affinityStage(value)];
+    return t(key);
+  }
   let projection = $derived.by((): CompanionProjection => {
     const ordered: Array<{ unit: TimelineMessageUnit; order: number }> = [];
     const results = session.results ?? [];
@@ -54,7 +66,7 @@
       const supplemental: TimelineItem[] = [];
       for (const image of result.images) supplemental.push({ id: image.id, messageKey: result.id, kind: 'image', side: 'incoming', state: 'ready', previewUrl: image.url, alt: image.name });
       const stopped = result.status === 'interrupted' || result.status === 'cancelled';
-      if (result.error || result.status === 'failed' || stopped) supplemental.push({ id: `${result.id}:error`, messageKey: result.id, kind: 'notice', side: 'incoming', tone: 'error', text: result.error === 'cancelled' || stopped ? '这次回应已停止。' : '这次未能回应。' });
+      if (result.error || result.status === 'failed' || stopped) supplemental.push({ id: `${result.id}:error`, messageKey: result.id, kind: 'notice', side: 'incoming', tone: 'error', text: result.error === 'cancelled' || stopped ? t('reply.stopped') : t('reply.failed') });
       if (supplemental.length && units.length) {
         const last = units.at(-1)!;
         units[units.length - 1] = { ...last, items: [...last.items, ...supplemental] };
@@ -67,7 +79,7 @@
       const order = message.sequence > 0 ? message.sequence * 2 : Number.MAX_SAFE_INTEGER - (visibleMessages.length - index) * 2;
       const user: TimelineItem = { id: `${message.id}:user`, messageKey: `${message.id}:user`, kind: 'text', side: 'outgoing',
         text: message.input, time: message.created, pending: ['sending', 'pending', 'unresolved'].includes(message.delivery), waitsForCurrentReply: message.delivery === 'pending' };
-      ordered.push({ order, unit: { id: user.id, side: 'outgoing', items: [...(message.input ? [user] : []), ...(message.inputImages ?? []).map((image): TimelineItem => ({ id: image.id, messageKey: user.messageKey, kind: 'image', side: 'outgoing', state: 'ready', previewUrl: image.url, alt: image.name }))], time: message.created, pending: delivery.pending, pendingLabel: delivery.label } });
+      ordered.push({ order, unit: { id: user.id, side: 'outgoing', items: [...(message.input ? [user] : []), ...(message.inputImages ?? []).map((image): TimelineItem => ({ id: image.id, messageKey: user.messageKey, kind: 'image', side: 'outgoing', state: 'ready', previewUrl: image.url, alt: image.name }))], time: message.created, pending: delivery.pending, pendingLabel: delivery.labelKey ? t(delivery.labelKey) : undefined } });
       const result = resultBySource.get(message.id);
       // A turn result is rendered once, after the last source input. This
       // keeps multi-input turns readable without copying the same answer to
@@ -95,7 +107,7 @@
       pendingCount: session.pendingCount,
       running: session.typing, status: !connected && loaded ? 'offline' : session.typing ? 'working' : 'ready',
       openState: loaded ? 'open' : 'loading', hasMore, loadingOlder,
-      promptError: error || (session.storageError ? '暂时无法保存消息。' : undefined) };
+      promptError: error || (session.storageError ? t('error.storage') : undefined) };
   });
   async function refresh() {
     if (refreshing) { refreshAgain = true; return; }
@@ -103,7 +115,7 @@
     try { do {
       refreshAgain = false;
       const response = await fetch(cursor === undefined ? '/api/session' : `/api/session?after=${cursor}`, { signal: controller.signal });
-      if (!response.ok) throw new Error('连接暂时中断');
+      if (!response.ok) throw new Error(t('connection.interrupted'));
       const batch: Snapshot = await response.json();
       if (cursor === undefined) { before = batch.before; hasMore = batch.hasMore; }
       session = { ...batch, messages: mergeMessages(session.messages, batch.messages), results: mergeResults(session.results ?? [], batch.results ?? []) };
@@ -117,8 +129,8 @@
   class MessageRejected extends Error {}
   async function post(path: string, data: unknown) {
     const response = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(data), signal: controller.signal });
-    if (response.status === 422) throw new MessageRejected('消息内容无效，请检查文字长度和图片后重新发送。');
-    if (!response.ok) throw new Error('尚未确认送达，请重试。');
+    if (response.status === 422) throw new MessageRejected(t('message.invalid'));
+    if (!response.ok) throw new Error(t('message.unconfirmed'));
   }
   const actions: CompanionActions = {
     async prepareVoice(text) {
@@ -131,11 +143,11 @@
       loadingOlder = true;
       try {
         const response = await fetch(`/api/session?before=${before}`, { signal: controller.signal });
-        if (!response.ok) throw new Error('暂时无法加载更早消息');
+        if (!response.ok) throw new Error(t('history.loadFailed'));
         const page: Snapshot = await response.json();
         session = { ...session, messages: mergeMessages(session.messages, page.messages), results: mergeResults(session.results ?? [], page.results ?? []) };
         before = page.before; hasMore = page.hasMore;
-      } catch { if (!disposed) error = '暂时无法加载更早消息，请重试。'; }
+      } catch { if (!disposed) error = t('history.loadFailed'); }
       finally { loadingOlder = false; }
     },
     async transcribeVoice(recording, signal) {
@@ -146,7 +158,7 @@
     },
     async send(input, images, retire) {
       if (input === '/compact' && !images.length) {
-        try { await post('/api/compact', {}); await refresh(); } catch { throw new CompanionPreControllerError('暂时无法整理对话'); }
+        try { await post('/api/compact', {}); await refresh(); } catch { throw new CompanionPreControllerError(t('compact.admissionFailed')); }
         return;
       }
       let id: string = crypto.randomUUID();
@@ -166,25 +178,25 @@
       } catch (cause) {
         if (observed) return;
         outgoing = outgoing.filter(message => message.id !== id); retirements.delete(id);
-        error = cause instanceof MessageRejected ? cause.message : '尚未确认送达，请检查对话中的待确认草稿。'; retire?.({ reason: 'failed' }); throw cause;
+        error = cause instanceof MessageRejected ? cause.message : t('message.unconfirmedDraft'); retire?.({ reason: 'failed' }); throw cause;
       }
     },
     async stop() { for (const id of session.cancellable) await post('/api/cancel', { id }); await refresh(); },
   };
   onMount(() => {
-    const styles = document.createElement('style'); styles.textContent = companionStyles; document.head.append(styles);
+    const media = matchMedia('(prefers-color-scheme: dark)'); const updateScheme = () => { systemDark = media.matches; }; updateScheme(); media.addEventListener('change', updateScheme);
     stream = new EventSource('/api/events');
     stream.onopen = () => { connected = true; void refresh(); };
     stream.onmessage = () => { void refresh(); };
     stream.onerror = () => { void refresh(); };
-    return () => { disposed = true; controller.abort(); stream?.close(); retirements.clear(); styles.remove(); };
+    return () => { disposed = true; controller.abort(); stream?.close(); retirements.clear(); media.removeEventListener('change', updateScheme); };
   });
 </script>
 <svelte:head><title>{session.name} · Lamplit</title></svelte:head>
-<Companion {projection} {actions} {t} locale="zh" scheme="dark" sessionId="partner" voiceCapability={session.speech ? "available" : "unavailable"} imageLimits={session.imageLimits} onHistoryOpenChange={undefined}
+<Companion {projection} {actions} {t} locale={language} {appearance} onLanguageChange={selectLanguage} onAppearanceChange={selectAppearance} sessionId="partner" voiceCapability={session.speech ? "available" : "unavailable"} imageLimits={session.imageLimits} onHistoryOpenChange={undefined}
   identity={{ companionName: session.name, userName: '你', preferredAddress: '你', companionAvatar: session.avatars?.companion, userAvatar: session.avatars?.user, signature: session.relationship?.signature ?? '',
-    mood: session.relationship?.mood ?? 'neutral', moodLabel: session.relationship?.moodLabel ?? '如常', moodNote: session.relationship?.note,
-    affinity: session.relationship?.affinity, affinityStage: session.relationship?.affinityStage }}
+    mood: session.relationship?.mood ?? 'neutral', moodLabel: moodText(session.relationship?.mood ?? 'neutral'), moodNote: session.relationship?.note,
+    affinity: session.relationship?.affinity, affinityStage: affinityText(session.relationship?.affinity ?? 50) }}
   workspaceReadiness={loaded ? 'ready' : 'loading'} sessionReadiness={loaded ? 'ready' : 'loading'}
   relationshipReadiness={session.relationship ? 'ready' : 'loading'}
   continuity={{ lifecycle: session.lifecycle,

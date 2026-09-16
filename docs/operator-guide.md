@@ -7,6 +7,14 @@ thread, model history, tools, skills, execution and compaction; this
 repository owns the Companion projection, relationship state, speech
 transcription and workspace attachments.
 
+## Browser appearance and language
+
+The Companion header settings control lets an owner choose 中文 or English and
+light, dark, or system appearance. These are browser-local preferences only:
+they do not add TOML fields, service configuration, workspace state, or
+operator recovery steps. If browser storage is unavailable, the selection still
+applies for the open page but is not retained after reload.
+
 Relationship state is an append-only workspace journal at
 `.lamplit/relationship.jsonl`. The bundled `companion` MCP is its sole runtime
 writer and exposes relationship updates, signatures, history, and dice. On

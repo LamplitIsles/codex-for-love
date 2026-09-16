@@ -7,8 +7,8 @@ export type MessageDelivery =
   | 'replaced';
 
 export function outgoingDeliveryPresentation(delivery: MessageDelivery) {
-  if (delivery === 'sending') return { pending: true, label: '正在发送…' };
-  if (delivery === 'queued') return { pending: true, label: '排队中' };
-  if (delivery === 'unresolved') return { pending: true, label: '尚未确认送达…' };
-  return { pending: false, label: undefined };
+  if (delivery === 'sending') return { pending: true, labelKey: 'delivery.sending' as const };
+  if (delivery === 'queued') return { pending: true, labelKey: 'delivery.queued' as const };
+  if (delivery === 'unresolved') return { pending: true, labelKey: 'delivery.unresolved' as const };
+  return { pending: false, labelKey: undefined };
 }

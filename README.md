@@ -21,6 +21,7 @@ It began when Neil moved his own companion, Shio, from DeepSeek Harness to Codex
 | Diaries and memory | Read and write ordinary workspace files, including human-readable daily memories |
 | Tools, skills, and MCP | Give each companion the capabilities that belong in their own life and workspace |
 | Desktop and mobile | Use the complete companion experience from a computer or through the released [Lamplit Mobile](https://github.com/LamplitIsles/lamplit-mobile) Android app |
+| Appearance and language | Use the header settings control to choose 中文 or English and light, dark, or system appearance; choices stay in that browser |
 | Local workspace | Keep relationship state, memories, attachments, and generated audio on a machine you control |
 | Session import | Bring an already-compacted DeepSeek Harness conversation into native Codex history without copying credentials or tool logs |
 
@@ -72,6 +73,8 @@ codex-for-love serve /path/to/partner.toml
 ```
 
 CFL binds to `127.0.0.1` and prints the local URL. Use a fresh workspace for a new conversation.
+
+The Companion header’s settings button changes language and appearance immediately without changing the conversation. These choices are browser-local preferences, not settings stored in the Partner configuration or workspace.
 
 ### Optional ecosystem MCPs
 
