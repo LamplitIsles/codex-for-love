@@ -1,0 +1,5 @@
+interface:
+  display_name: "CFL session diagnostics"
+  short_description: "Inspect a CFL compaction timeline"
+policy:
+  allow_implicit_invocation: false
