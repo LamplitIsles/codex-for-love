@@ -1,5 +1,4 @@
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -63,24 +62,7 @@ export async function fixture() {
       const executable = join(directory, 'codex.mjs');
       await writeFile(executable, `#!/usr/bin/env node\nimport ${JSON.stringify(pathToFileURL(fakeServer).href)};\n`, { mode: 0o755 });
       config.codex.command = executable;
-      const helper = 'test-owned code-mode host';
-      await writeFile(join(directory, 'codex-code-mode-host'), helper, { mode: 0o755 });
-      const provenance = join(directory, 'provenance.json');
-      const binarySha256 = createHash('sha256').update(await readFile(executable)).digest('hex');
-      await writeFile(provenance, `${JSON.stringify({
-        schemaVersion: 1,
-        forkRepository: 'https://github.com/lamplitisles/codex',
-        sourceRevision: '445477b6a83514611ac206d2ab04b79374555a4c',
-        releaseTag: 'cfl/v0.154.0-app-server-musl.1',
-        codexVersion: '0.154.0',
-        target: 'x86_64-unknown-linux-musl',
-        executables: {
-          'bin/codex-app-server': binarySha256,
-          'bin/codex-code-mode-host': createHash('sha256').update(helper).digest('hex'),
-        },
-      }, null, 2)}\n`);
       config.codex.local_compaction = true;
-      config.codex.provenance = provenance;
     },
     async close() { await partner?.close(); await rm(directory, { recursive: true, force: true }); },
   };

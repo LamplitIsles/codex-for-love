@@ -1,6 +1,6 @@
 ---
 name: cfl-release
-description: Release Codex for Love's scoped npm packages, including native-artifact provenance, tag-driven main-package publication, and installed-artifact verification. Use for CFL package releases or native-package updates; not for ordinary development builds or deployment.
+description: Release Codex for Love's scoped npm packages, including native-package pins, tag-driven main-package publication, and installed-artifact verification. Use for CFL package releases or native-package updates; not for ordinary development builds or deployment.
 ---
 
 # CFL release
@@ -20,14 +20,13 @@ main package can reference new versions. Never publish upstream
 
 Read `AGENTS.md`, `docs/operator-guide.md`'s **Publishing the main package**
 section, and the relevant release scripts before choosing commands. Keep the
-checkout, package versions, and `release/codex-artifact*.json` identity
-contracts aligned. A provenance release label inside a native archive is not a
-Git tag.
+checkout and exact package versions aligned. The main manifest's native pins
+are the installed-runtime selection contract.
 
 - For an unchanged-native main release, verify the exact public native package
-  bytes and provenance with `scripts/publish-preflight.mjs`, then follow the
-  tag-driven main-package workflow. The tag is the main-package version source;
-  the disposable staging step must not mutate the checkout or dependency pins.
+  metadata with `scripts/publish-preflight.mjs`, then follow the tag-driven
+  main-package workflow. The tag is the main-package version source; the
+  disposable staging step must not mutate the checkout or dependency pins.
 - For a native update, use the `codex` fork's
   `skills/cfl-codex-native-release/SKILL.md` to create reviewed local Linux
   and macOS archives. Copy them into `.scratch/native-release-<version>/`,
@@ -36,17 +35,17 @@ Git tag.
   selected scoped native tarball before one direct `npm publish`; it does not
   immediately query the registry after submission. The Linux and macOS packages
   are independently built and independently published. A native-only publication
-  leaves the main manifest and `release/codex-artifact*.json` untouched; update
-  those contracts only in the later main-package change that pins the verified
-  public native versions.
+  leaves the main manifest untouched, so it is not a production deployment. In
+  the later main-package change, pin the public native versions before the
+  tag-driven main release; the installed launcher resolves those pins and does
+  not use a production Partner TOML executable override.
 
 ## Verification and publication order
 
 Before an external mutation, verify a clean intended source state, the target
-semver/tag, npm registry availability, package `os`/`cpu`, archive integrity,
-provenance, executable hashes, and the exact optional-dependency pins. Use the
-existing `release:check`, `release:preflight`, and `release:smoke` paths rather
-than reconstructing checks in shell one-liners.
+semver/tag, npm registry availability, package `os`/`cpu`, and the exact
+optional-dependency pins. Use the existing `release:check`, `release:preflight`,
+and `release:smoke` paths rather than reconstructing checks in shell one-liners.
 
 Run an installed-artifact smoke on the matching host after every native or main
 package change. A native package may be manually published only after its exact
@@ -60,7 +59,7 @@ delay as a reason to republish an immutable version.
 
 ## Handoff
 
-Record the immutable package/version/integrity, the fork source revision and
-release tag, and the host smoke result. Release artifacts do not deploy a
-Partner instance; follow `docs/development-environments.md` only when the user
-also requests installation or deployment.
+Record the immutable package/version/integrity and the host smoke result.
+Release artifacts do not deploy a Partner instance; follow
+`docs/development-environments.md` only when the user also requests installation
+or deployment.

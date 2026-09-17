@@ -74,9 +74,8 @@ workflow is described below.
 
 ## Install, check and run
 
-The published CLI supplies and verifies its native app-server, so an installed
-configuration omits `codex.command`, `codex.version`, and
-`codex.provenance`:
+The published CLI supplies its main-package-pinned native app-server, so an
+installed configuration omits `codex.command` and `codex.version`:
 
 ```sh
 npm install -g @lamplitisles/codex-for-love
@@ -251,11 +250,11 @@ generation or remote compaction-result behavior.
 - `name` and `persona` select the Partner identity. The Owner-maintained
   companion base instructions are loaded from `runtime/prompts.ts`; the worker
   only assembles them with the selected persona.
-- Published installs select the bundled standalone app-server and verify its
-  fork release identity and both executable hashes before startup. Their
-  configuration needs only `codex.model`, optional `codex.home`, and optional
-  `local_compaction`; the default model is `gpt-5.6-luna`. Checkout development
-  may explicitly select an app-server executable for its developer config.
+- Published installs select the standalone app-server through the main
+  package's exact native dependency pin. Their configuration needs only
+  `codex.model`, optional `codex.home`, and optional `local_compaction`; the
+  default model is `gpt-5.6-luna`. Checkout development may explicitly select
+  an app-server executable for its developer config.
   Changing `codex.model` resumes the same official thread and preserves its
   history; a new workspace is not required. Set `model_reasoning_effort` in
   the workspace's `.codex/config.toml` to choose the reasoning effort without
@@ -415,8 +414,8 @@ which consumes the Owner-authored `compactionPrompt`. Enable it explicitly:
 local_compaction = true
 ```
 
-The host verifies the artifact hash, exact fork revision and helper hash before
-SDK startup, and sets the override on both thread start and resume.
+The SDK handshake verifies the app-server protocol version before CFL sets the
+override on both thread start and resume.
 The local summary uses a neutral continuity prefix; builtin OpenAI provider
 identity is unchanged. Without the override, upstream routing remains active;
 remote-v2 does not consume `compact_prompt`.
@@ -443,22 +442,22 @@ Source provenance and retained upstream licenses are recorded in
 
 ## Publishing the main package
 
-`release/codex-artifact.json` and `release/codex-artifact-darwin-arm64.json`
-are the immutable identity contracts for the already-published Linux and Mac
-native packages: fork revision, provenance, and both executable hashes.
-Main-package CI downloads both exact npm packages and checks
-those values before building CFL; it never compiles Rust or downloads a Codex
-GitHub Release.
+The main manifest's exact optional-dependency versions are the native package
+selection contract. Main-package CI verifies that each pinned package is public,
+matches its declared platform, and has no install hook before building CFL; it
+never compiles Rust or downloads a Codex GitHub Release.
 
 After a reviewed commit is on `main`, publish a CFL main release by pushing one
 strict semver tag through the governed Git workflow, for example
 `v0.1.0-beta.1` or `v0.1.0`. The tag is the only main-package version source.
 The workflow stages a disposable manifest at that version, leaving the checkout,
-lockfile, and native dependency pin unchanged. Prerelease tags use npm's `beta`
-dist-tag; stable tags use `latest`. The OIDC workflow verifies its packed
-tarball, performs an isolated installed-runtime HTTP smoke check, and publishes
-with provenance. It safely skips an existing version only when its immutable
-npm integrity matches the staged tarball.
+lockfile, and native dependency pins unchanged. A native-only publication does
+not select a new installed runtime: first merge the reviewed main-package change
+that pins its public native versions, then create the main-package tag.
+Prerelease tags use npm's `beta` dist-tag; stable tags use `latest`. The OIDC
+workflow verifies its packed tarball, performs an isolated installed-runtime
+HTTP smoke check, and publishes with provenance. It safely skips an existing
+version only when its immutable npm integrity matches the staged tarball.
 
 Do not use `git push` directly for this governed release operation. After the
 required review, use the repository's `og` tag-push workflow. The Trusted

@@ -36,9 +36,9 @@ ExecStart=/run/current-system/sw/bin/node /absolute/path/to/codex-for-love/apps/
 ```
 
 CFL always invokes `codex.command` as a direct `codex-app-server`; CFL
-configurations do not select an executable type. The published CLI supplies
-the matching provenance file, while a checkout using local compaction supplies
-its local build's matching provenance file.
+configurations do not select an executable type. The published launcher selects
+the app-server from its main-package native dependency pin; a checkout may set
+its direct app-server command.
 
 Reload, restart only dev, then verify the fixed endpoint:
 
@@ -63,6 +63,13 @@ checkout. Install the approved version, then validate the installed executable:
 npm install --global --ignore-scripts --prefer-online --prefix /home/neil/.local/share/codex-for-love/prod-current @lamplitisles/codex-for-love@<approved-version>
 /home/neil/.local/share/codex-for-love/prod-current/bin/codex-for-love --help
 ```
+
+The published launcher resolves its platform-native app-server exclusively from
+the main package's exact `optionalDependencies` pin. A native-only npm
+publication is therefore available for a later main release but is not itself a
+production deployment. Keep `codex.command` absent from the production Partner
+TOML; `codex.provenance` is not a supported setting. Checkout development is
+the only path that selects a direct executable path.
 
 Point the production override at that stable executable and its fixed production
 configuration:

@@ -1,23 +1,18 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { githubOutput, mainManifest, npmDistTag, readJson, versionFromTag } from './release-shared.mjs';
+import { githubOutput, mainManifest, npmDistTag, versionFromTag } from './release-shared.mjs';
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const nativePackage = '@lamplitisles/codex-for-love-linux-x64';
 const nativePlatforms = [
-  { name: nativePackage, os: 'linux', cpu: 'x64', identity: 'codex-artifact.json' },
-  { name: '@lamplitisles/codex-for-love-darwin-arm64', os: 'darwin', cpu: 'arm64', identity: 'codex-artifact-darwin-arm64.json' },
+  { name: nativePackage, os: 'linux', cpu: 'x64' },
+  { name: '@lamplitisles/codex-for-love-darwin-arm64', os: 'darwin', cpu: 'arm64' },
 ];
 const mainPackage = '@lamplitisles/codex-for-love';
 const registry = 'https://registry.npmjs.org';
-
-function sha256(bytes) {
-  return createHash('sha256').update(bytes).digest('hex');
-}
 
 function integrity(bytes) {
   return `sha512-${createHash('sha512').update(bytes).digest('base64')}`;
@@ -38,33 +33,10 @@ async function verifyNative(manifest, platform) {
   }
   const document = await registryDocument(nativePackage);
   const published = document.versions?.[version];
-  if (!published?.dist?.tarball) throw new Error(`${nativePackage}@${version} is not publicly available; publish and verify native bytes before a main release.`);
-  const response = await fetch(published.dist.tarball, { cache: 'no-store', signal: AbortSignal.timeout(120_000) });
-  if (!response.ok) throw new Error(`Could not download ${nativePackage}@${version}: HTTP ${response.status}`);
-  const archive = await response.arrayBuffer();
-  if (published.dist.integrity && integrity(Buffer.from(archive)) !== published.dist.integrity) throw new Error(`${nativePackage}@${version} download integrity differs from npm metadata.`);
-  const temporary = await mkdtemp(join(tmpdir(), 'cfl-native-preflight-'));
-  try {
-    const tarball = join(temporary, 'native.tgz');
-    await writeFile(tarball, Buffer.from(archive));
-    const nativeManifest = JSON.parse(execFileSync('tar', ['-xOzf', tarball, 'package/package.json'], { encoding: 'utf8' }));
-    if (nativeManifest.name !== nativePackage || nativeManifest.version !== version || nativeManifest.os?.join(',') !== platform.os || nativeManifest.cpu?.join(',') !== platform.cpu) throw new Error(`Published native package metadata is incompatible with ${nativePackage}.`);
-    if (Object.keys(nativeManifest.scripts ?? {}).some((name) => /^(pre|post)?install$/u.test(name))) throw new Error('Published native package must not contain an install hook.');
-    const expected = readJson(join(root, 'release', platform.identity));
-    execFileSync('tar', ['-xzf', tarball, '-C', temporary, 'package/provenance.json', ...Object.keys(expected.executables).map((path) => `package/${path}`)]);
-    const provenance = JSON.parse(execFileSync('tar', ['-xOzf', tarball, 'package/provenance.json'], { encoding: 'utf8' }));
-    const { archiveSha256, ...identity } = expected;
-    for (const [key, value] of Object.entries(identity)) {
-      if (JSON.stringify(provenance[key]) !== JSON.stringify(value)) throw new Error(`Published native provenance mismatches ${key}.`);
-    }
-    for (const [path, hash] of Object.entries(expected.executables)) {
-      const bytes = await readFile(join(temporary, 'package', path));
-      if (sha256(bytes) !== hash) throw new Error(`Published native executable hash mismatches ${path}.`);
-    }
-  } finally {
-    await rm(temporary, { recursive: true, force: true });
-  }
-  console.log(`Verified ${nativePackage}@${version}: provenance and both executable hashes.`);
+  if (!published?.dist?.integrity) throw new Error(`${nativePackage}@${version} is not publicly available.`);
+  if (published.name !== nativePackage || published.version !== version || published.os?.join(',') !== platform.os || published.cpu?.join(',') !== platform.cpu) throw new Error(`Published native package metadata is incompatible with ${nativePackage}.`);
+  if (Object.keys(published.scripts ?? {}).some((name) => /^(pre|post)?install$/u.test(name))) throw new Error('Published native package must not contain an install hook.');
+  console.log(`Verified ${nativePackage}@${version}: exact platform package is available from npm.`);
   return version;
 }
 

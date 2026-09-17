@@ -17,7 +17,6 @@ import {
   writeBootstrapFile,
 } from './context-bootstrap.ts';
 import { compactionPrompt, companionPrompt } from './prompts.ts';
-import { verifyCodexArtifact } from './provenance.ts';
 import { Store } from './store.ts';
 import { replaceRelationshipJournal } from './relationship-journal.ts';
 import { partnerPaths } from './storage-paths.ts';
@@ -959,10 +958,6 @@ export async function convertDshSession(
     await writeFile(rolloutPath, `${rollout.lines.map((line) => JSON.stringify(line)).join('\n')}\n`, { mode: 0o600, flag: 'wx' });
     const injected = dependencies.appServer ?? {};
     const selectedCodexPath = injected.codexPath ?? config.codex.command;
-    if (config.codex.local_compaction && !config.codex.provenance) {
-      throw new Error('Local compaction requires codex.provenance for the selected custom Codex build');
-    }
-    if (config.codex.provenance) await verifyCodexArtifact(selectedCodexPath, config.codex.provenance);
     const environment = {
       ...(config.codex.home ? { CODEX_HOME: config.codex.home } : {}),
       ...(injected.env ?? {}),

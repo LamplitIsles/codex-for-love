@@ -5,7 +5,7 @@
   "license": "Apache-2.0",
   "os": ["darwin"],
   "cpu": ["arm64"],
-  "files": ["bin", "LICENSE", "NOTICE", "provenance.json"],
+  "files": ["bin", "LICENSE", "NOTICE"],
   "engines": { "node": ">=24" },
   "publishConfig": { "access": "public", "tag": "beta", "registry": "https://registry.npmjs.org/" },
   "repository": { "type": "git", "url": "git+https://github.com/LamplitIsles/codex.git" }

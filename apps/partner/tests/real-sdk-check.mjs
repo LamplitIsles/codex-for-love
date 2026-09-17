@@ -7,7 +7,6 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CodexAppServerClient, resolveCodexBinary } from '@jaminzhou/codex-app-server-client';
 import { compactionPrompt } from '../runtime/prompts.ts';
-import { verifyCodexArtifact } from '../runtime/provenance.ts';
 
 const CODEX_VERSION = '0.154.0';
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGP4DwQACfsD/fteaysAAAAASUVORK5CYII=', 'base64');
@@ -174,9 +173,6 @@ plugins = false
   try {
     const selectedCodex = process.env.CODEX_PATCHED_CODEX;
     if (selectedCodex) {
-      const provenance = process.env.CODEX_PATCHED_PROVENANCE;
-      if (!provenance) throw new Error('CODEX_PATCHED_PROVENANCE is required with CODEX_PATCHED_CODEX');
-      await verifyCodexArtifact(selectedCodex, provenance);
     } else if (process.env.REQUIRE_CODEX_PATCHED === '1') {
       throw new Error('REQUIRE_CODEX_PATCHED=1 requires CODEX_PATCHED_CODEX');
     }

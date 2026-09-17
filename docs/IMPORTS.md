@@ -125,23 +125,17 @@ removed with that runtime.
 
 ## Native release artifact
 
-The Linux x64 native npm package contains candidate
-`cfl/v0.154.0-app-server-musl.1` from the LamplitIsles Codex fork revision
-`445477b6a83514611ac206d2ab04b79374555a4c`. Its checked-in manifest at
-`release/codex-artifact.json` pins the archive and executable SHA-256 values.
-`@lamplitisles/codex-for-love-linux-x64@0.1.0-beta.0` is the published
-distribution artifact and preserves its native `provenance.json`, license and
-notice. Later CFL main releases continue to pin that exact native version until
-an explicitly reviewed binary update publishes a replacement.
+The Linux x64 native npm package
+`@lamplitisles/codex-for-love-linux-x64@0.4.2` contains the app-server from
+LamplitIsles Codex fork revision `8dd81ffff6461b426c0117d6c450742deddf1d01`.
+The main package's exact optional-dependency version is the only native-package
+selection contract.
 
 The macOS ARM64 package
-`@lamplitisles/codex-for-love-darwin-arm64@0.1.0-beta.0` contains the app-server
-built from fork revision `c1139f7b2793e94c14243689d756b09c0186708d` and the
-official Codex 0.154.0 ARM64 code-mode host. That revision has an identical
-`codex-rs` tree to the Linux build source. The executable hashes and local
-assembly identity are pinned in `release/codex-artifact-darwin-arm64.json`;
-the identity is not a claim that a fork GitHub Release was published. The
-package retains the same Codex Apache-2.0 license and upstream notice.
+`@lamplitisles/codex-for-love-darwin-arm64@0.4.2` contains the app-server from
+fork revision `0562c66e80d79830882035ddc40fa1be27aaa497` and the official Codex
+0.154.0 ARM64 code-mode host. The package retains the same Codex Apache-2.0
+license and upstream notice.
 
 ## npm publication workflow
 

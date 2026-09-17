@@ -22,6 +22,9 @@ test('CFL config fixes execution to a direct app-server', async () => {
 
     await writeFile(path, 'name = "Mica"\npersona = "persona.md"\nstate = "state"\n[codex]\nexecutable_type = "cli"\n');
     await assert.rejects(loadConfig(path), /executable_type/);
+
+    await writeFile(path, 'name = "Mica"\npersona = "persona.md"\nstate = "state"\n[codex]\nprovenance = "./provenance.json"\n');
+    await assert.rejects(loadConfig(path), /provenance/);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { execFileSync, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { mkdtemp, mkdir, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
@@ -47,8 +46,7 @@ try {
   const mainManifest = publicRegistry ? sourceManifest : archiveManifest(join(artifacts, main));
   const nativeVersion = mainManifest.optionalDependencies?.[nativePackageName];
   if (typeof nativeVersion !== 'string') throw new Error('Main package does not pin an exact native package version.');
-  const nativeArchive = publicRegistry ? undefined : tarballs.find((name) => archiveManifest(join(artifacts, name)).name === nativePackageName);
-  const native = nativeArchive ? join(artifacts, nativeArchive) : `${nativePackageName}@${nativeVersion}`;
+  const native = `${nativePackageName}@${nativeVersion}`;
   const prefix = join(temporary, 'prefix');
   const installInputs = [native, publicRegistry ? main : join(artifacts, main)];
   execFileSync('npm', ['install', '--global', '--ignore-scripts', '--prefer-online', '--prefix', prefix, ...installInputs], { stdio: 'inherit', timeout: 120_000 });
@@ -60,28 +58,13 @@ try {
 
   const fakeServer = join(root, 'apps', 'partner', 'tests', 'fake-app-server-entry.mjs');
   const fakeExecutable = join(nativeRoot, 'bin', 'codex-app-server');
-  const fakeHelper = join(nativeRoot, 'bin', 'codex-code-mode-host');
   await writeFile(fakeExecutable, `#!/usr/bin/env node\nimport ${JSON.stringify(pathToFileURL(fakeServer).href)};\n`, { mode: 0o755 });
-  await writeFile(fakeHelper, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
-  const hash = async (path) => createHash('sha256').update(await readFile(path)).digest('hex');
-  await writeFile(join(nativeRoot, 'provenance.json'), `${JSON.stringify({
-    schemaVersion: 1,
-    forkRepository: 'https://github.com/lamplitisles/codex',
-    sourceRevision: mac ? 'c1139f7b2793e94c14243689d756b09c0186708d' : '445477b6a83514611ac206d2ab04b79374555a4c',
-    releaseTag: mac ? 'cfl/v0.154.0-app-server-darwin.1' : 'cfl/v0.154.0-app-server-musl.1',
-    codexVersion: '0.154.0',
-    target: mac ? 'aarch64-apple-darwin' : 'x86_64-unknown-linux-musl',
-    executables: {
-      'bin/codex-app-server': await hash(fakeExecutable),
-      'bin/codex-code-mode-host': await hash(fakeHelper),
-    },
-  })}\n`);
   const fixture = join(temporary, 'fixture');
   await mkdir(fixture, { recursive: true });
   await writeFile(join(fixture, 'persona.md'), 'You are Mica.');
   await writeFile(join(fixture, 'control.json'), '{}');
   const port = 31982;
-  await writeFile(join(fixture, 'partner.toml'), `name = "Mica"\npersona = "./persona.md"\nstate = "./state"\nworkspace = "./workspace"\nport = ${port}\n[codex]\nmodel = "gpt-5.6-luna"\n`);
+  await writeFile(join(fixture, 'partner.toml'), `name = "Mica"\npersona = "./persona.md"\nstate = "./state"\nworkspace = "./workspace"\nport = ${port}\n[codex]\nmodel = "gpt-5.6-luna"\ncommand = "./must-not-be-selected"\n`);
   const workspace = join(fixture, 'workspace');
   const runtime = spawn(join(prefix, 'bin', 'codex-for-love'), ['serve', join(fixture, 'partner.toml')], {
     detached: true,
@@ -108,7 +91,7 @@ try {
       try { process.kill(-runtime.pid, 'SIGKILL'); } catch (error) { if (error.code !== 'ESRCH') throw error; }
     }
   }
-  console.log(JSON.stringify({ prefix, native: nativeArchive ?? native, main, nativeVersion }, null, 2));
+  console.log(JSON.stringify({ prefix, native, main, nativeVersion }, null, 2));
 } finally {
   await rm(temporary, { recursive: true, force: true });
 }

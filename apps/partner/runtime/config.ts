@@ -26,7 +26,6 @@ const schema = z.object({
     model: z.string().min(1).default(DEFAULT_CODEX_MODEL),
     version: z.literal(SUPPORTED_CODEX_VERSION).default(SUPPORTED_CODEX_VERSION),
     home: z.string().min(1).optional(),
-    provenance: z.string().min(1).optional(),
     local_compaction: z.boolean().default(false),
     context_round_limit: z.number().int().min(0).default(DEFAULT_CONTEXT_ROUND_LIMIT),
   }).strict().default({ command: 'codex-app-server', model: DEFAULT_CODEX_MODEL, version: SUPPORTED_CODEX_VERSION, local_compaction: false, context_round_limit: DEFAULT_CONTEXT_ROUND_LIMIT }),
@@ -62,7 +61,6 @@ export async function loadConfig(path: string): Promise<Config> {
     codex: {
       ...config.codex,
       home: config.codex.home ? resolve(base, config.codex.home) : undefined,
-      provenance: config.codex.provenance ? resolve(base, config.codex.provenance) : undefined,
     },
     keet: config.keet ? {
       ...(config.keet.endpoint ? { endpoint: keetEndpoint(config.keet.endpoint) } : {}),

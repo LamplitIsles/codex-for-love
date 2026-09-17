@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import {
@@ -48,29 +48,6 @@ test('wrong version and missing executable fail after SDK cleanup', async () => 
   missing.config.codex.command = `${missing.directory}/does-not-exist/codex`;
   await assert.rejects(missing.createPartner(), /codex|executable|ENOENT|spawn/i);
   await missing.close();
-});
-
-test('local compaction rejects missing or mismatched selected-build provenance', async () => {
-  const missing = await fixture();
-  missing.config.codex.local_compaction = true;
-  missing.config.codex.provenance = join(missing.directory, 'missing-provenance.json');
-  await assert.rejects(missing.createPartner(), /provenance/i);
-  await missing.close();
-
-  const mismatch = await fixture();
-  await mismatch.enableLocalCompaction();
-  const provenancePath = mismatch.config.codex.provenance!;
-  const provenance = JSON.parse(await readFile(provenancePath, 'utf8')) as Record<string, unknown>;
-  provenance.sourceRevision = 'not-the-pinned-source';
-  await writeFile(provenancePath, `${JSON.stringify(provenance)}\n`);
-  await assert.rejects(mismatch.createPartner(), /provenance|sourceRevision|Codex/i);
-  await mismatch.close();
-
-  const helperMismatch = await fixture();
-  await helperMismatch.enableLocalCompaction();
-  await writeFile(join(helperMismatch.directory, 'codex-code-mode-host'), 'changed helper');
-  await assert.rejects(helperMismatch.createPartner(), /code-mode host hash/);
-  await helperMismatch.close();
 });
 
 test('process exit during startup fails the Partner and releases the SDK process', async () => {

@@ -52,8 +52,9 @@ is metadata and historical evidence, not a new user message.
 
 The maintained Codex 0.154.0 patches add an explicit local-compaction override
 and neutral continuity prefix. With `codex.local_compaction` enabled, CFL
-verifies the configured executable and provenance before SDK startup, then
-passes the existing Owner prompt and override on thread start and resume.
+starts the configured direct app-server, verifies its version through the SDK
+handshake, then passes the existing Owner prompt and override on thread start
+and resume.
 Manual and automatic compaction use the official local summarizer while
 retaining builtin OpenAI provider identity and existing hook handling.
 

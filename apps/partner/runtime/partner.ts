@@ -38,7 +38,6 @@ import { createCompactBoundary, projectContinuity, type CompactionPhase } from '
 import type { CompactionLifecycleState } from '../src/lib/companion/continuity.ts';
 import type { Config, Credentials } from './config.ts';
 import { compactionPrompt, companionPrompt } from './prompts.ts';
-import { verifyCodexArtifact } from './provenance.ts';
 import { partnerPaths } from './storage-paths.ts';
 import { processError } from './logging.ts';
 import { readRelationshipJournal } from './relationship-journal.ts';
@@ -1277,12 +1276,6 @@ export async function createPartner(config: Config, credentials: Credentials, de
     await refreshBootstrap();
     const injected = dependencies.appServer ?? {};
     const selectedCodexPath = injected.codexPath ?? config.codex.command;
-    if (config.codex.local_compaction && !config.codex.provenance) {
-      throw new Error('Local compaction requires codex.provenance for the selected custom Codex build');
-    }
-    if (config.codex.provenance) {
-      await verifyCodexArtifact(selectedCodexPath, config.codex.provenance);
-    }
     const environment = {
       ...(config.codex.home ? { CODEX_HOME: config.codex.home } : {}),
       ...(keetEnabled ? { CFL_KEET_TOKEN: credentials.keet! } : {}),

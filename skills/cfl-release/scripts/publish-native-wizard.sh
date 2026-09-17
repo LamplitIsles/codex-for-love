@@ -36,7 +36,6 @@ case "$PLATFORM" in
     NAME=@lamplitisles/codex-for-love-linux-x64
     OS=linux
     CPU=x64
-    TARGET=x86_64-unknown-linux-musl
     ARCHIVE_PATTERN='*x86_64-unknown-linux-musl.tar.gz'
     TEMPLATE="$ROOT/packages/codex-for-love-linux-x64/package.json"
     ;;
@@ -44,7 +43,6 @@ case "$PLATFORM" in
     NAME=@lamplitisles/codex-for-love-darwin-arm64
     OS=darwin
     CPU=arm64
-    TARGET=aarch64-apple-darwin
     ARCHIVE_PATTERN='*aarch64-apple-darwin.tar.gz'
     TEMPLATE="$ROOT/packages/codex-for-love-darwin-arm64/package.json"
     ;;
@@ -56,41 +54,19 @@ ARCHIVE=$(find "$INPUT_DIR" -maxdepth 1 -type f -name "$ARCHIVE_PATTERN" -print 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/cfl-native-publish.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT
 
-provenance_path() {
-  tar -tzf "$1" | awk '/\/provenance\.json$/ { print; exit }'
-}
-
 archive_root() {
-  local provenance
-  provenance=$(provenance_path "$1")
-  [[ -n "$provenance" ]] || fail "archive lacks provenance.json: $1"
-  printf '%s' "${provenance%%/provenance.json}"
+  local executable
+  executable=$(tar -tzf "$1" | awk '/\/bin\/codex-app-server$/ { print; exit }')
+  [[ -n "$executable" ]] || fail "archive lacks bin/codex-app-server: $1"
+  printf '%s' "${executable%/bin/codex-app-server}"
 }
 
 assert_artifact() {
-  local directory=$1 provenance relative expected actual
-  provenance="$directory/provenance.json"
-  [[ -f "$provenance" ]] || fail "missing provenance: $directory"
-  node - "$provenance" "$TARGET" <<'NODE'
-const fs = require('node:fs');
-const [path, target] = process.argv.slice(2);
-const provenance = JSON.parse(fs.readFileSync(path, 'utf8'));
-if (provenance.schemaVersion !== 1 || provenance.codexVersion !== '0.154.0' || provenance.target !== target) process.exit(1);
-for (const executable of ['bin/codex-app-server', 'bin/codex-code-mode-host']) {
-  if (!/^[a-f0-9]{64}$/.test(provenance.executables?.[executable] ?? '')) process.exit(1);
-}
-NODE
-  for relative in bin/codex-app-server bin/codex-code-mode-host; do
-    expected=$(node -e "const p=require(process.argv[1]); console.log(p.executables[process.argv[2]])" "$provenance" "$relative")
-    actual=$(sha256sum "$directory/$relative" | awk '{print $1}')
-    [[ "$actual" = "$expected" ]] || fail "$NAME hash mismatch for $relative"
+  local directory=$1 executable
+  for executable in bin/codex-app-server bin/codex-code-mode-host; do
+    [[ -x "$directory/$executable" ]] || fail "$NAME archive lacks executable $executable"
   done
 }
-
-SOURCE_DIR=$(mktemp -d "$WORK/source.XXXXXX")
-tar -xzf "$ARCHIVE" -C "$SOURCE_DIR"
-SOURCE_DIR="$SOURCE_DIR/$(archive_root "$ARCHIVE")"
-assert_artifact "$SOURCE_DIR"
 
 PACKAGE_DIR=$(mktemp -d "$WORK/package.XXXXXX")
 tar -xzf "$ARCHIVE" -C "$PACKAGE_DIR"
