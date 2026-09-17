@@ -77,8 +77,8 @@ test('process exit during startup fails the Partner and releases the SDK process
   const f = await fixture();
   f.appServer.env!.FAKE_EXIT_AFTER_INITIALIZE = 'true';
   try {
-    await assert.rejects(f.createPartner(), /closed|exited|app-server/i);
-    await eventually(async () => (await readFile(f.appServer.env!.FAKE_SERVER_LIFECYCLE!, 'utf8')).startsWith('exited:'), 2_000);
+    await assert.rejects(f.createPartner());
+    await eventually(async () => /exited:\d+:42$/.test(await readFile(f.appServer.env!.FAKE_SERVER_LIFECYCLE!, 'utf8')), 2_000);
   } finally {
     await f.close();
   }

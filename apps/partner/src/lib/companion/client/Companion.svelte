@@ -71,6 +71,8 @@
     isPlainTextMessage,
     formatMessageTime,
     messageTimeDateTime,
+    messageTimeFitsInline,
+    messageTimePlacement,
   } from "../message-time.js";
   import { resolveImageDisplaySize } from "../media.js";
   import {
@@ -445,6 +447,11 @@
       unit.items[0]?.kind === "text" && isPlainTextMessage(unit.items[0].text);
   }
 
+  function hasTrailingTextBubble(parts: readonly MessageContentPart[]): boolean {
+    const last = parts.at(-1);
+    return last?.kind === "item" && last.item.kind === "text";
+  }
+
   function placeMessageTime(node: HTMLElement): { destroy(): void } {
     let frame = 0;
     const update = () => {
@@ -462,7 +469,10 @@
       const rectangles = range.getClientRects();
       const lastLine = rectangles.item(rectangles.length - 1);
       const time = node.getBoundingClientRect();
-      if (!lastLine || time.bottom <= lastLine.top || time.top >= lastLine.bottom) {
+      const sharesOnlyLine = lastLine
+        ? time.bottom > lastLine.top && time.top < lastLine.bottom
+        : false;
+      if (!messageTimeFitsInline(rectangles.length, sharesOnlyLine)) {
         node.dataset.placement = "fallback";
       }
     };
@@ -1791,7 +1801,13 @@
                   </div>
                 {:else}
                   {@const parts = messageContentParts(unit)}
-                  {@const timeInline = canMeasureInlineMessageTime(unit)}
+                  {@const timePlacement = messageTimePlacement(
+                    unit.time !== undefined,
+                    canMeasureInlineMessageTime(unit),
+                    hasTrailingTextBubble(parts),
+                  )}
+                  {@const timeInline = timePlacement === "inline"}
+                  {@const timeInTrailingTextBubble = timePlacement === "bubble-trailing"}
                   <article
                     class="cmp-chat companion-row"
                     class:cmp-chat-start={unit.side === "incoming"}
@@ -1918,13 +1934,19 @@
                             class:companion-bubble-inline-time={timeInline}
                           >
                             <Markdown text={part.item.text} />{#if timeInline}<time
-                              class="companion-message-time companion-message-time-inline"
-                              data-placement="inline"
-                              datetime={messageTimeDateTime(unit.time!)}
-                              data-testid={`message-time-${unit.id}`}
-                              use:placeMessageTime
-                              >{formatMessageTime(unit.time!)}</time
-                            >{/if}
+                                class="companion-message-time companion-message-time-inline"
+                                data-placement="inline"
+                                datetime={messageTimeDateTime(unit.time!)}
+                                data-testid={`message-time-${unit.id}`}
+                                use:placeMessageTime
+                                >{formatMessageTime(unit.time!)}</time
+                              >{:else if timeInTrailingTextBubble &&
+                              part === parts.at(-1)}<time
+                                class="companion-message-time"
+                                datetime={messageTimeDateTime(unit.time!)}
+                                data-testid={`message-time-${unit.id}`}
+                                >{formatMessageTime(unit.time!)}</time
+                              >{/if}
                           </div>
 
                         {:else if part.item.kind === "voice"}
@@ -2004,12 +2026,12 @@
                           </div>
                         {/if}
                       {/each}
-                      {#if unit.time !== undefined && !timeInline}
+                      {#if timePlacement === "stack-trailing"}
                         <time
                           class="companion-message-time"
-                          datetime={messageTimeDateTime(unit.time)}
+                          datetime={messageTimeDateTime(unit.time!)}
                           data-testid={`message-time-${unit.id}`}
-                          >{formatMessageTime(unit.time)}</time
+                          >{formatMessageTime(unit.time!)}</time
                         >
                       {/if}
                       {#if unit.pendingLabel}<div class="companion-meta" role="status">{unit.pendingLabel}</div>{/if}

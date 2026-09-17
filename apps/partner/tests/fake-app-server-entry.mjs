@@ -12,9 +12,9 @@ if (process.env.FAKE_SERVER_CONTEXT) writeFileSync(process.env.FAKE_SERVER_CONTE
   sentinel: process.env.FAKE_SERVER_SENTINEL ?? null,
 }));
 if (process.env.FAKE_SERVER_LIFECYCLE) {
-  const markExited = () => writeFileSync(process.env.FAKE_SERVER_LIFECYCLE, `exited:${process.pid}`);
+  const markExited = (code) => writeFileSync(process.env.FAKE_SERVER_LIFECYCLE, `exited:${process.pid}:${code}`);
   writeFileSync(process.env.FAKE_SERVER_LIFECYCLE, `running:${process.pid}`);
   process.on('exit', markExited);
-  for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.once(signal, () => { markExited(); process.exit(0); });
+  for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.once(signal, () => { markExited(0); process.exit(0); });
 }
 import './fake-app-server.mjs';

@@ -8,6 +8,11 @@ For host-local Partner installation, deployment, acceptance, or recovery, read
 [`docs/development-environments.md`](docs/development-environments.md) before
 acting. It defines the canonical dev and production targets.
 
+Agents may update and restart `codex-for-love-dev.service` from this checkout
+whenever needed for in-scope development or UI validation. This authorization
+is limited to its fixed dev configuration and port 3082; production remains
+separately authorized.
+
 Use test-owned workspaces and fake services for automated tests. Real local acceptance may use the authorized existing Codex login with Luna and a test persona; never copy credentials or existing conversations, and never send external messages as a test. Keep scratch and runtime state out of Git.
 
 Update README for operator contracts and docs/IMPORTS.md for imported source attribution. Keep CONTEXT.md implementation-free. Preserve upstream licenses. The Owner maintains prompt semantics; the Implementation worker handles wiring and reports any needed prompt changes to the Owner.
