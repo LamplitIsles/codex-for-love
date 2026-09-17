@@ -396,10 +396,14 @@ discovers its official hash through `hooks/list`, and trusts only that exact
 project declaration through `config/batchWrite`. The startup hook injects
 current relationship state once for a new context. The compact hook injects
 refreshed state plus the newest complete conversational rounds, capped at
-five rounds and a 4,000-token soft budget. Tool calls, reasoning output and
-non-text image payloads are excluded, while text from a mixed text/image user
-message is retained; role labels identify historical excerpts as evidence,
-not new requests. An ordinary turn or resume does not repeat the bootstrap.
+`codex.context_round_limit` rounds (10 by default) and a 4,000-token soft
+budget. Tool calls, reasoning output and non-text image payloads are excluded,
+while text from a mixed text/image user message is retained; role labels
+identify historical excerpts as evidence, not new requests. CFL consolidates
+its own release-path hook declarations to one hook; unrelated operator hooks
+remain untouched. `codex.context_round_limit` is read at Partner startup, so
+restart the Partner after changing it. An ordinary turn or resume does not
+repeat the bootstrap.
 
 The app calls the official `thread/compact/start` operation and projects its
 lifecycle and engine-reported token observations. The patched Codex build can

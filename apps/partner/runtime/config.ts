@@ -6,6 +6,7 @@ import { z } from 'zod';
 /** The app-server protocol contract tested by this application. */
 export const SUPPORTED_CODEX_VERSION = '0.154.0';
 export const DEFAULT_CODEX_MODEL = 'gpt-5.6-luna';
+export const DEFAULT_CONTEXT_ROUND_LIMIT = 10;
 const ttsSchema = z.object({ provider: z.enum(['minimax', 'alibaba', 'bytedance']), voice: z.string().min(1), speed: z.number().finite().min(0.5).max(2).optional() }).strict().superRefine((tts, context) => {
   if (tts.provider === 'alibaba' && tts.speed !== undefined) context.addIssue({ code: 'custom', path: ['speed'], message: 'Alibaba TTS speed is unavailable on the configured non-realtime API' });
 });
@@ -27,7 +28,8 @@ const schema = z.object({
     home: z.string().min(1).optional(),
     provenance: z.string().min(1).optional(),
     local_compaction: z.boolean().default(false),
-  }).strict().default({ command: 'codex-app-server', model: DEFAULT_CODEX_MODEL, version: SUPPORTED_CODEX_VERSION, local_compaction: false }),
+    context_round_limit: z.number().int().min(0).default(DEFAULT_CONTEXT_ROUND_LIMIT),
+  }).strict().default({ command: 'codex-app-server', model: DEFAULT_CODEX_MODEL, version: SUPPORTED_CODEX_VERSION, local_compaction: false, context_round_limit: DEFAULT_CONTEXT_ROUND_LIMIT }),
   speech: z.object({
     endpoint: z.url().default('https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation'),
     tts: ttsSchema.optional(),

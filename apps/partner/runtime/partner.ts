@@ -10,7 +10,6 @@ import {
 } from '@jaminzhou/codex-app-server-client';
 import type { v2 } from '@jaminzhou/codex-app-server-client/protocol';
 import {
-  CONTEXT_ROUND_LIMIT,
   CONTEXT_TOKEN_BUDGET,
   ensureHookDeclaration,
   formatBootstrapContext,
@@ -523,7 +522,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
 
   async function refreshBootstrap(): Promise<void> {
     const history = (await readRelationshipJournal(paths.relationshipJournal)).reverse();
-    const rounds = selectTextRounds([...turns.values()] as HistoryTurnLike[], CONTEXT_TOKEN_BUDGET, CONTEXT_ROUND_LIMIT);
+    const rounds = selectTextRounds([...turns.values()] as HistoryTurnLike[], CONTEXT_TOKEN_BUDGET, config.codex.context_round_limit);
     await writeBootstrapFile(bootstrapPath(paths.workspaceRoot), {
       startupPending,
       context: formatBootstrapContext(stateFromHistory(history)),

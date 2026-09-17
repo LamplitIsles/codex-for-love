@@ -28,6 +28,10 @@ _Avoid_: active context, relationship history, tool transcript
 The current checkpoint and subsequent conversation that the model receives when continuing the relationship. It is a bounded projection of conversation history, not the complete user-visible record.
 _Avoid_: conversation history, token usage total
 
+**Post-compaction tail（压缩后尾部）**:
+The configured number of most recent complete owner/Partner text rounds supplied by CFL only at a native compaction boundary. It preserves immediate conversational continuity alongside the native continuity checkpoint; it contains neither tool content nor the complete conversation history.
+_Avoid_: continuity checkpoint, complete text round, conversation history
+
 **Historical media library（历史媒体库）**:
 Media copied from an earlier Partner workspace and restored on its original visible user message for human review. It never becomes an active image input after migration.
 _Avoid_: active image input, current context

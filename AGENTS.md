@@ -14,6 +14,9 @@ Update README for operator contracts and docs/IMPORTS.md for imported source att
 
 ## Standalone core workflow
 
+Before updating CFL native artifacts or releasing a CFL npm package, read
+[`skills/cfl-release/SKILL.md`](skills/cfl-release/SKILL.md).
+
 ### Local Codex build contract
 
 - Build Linux first; macOS follows with the same native build profile and host-local cache convention. Use local builds, not an external Actions provider, for this task.
@@ -23,7 +26,7 @@ Update README for operator contracts and docs/IMPORTS.md for imported source att
 - First inspect Cargo freshness under these parameters. If dependencies unexpectedly require widespread rebuilding, stop and report the fingerprint mismatch before continuing a long build. For unchanged fork behavior and release packaging, use lightweight artifact/provenance checks rather than rebuilding the Rust test graph. Establish appropriate resource controls on macOS before its later build.
 
 - Run `pnpm install --frozen-lockfile`, `pnpm check`, `pnpm build` and `pnpm test` from the repository root.
-- Fork-native changes follow the local Codex build contract above; release packaging instead selects the exact published Linux native package pinned by the main manifest and verifies its provenance and hashes. The removed `pnpm codex:build` command is not a release path.
+- Fork-native changes follow the local Codex build contract above. A native-only update locally stages verified Linux and macOS archives and publishes their exact npm tarballs through `skills/cfl-release`; the main manifest and release identity contracts stay unchanged until a later main-package change pins those public versions. The removed `pnpm codex:build` command is not a release path.
 - Run the Partner with `pnpm --filter @lamplitisles/partner start -- <config.toml>` after configuring the official Codex 0.154.0 app-server executable and existing device-auth login.
 - Use a fresh test-owned workspace and the fake app-server for automated tests. Do not use the real Codex home, credentials or external message side effects in tests.
 - The official app-server is the execution owner. Do not reintroduce naco, Bridge model transport, custom imagegen/mail/skill wrappers, Docker, generic migration or cutover code. The narrow one-time DSH compacted-log converter is an explicit current feature, not a generic migration framework.

@@ -6,9 +6,9 @@ import { parse, stringify } from 'smol-toml';
 import type { CodexAppServerClient } from '@jaminzhou/codex-app-server-client';
 import type { v2 } from '@jaminzhou/codex-app-server-client/protocol';
 import type { CompanionState, CompanionStateRecord } from '../src/lib/companion/domain.ts';
+import { DEFAULT_CONTEXT_ROUND_LIMIT } from './config.ts';
 import { partnerPaths } from './storage-paths.ts';
 
-export const CONTEXT_ROUND_LIMIT = 5;
 export const CONTEXT_TOKEN_BUDGET = 4_000;
 
 export type HistoryTurnLike = {
@@ -54,7 +54,7 @@ function finalAgentText(items: readonly Record<string, unknown>[]): string | und
 }
 
 /** Select newest completed conversational sides without copying tool or image payloads. */
-export function selectTextRounds(turns: readonly HistoryTurnLike[], budget = CONTEXT_TOKEN_BUDGET, limit = CONTEXT_ROUND_LIMIT): TextRound[] {
+export function selectTextRounds(turns: readonly HistoryTurnLike[], budget = CONTEXT_TOKEN_BUDGET, limit = DEFAULT_CONTEXT_ROUND_LIMIT): TextRound[] {
   const candidates: TextRound[] = [];
   for (const turn of turns) {
     if (turn.status !== 'completed' || !turn.items) continue;
@@ -116,6 +116,15 @@ function shellQuote(value: string): string {
 
 function hookCommand(contextPath: string): string {
   return `${shellQuote(process.execPath)} ${shellQuote(fileURLToPath(new URL(`./${hookFileName}`, import.meta.url)))} ${shellQuote(contextPath)}`;
+}
+
+/** A release path changes, but a hook targeting this internal bootstrap remains CFL-owned. */
+function ownsBootstrapHook(value: unknown, contextPath: string): value is Record<string, unknown> {
+  return isRecord(value)
+    && value.type === 'command'
+    && typeof value.command === 'string'
+    && value.command.includes(hookFileName)
+    && value.command.includes(shellQuote(contextPath));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -182,22 +191,20 @@ export async function ensureHookDeclaration(workspace: string, contextPath: stri
   const sessionStart = Array.isArray(hooks.SessionStart) ? hooks.SessionStart : [];
   let changed = ensureCompanionMcp(config, workspace, partnerConfigPath);
   changed = ensureKeetMcp(config, keetEndpoint) || changed;
-  let own = false;
-  const normalizedGroups = sessionStart.map((group) => {
-    if (!isRecord(group) || !Array.isArray(group.hooks)) return group;
-    let groupChanged = false;
-    const handlers = group.hooks.map((handler) => {
-      if (!isRecord(handler) || handler.type !== 'command' || handler.command !== command) return handler;
-      own = true;
-      if (group.matcher === 'startup|compact' && handler.additionalContextLimit === 0) return handler;
-      groupChanged = true;
-      return { ...handler, type: 'command', command, additionalContextLimit: 0 };
+  const own = sessionStart.flatMap((group) => isRecord(group) && Array.isArray(group.hooks)
+    ? group.hooks.filter((handler) => ownsBootstrapHook(handler, contextPath)).map((handler) => ({ group, handler }))
+    : []);
+  const canonical = own.length === 1
+    && own[0]!.group.matcher === 'startup|compact'
+    && own[0]!.handler.command === command
+    && own[0]!.handler.additionalContextLimit === 0;
+  let normalizedGroups = sessionStart;
+  if (!canonical) {
+    normalizedGroups = sessionStart.flatMap((group) => {
+      if (!isRecord(group) || !Array.isArray(group.hooks)) return [group];
+      const handlers = group.hooks.filter((handler) => !ownsBootstrapHook(handler, contextPath));
+      return handlers.length ? [{ ...group, hooks: handlers }] : [];
     });
-    if (!groupChanged) return group;
-    changed = true;
-    return { ...group, matcher: 'startup|compact', hooks: handlers };
-  });
-  if (!own) {
     normalizedGroups.push({
       matcher: 'startup|compact',
       hooks: [{ type: 'command', command, additionalContextLimit: 0 }],

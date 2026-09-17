@@ -43,8 +43,9 @@ provider fallback.
 Context bootstrap uses an application-owned, hash-verified SessionStart
 `startup|compact` hook with `additionalContextLimit=0`. It injects current
 relationship state once at a new context and after compaction. Post-compact
-text continuity is limited to the newest five complete text rounds under a
-4,000-token soft budget; tool and image payloads are excluded. The bootstrap
+text continuity is limited to the configured newest complete text rounds
+(default 10) under a 4,000-token soft budget; tool and image payloads are
+excluded. The bootstrap
 is metadata and historical evidence, not a new user message.
 
 ## Customized local compaction

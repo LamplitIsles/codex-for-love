@@ -10,7 +10,15 @@ test('CFL config fixes execution to a direct app-server', async () => {
   try {
     const path = join(directory, 'partner.toml');
     await writeFile(path, 'name = "Mica"\npersona = "persona.md"\nstate = "state"\n');
-    assert.equal((await loadConfig(path)).codex.command, 'codex-app-server');
+    const defaults = await loadConfig(path);
+    assert.equal(defaults.codex.command, 'codex-app-server');
+    assert.equal(defaults.codex.context_round_limit, 10);
+
+    await writeFile(path, 'name = "Mica"\npersona = "persona.md"\nstate = "state"\n[codex]\ncontext_round_limit = 3\n');
+    assert.equal((await loadConfig(path)).codex.context_round_limit, 3);
+
+    await writeFile(path, 'name = "Mica"\npersona = "persona.md"\nstate = "state"\n[codex]\ncontext_round_limit = -1\n');
+    await assert.rejects(loadConfig(path), />=0/);
 
     await writeFile(path, 'name = "Mica"\npersona = "persona.md"\nstate = "state"\n[codex]\nexecutable_type = "cli"\n');
     await assert.rejects(loadConfig(path), /executable_type/);

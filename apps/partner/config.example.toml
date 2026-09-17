@@ -19,6 +19,10 @@ model = "gpt-5.6-luna"
 # The installed launcher selects and verifies its matching standalone app-server.
 # A checkout configuration may set command to a verified codex-app-server path.
 # local_compaction = true
+# Number of newest complete text rounds included only after compaction. The
+# default is 10; the 4,000-token soft budget can select fewer long rounds.
+# Restart Partner after changing this value.
+context_round_limit = 10
 # home = "/path/to/a/Codex-home" # omit to use the existing Codex login
 
 # Optional browser pet. Disabled by default; restart Partner after changing it.

@@ -36,6 +36,10 @@ Feelings, ordinary life events, shared experiences, and changes in a relationshi
 
 The only Codex behavior we changed is compaction (a ~160-line diff). CFL keeps the native compaction path, but gives it a companion-oriented policy and refreshes current relationship context at the compaction boundary.
 
+After compaction, CFL also supplies the newest completed text rounds for immediate
+continuity. Set `codex.context_round_limit` in the Partner TOML to choose that
+tail (10 by default), then restart Partner; see the [operator guide](docs/operator-guide.md#context-boundaries-and-compaction).
+
 The transcript remains the evidence. Relationship state is explicit and append-only. Neither is replaced by an automatic memory framework claiming to define who the companion is.
 
 ## Local by default

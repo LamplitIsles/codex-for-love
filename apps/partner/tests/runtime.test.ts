@@ -423,6 +423,21 @@ test('native compact lifecycle, zero token observation and post-compact bootstra
   } finally { await partner.close(); await f.close(); }
 });
 
+test('configured context round limit bounds the post-compact conversational tail', async () => {
+  const f = await fixture(); f.config.codex.context_round_limit = 1;
+  const partner = await f.createPartner();
+  try {
+    for (const input of ['first retained round', 'second retained round']) {
+      const id = randomUUID(); await partner.submit(id, input);
+      await eventually(async () => (await partner.snapshot()).results?.some((result) => result.sourceIds.includes(id) && result.answers.length > 0) === true);
+    }
+    const bootstrap = JSON.parse(await readFile(join(f.workspace, '.lamplit', 'context-bootstrap.json'), 'utf8')) as { compact: string };
+    assert.match(bootstrap.compact, /second retained round/);
+    assert.doesNotMatch(bootstrap.compact, /first retained round/);
+    assert.equal((bootstrap.compact.match(/^Round /gm) ?? []).length, 1);
+  } finally { await partner.close(); await f.close(); }
+});
+
 test('missing native image artifacts remain a durable local input error', async () => {
   const f = await fixture(); let partner = await f.createPartner();
   try {
