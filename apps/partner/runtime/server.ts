@@ -84,6 +84,17 @@ export function createWebServer(partner: Partner, assets: string, options: { hea
         response.writeHead(200, { 'content-type': image.media_type, 'cache-control': 'private, max-age=31536000, immutable' });
         response.end(image.data); return;
       }
+      if (path === '/api/conversation-images' && request.method === 'GET') {
+        const params = Object.fromEntries(new URL(request.url!, 'http://localhost').searchParams);
+        const options = z.object({ limit: z.coerce.number().int().min(1).max(50).optional(), cursor: z.string().min(1).max(500).optional() }).strict().parse(params);
+        return json(response, await partner.conversationImages(options));
+      }
+      if (path.startsWith('/api/conversation-images/') && request.method === 'GET') {
+        const id = z.string().regex(/^[a-f0-9]{64}$/u).parse(path.slice('/api/conversation-images/'.length));
+        const image = await partner.conversationImage(id);
+        if (!image) return json(response, { error: 'Image not found' }, 404);
+        response.writeHead(200, { 'content-type': image.media_type, 'cache-control': 'private, max-age=31536000, immutable' }); response.end(image.data); return;
+      }
       if (path.startsWith('/api/audio/') && request.method === 'GET') {
         const id = z.string().regex(/^[a-f0-9]{64}\.mp3$/u).parse(path.slice('/api/audio/'.length));
         const audio = await partner.audio(id.slice(0, -4)); if (!audio) return json(response, { error: 'Audio not found' }, 404);

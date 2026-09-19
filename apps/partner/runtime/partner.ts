@@ -43,6 +43,7 @@ import { processError } from './logging.ts';
 import { readRelationshipJournal } from './relationship-journal.ts';
 import { PetActivityProjection } from './pet.ts';
 import { localPetClip } from './pet-assets.ts';
+import { conversationImageId, pageConversationImages, readConversationImages, withAvailability, writeConversationImages, type ConversationImage, type ConversationImageOrigin } from './conversation-images.ts';
 
 type OfficialItem = Record<string, unknown>;
 type OfficialTurn = {
@@ -411,6 +412,16 @@ export async function createPartner(config: Config, credentials: Credentials, de
   };
   await mkdir(paths.managedRoot, { recursive: true, mode: 0o700 });
   await mkdir(paths.attachments, { recursive: true, mode: 0o700 });
+  const catalogue = new Map<string, ConversationImage>((await readConversationImages(paths.conversationImages)).map((image) => [image.id, image]));
+  let reconcilingCatalogue = false;
+  let reconciledCatalogueIds = new Set<string>();
+  async function catalogueImage(origin: ConversationImageOrigin, image: StoredImage, created: number): Promise<void> {
+    const id = conversationImageId(origin, `${image.operation_id}:${image.id}`);
+    const previous = catalogue.get(id);
+    catalogue.set(id, { id, filename: image.name, path: resolve(image.path), mediaType: image.media_type, created: reconcilingCatalogue ? created : previous?.created ?? created, origin, available: true });
+    reconciledCatalogueIds.add(id);
+    if (!reconcilingCatalogue) await writeConversationImages(paths.conversationImages, await withAvailability([...catalogue.values()]));
+  }
   const store = new Store(paths.database);
   const now = dependencies.now ?? Date.now;
   const listeners = new Set<() => void>();
@@ -640,7 +651,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
     if (previous?.status !== 'attachment-error' || previous.error !== error) await store.markOutcome(owner, 'attachment-error', error);
   }
 
-  async function projectGeneratedImage(operationId: string, sourceIds: readonly string[], item: OfficialItem): Promise<string | undefined> {
+  async function projectGeneratedImage(operationId: string, sourceIds: readonly string[], item: OfficialItem, created: number): Promise<string | undefined> {
     if (item.type !== 'imageGeneration') return undefined;
     if (item.status === 'failed') {
       processError('image.generation_failed', new Error(imageFailure('failed')), { operationId, itemId: item.id });
@@ -653,6 +664,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
     if (existing) {
       try {
         await access(existing.path);
+        await catalogueImage('partner', existing, created);
         return existing.id;
       } catch {
         storageError = true;
@@ -670,6 +682,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
         return undefined;
       }
       await store.saveGeneratedImage(generated, itemId);
+      await catalogueImage('partner', generated, created);
       return generated.id;
     } catch (error) {
       storageError = true;
@@ -765,6 +778,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
         await store.ensureMessage(sourceId, turnTime(turn.startedAt, now()), source.input, source.images);
         messageIds.add(sourceId);
       }
+      if (!sourceId.startsWith('keet:')) for (const image of source.images) await catalogueImage(isUnder(join(paths.managedRoot, 'historical-media'), image.path) ? 'historical' : 'owner', image, turnTime(turn.startedAt, now()));
       await store.markObserved(sourceId, segment);
     }
     acknowledgeInputIds(officialIds);
@@ -778,7 +792,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
     const completedAt = status === 'completed' ? completedTurnTime(turn.completedAt) : undefined;
     for (const item of turn.items ?? []) {
       if (item.type !== 'imageGeneration') continue;
-      const generatedId = await projectGeneratedImage(resultOperationId(turn.id), sourceIds, item);
+      const generatedId = await projectGeneratedImage(resultOperationId(turn.id), sourceIds, item, completedTurnTime(turn.completedAt) ?? turnTime(turn.startedAt, now()));
       if (generatedId) generatedIds.push(generatedId);
       else if (item.status === 'failed') {
         resultStatus = 'failed';
@@ -810,15 +824,22 @@ export async function createPartner(config: Config, credentials: Credentials, de
 
   /** Full history is hydrated once at startup/resume; events update one turn thereafter. */
   async function hydrateHistory(): Promise<void> {
+    reconcilingCatalogue = true; reconciledCatalogueIds = new Set();
     const nextTurns = await listTurns();
     turns.clear();
     turnInputs.clear();
     turnResults.clear();
     presentationFingerprints.clear();
-    for (const turn of nextTurns) {
-      registerTurn(turn);
-      const complete = await reconcileTurn(turn.id, turn);
-      if (complete) await projectTurn(complete, false);
+    try {
+      for (const turn of nextTurns) {
+        registerTurn(turn);
+        const complete = await reconcileTurn(turn.id, turn);
+        if (complete) await projectTurn(complete, false);
+      }
+    } finally {
+      reconcilingCatalogue = false;
+      for (const id of catalogue.keys()) if (!reconciledCatalogueIds.has(id)) catalogue.delete(id);
+      await writeConversationImages(paths.conversationImages, await withAvailability([...catalogue.values()]));
     }
     const unresolved = await unresolvedMessages();
     for (const message of unresolved) unresolvedInputIds.add(message.id);
@@ -1448,6 +1469,15 @@ export async function createPartner(config: Config, credentials: Credentials, de
         const verified = await keetImage(config.keet.media_root, basename(metadata.path), metadata.media_type, metadata.name);
         return { ...metadata, data: verified.data };
       } catch { return undefined; }
+    },
+    async conversationImages(options: { limit?: number; cursor?: string } = {}) {
+      await eventChain;
+      const page = pageConversationImages(await withAvailability([...catalogue.values()]), options.limit ?? 5, options.cursor);
+      return { images: page.images.map(({ id, filename, mediaType, created, origin, available }) => ({ id, filename, mediaType, created, origin, available, url: `/api/conversation-images/${id}` })), ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}) };
+    },
+    async conversationImage(id: string) {
+      const image = catalogue.get(id); if (!image) return undefined;
+      try { return { media_type: image.mediaType, data: await readFile(image.path) }; } catch { return undefined; }
     },
     avatar: (kind: 'companion' | 'user') => avatars[kind],
     async petAsset(activity: import('./pet.ts').PetActivity) { return pet ? localPetClip(config.state, activity) : undefined; },

@@ -19,6 +19,11 @@
   import Square from "lucide-svelte/icons/square";
   import Mic from "lucide-svelte/icons/mic";
   import X from "lucide-svelte/icons/x";
+  import Images from "lucide-svelte/icons/images";
+  import Heart from "lucide-svelte/icons/heart";
+  import BookOpen from "lucide-svelte/icons/book-open";
+  import { createVirtualizer } from "@tanstack/svelte-virtual";
+  import { galleryRows, type GalleryImage } from "./gallery.js";
   import {
     COMPACTION_STATUS_DURATION_MS,
     formatTokenCount,
@@ -184,7 +189,24 @@
   let detailOpen = false;
   let preferencesOpen = false;
   let preferencesButton: HTMLButtonElement;
-  let drawerTab: "history" | "diary" = "history";
+  let drawerTab: "history" | "diary" | "images" = "history";
+  let galleryImages: GalleryImage[] = [];
+  let galleryCursor: string | undefined;
+  let galleryLoading = false;
+  let galleryError = false;
+  let galleryViewport: HTMLDivElement;
+  $: galleryRowsValue = galleryRows(galleryImages, locale);
+  const galleryVirtualizer = createVirtualizer({ count: 0, getScrollElement: () => galleryViewport, estimateSize: () => 132, overscan: 5 });
+  $: $galleryVirtualizer.setOptions({ count: galleryRowsValue.length, getScrollElement: () => galleryViewport, estimateSize: (index) => galleryRowsValue[index]?.kind === "week" ? 38 : 132, overscan: 5 });
+  $: { const lastGalleryRow = $galleryVirtualizer.getVirtualItems().at(-1)?.index; if (galleryCursor && !galleryLoading && lastGalleryRow !== undefined && lastGalleryRow >= galleryRowsValue.length - 3) void openGallery(); }
+  function measureGalleryRow(node: HTMLElement, index: number) {
+    const measure = (next: number) => { node.dataset.index = String(next); $galleryVirtualizer.measureElement(node); };
+    measure(index);
+    return {
+      update: measure,
+      destroy: () => $galleryVirtualizer.measureElement(null)
+    };
+  }
   let diaryEntries: string[] = [];
   let diaryEntry: { name: string; text: string } | undefined;
   let diaryLoading = false;
@@ -1522,6 +1544,17 @@
       if (diaryRequest === request) diaryLoading = false;
     }
   }
+  async function openGallery(retry = false): Promise<void> {
+    drawerTab = "images";
+    if (galleryLoading || (!retry && galleryImages.length)) return;
+    galleryLoading = true; galleryError = false;
+    try {
+      const response = await fetch(`/api/conversation-images?limit=30${galleryCursor ? `&cursor=${encodeURIComponent(galleryCursor)}` : ""}`);
+      if (!response.ok) throw new Error();
+      const page = await response.json() as { images: GalleryImage[]; nextCursor?: string };
+      galleryImages = [...galleryImages, ...page.images]; galleryCursor = page.nextCursor;
+    } catch { galleryError = true; } finally { galleryLoading = false; }
+  }
   async function openDiaryEntry(name: string): Promise<void> {
     const request = beginDiaryRequest();
     try {
@@ -2424,9 +2457,10 @@
           id="companion-history-tab"
           aria-controls="companion-drawer-panel"
           aria-selected={drawerTab === "history"}
-          class="cmp-btn cmp-btn-ghost cmp-btn-sm"
+          class="cmp-btn cmp-btn-ghost cmp-btn-sm cmp-btn-circle"
           class:cmp-btn-active={drawerTab === "history"}
-          on:click={() => drawerTab = "history"}>{t("drawer.history")}</button
+          aria-label={t("drawer.history")}
+          on:click={() => drawerTab = "history"}><Heart size={16} aria-hidden="true" /></button
         >
         <button
           type="button"
@@ -2434,20 +2468,27 @@
           id="companion-diary-tab"
           aria-controls="companion-drawer-panel"
           aria-selected={drawerTab === "diary"}
-          class="cmp-btn cmp-btn-ghost cmp-btn-sm"
+          class="cmp-btn cmp-btn-ghost cmp-btn-sm cmp-btn-circle"
           class:cmp-btn-active={drawerTab === "diary"}
-          on:click={() => void openDiary()}>{t("drawer.diary")}</button
+          aria-label={t("drawer.diary")}
+          on:click={() => void openDiary()}><BookOpen size={16} aria-hidden="true" /></button
         >
+        <button type="button" role="tab" id="companion-images-tab" aria-controls="companion-drawer-panel" aria-selected={drawerTab === "images"} aria-label={t("drawer.images")} class="cmp-btn cmp-btn-ghost cmp-btn-sm cmp-btn-circle" class:cmp-btn-active={drawerTab === "images"} on:click={() => void openGallery()}><Images size={16} aria-hidden="true" /></button>
       </div>
       <div
         id="companion-drawer-panel"
         class="companion-history-scroll"
         role="tabpanel"
-        aria-labelledby={drawerTab === "history"
-          ? "companion-history-tab"
-          : "companion-diary-tab"}
+        aria-labelledby={drawerTab === "history" ? "companion-history-tab" : drawerTab === "diary" ? "companion-diary-tab" : "companion-images-tab"}
       >
-        {#if drawerTab === "diary"}
+        {#if drawerTab === "images"}
+          <section class="companion-gallery" aria-label={t("drawer.images")}>
+            {#if galleryError}<div class="companion-history-state" role="alert"><p>{t("gallery.failed")}</p><button type="button" class="cmp-btn cmp-btn-ghost cmp-btn-sm" on:click={() => void openGallery(true)}>{t("retry")}</button></div>
+            {:else if galleryLoading && !galleryImages.length}<p class="companion-history-state" role="status">{t("loading")}</p>
+            {:else if !galleryImages.length}<p class="companion-history-state">{t("gallery.empty")}</p>
+            {:else}<div bind:this={galleryViewport} class="companion-gallery-viewport"><div class="companion-gallery-virtual" style={`height:${$galleryVirtualizer.getTotalSize()}px`}>{#each $galleryVirtualizer.getVirtualItems() as virtual (virtual.key)}{@const row = galleryRowsValue[virtual.index]}<div use:measureGalleryRow={virtual.index} class:companion-gallery-week={row?.kind === "week"} class:companion-gallery-grid={row?.kind === "images"} style={`position:absolute;top:0;left:0;width:100%;transform:translateY(${virtual.start}px)`}>{#if row?.kind === "week"}<h3>{row.label}</h3>{:else if row?.kind === "images"}{#each row.images as image}<button type="button" class="companion-gallery-tile" aria-label={image.filename} disabled={!image.available} on:click={() => { if (!image.available) return; pushOverlayHistory(); openLightbox({ id: image.id, alt: image.filename, previewUrl: image.url }); }}><img src={image.url} alt={image.filename} loading="lazy" decoding="async" /></button>{/each}{/if}</div>{/each}</div></div>{#if galleryLoading}<p class="companion-history-state" role="status">{t("loading")}</p>{/if}{/if}
+          </section>
+        {:else if drawerTab === "diary"}
           <section class="companion-diary">
             {#if diaryEntry}
               <button

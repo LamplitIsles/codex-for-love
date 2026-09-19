@@ -4,6 +4,8 @@ Use Node 24 and the pnpm version pinned in package.json for this imported Svelte
 
 Official Codex app-server owns execution, model history, queue, authentication and compaction. This application owns the Companion UI, STT, attachments and relationship state. Keep one execution owner; remove obsolete naco/DSH paths. Docker, generic migration and deployment cutover are outside this implementation; the explicitly authorized one-time converter for a user-supplied, already-compacted DSH log is the narrow exception documented by its task spec.
 
+When an owner can browse a finite conversation-owned collection, Companion MCP must offer the Partner equivalent bounded discovery over the same membership. Material inspected with native tools must never be silently added to that collection.
+
 For host-local Partner installation, deployment, acceptance, or recovery, read
 [`docs/development-environments.md`](docs/development-environments.md) before
 acting. It defines the canonical dev and production targets.

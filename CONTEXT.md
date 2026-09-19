@@ -33,8 +33,11 @@ The configured number of most recent complete owner/Partner text rounds supplied
 _Avoid_: continuity checkpoint, complete text round, conversation history
 
 **Historical media library（历史媒体库）**:
-Media copied from an earlier Partner workspace and restored on its original visible user message for human review. It never becomes an active image input after migration.
-_Avoid_: active image input, current context
+Media copied from an earlier Partner workspace and restored on its original visible user message for human review. It never enters active image input automatically after migration; explicit native inspection is separate.
+_Avoid_: automatic active image input, current context
+
+**Chat Image Library（聊天图片库）**:
+The shared, finite conversation-owned catalogue of owner-sent, Partner-generated, and restored Historical media images. Owners browse it in the drawer and Partners discover the same membership through bounded Companion MCP pages. Explicit native inspection never adds an item, and Historical media remains out of active context unless deliberately inspected.
 
 **Graph memory（图谱记忆）**:
 The Partner's durable, connected recollection of people, events, preferences, and relationships across conversations.

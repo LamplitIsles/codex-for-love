@@ -17,7 +17,7 @@ It began when Neil moved his own companion, Shio, from DeepSeek Harness to Codex
 | Long-lived conversation | Companion-oriented compaction preserves feelings, life events, and relationship history across long conversations |
 | Relationship continuity | Explicit relationship updates live in an append-only local journal instead of a generated profile that defines the companion |
 | Voice | Speak naturally with speech-to-text and receive deliberate, standalone Voice messages in the companion's chosen voice |
-| Images | Share photos, understand images, and create or edit images together |
+| Images | Share photos, understand images, create or edit images together, and browse the shared visual chat history |
 | Diaries and memory | Read and write ordinary workspace files, including human-readable daily memories |
 | Tools, skills, and MCP | Give each companion the capabilities that belong in their own life and workspace |
 | Desktop and mobile | Use the complete companion experience from a computer or through the released [Lamplit Mobile](https://github.com/LamplitIsles/lamplit-mobile) Android app |

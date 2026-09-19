@@ -288,7 +288,7 @@ generation or remote compaction-result behavior.
   Cached MP3s live under `<workspace>/.lamplit/audio/` and are served through
   same-origin URLs.
 - The Companion MCP tools are `update_relationship`, `set_signature`,
-  `read_relationship_history`, `roll_dice`, and `send_voice`; Codex supplies
+  `read_relationship_history`, `list_photos`, `roll_dice`, and `send_voice`; Codex supplies
   the `mcp__companion__` namespace.
 - Outgoing messages appear optimistically. A backend-admitted message uses its
   normal presentation immediately; only input waiting behind an active turn
@@ -379,6 +379,15 @@ that saved association and attachment metadata without rereading the official
 source artifact. A later edit can use an uploaded path or the official native
 image tool's prior-generated image inputs; tool logs, paths and base64 are
 never rendered as chat text.
+
+The Chat Image Library is a metadata-only, newest-first catalogue of owner-sent,
+Partner-generated, and restored historical conversation images. `GET
+/api/conversation-images` exposes bounded cursor pages containing same-origin
+display URLs only; the Companion MCP `list_photos` tool exposes the same shared
+photo library membership with filenames and trusted local paths for deliberate native
+inspection. It introduces no configuration, byte duplication, migration, or
+execution-owner change. Browser responses never expose filesystem paths, and
+native inspection never creates a catalogue entry.
 
 The project-local hook and MCP overlay is loaded only when official Codex
 trusts the workspace project. Use a trusted workspace (the repository itself

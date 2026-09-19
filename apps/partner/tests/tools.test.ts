@@ -4,6 +4,9 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, readdir, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { once } from 'node:events';
+import { fileURLToPath } from 'node:url';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { fixture, eventually } from './fixture.ts';
 import { createWebServer } from '../runtime/server.ts';
 import { partnerPaths } from '../runtime/storage-paths.ts';
@@ -44,6 +47,19 @@ test('native image creation and editing persist assistant attachments through re
     const attachmentRoot = partnerPaths(f.workspace).attachments;
     assert.match((await readFile(join(attachmentRoot, `${first.id}.png`))).toString('base64'), /^iVBOR/);
     assert.doesNotMatch(JSON.stringify(view.messages[0]), /base64/);
+    const library = await (await fetch(`${url}/api/conversation-images?limit=1`)).json() as { images: Array<{ url: string; filename: string; path?: string }> };
+    assert.equal(library.images.length, 1);
+    assert.equal(library.images[0]?.filename, first.name);
+    assert.match(library.images[0]?.url ?? '', /^\/api\/conversation-images\//);
+    assert.doesNotMatch(JSON.stringify(library), /attachments/);
+    const script = fileURLToPath(new URL('../runtime/companion-mcp.ts', import.meta.url));
+    const mcp = new Client({ name: 'test', version: '1.0.0' }); await mcp.connect(new StdioClientTransport({ command: process.execPath, args: [script, f.workspace], stderr: 'ignore' }));
+    try {
+      const result = await mcp.callTool({ name: 'list_photos', arguments: { limit: 1 } }) as { content: Array<{ text: string }> };
+      const page = JSON.parse((result.content[0] as { text: string }).text) as { images: Array<{ filename: string; path: string; directory: string }> };
+      assert.deepEqual(page.images.map((image) => image.filename), library.images.map((image) => image.filename));
+      assert.equal(page.images[0]?.path, join(attachmentRoot, `${first.id}.png`)); assert.equal(page.images[0]?.directory, attachmentRoot);
+    } finally { await mcp.close(); }
 
     const secondId = randomUUID(); await partner.submit(secondId, 'edit image with a candle');
     await eventually(async () => (await partner.snapshot()).results?.[1]?.images.length === 1);
@@ -51,11 +67,18 @@ test('native image creation and editing persist assistant attachments through re
     assert.equal(view.results?.[0]?.images.length, 1);
     assert.equal(view.results?.[1]?.images.length, 1);
     assert.notEqual(view.results?.[1]?.images[0]?.id, first.id);
+    for (let index = 0; index < 4; index += 1) {
+      await partner.submit(randomUUID(), `generate image ${index}`);
+      await eventually(async () => (await partner.snapshot()).results?.length === index + 3);
+    }
+    const omittedLibrary = await (await fetch(`${url}/api/conversation-images`)).json() as { images: unknown[]; nextCursor?: string };
+    assert.equal(omittedLibrary.images.length, 5); assert.ok(omittedLibrary.nextCursor);
     await partner.close();
     const reopened = await f.createPartner();
     const restored = await reopened.snapshot();
     assert.equal(restored.results?.[0]?.images.length, 1);
     assert.equal(restored.results?.[1]?.images.length, 1);
+    assert.equal((await reopened.conversationImages()).images.length, 5);
   } finally { await app.close(); await f.close(); }
 });
 

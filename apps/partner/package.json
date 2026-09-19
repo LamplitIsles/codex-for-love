@@ -20,6 +20,7 @@
     "@humanspeak/svelte-markdown": "1.8.5",
     "@jaminzhou/codex-app-server-client": "github:lamplitisles/codex-app-server-client#56ab11736036d6a5c3dd6e150498dec2d95b2bf5",
     "@modelcontextprotocol/sdk": "^1.30.0",
+    "@tanstack/svelte-virtual": "3.13.12",
     "katex": "0.16.47",
     "lucide-svelte": "1.0.1",
     "pixi.js": "7.4.3",
