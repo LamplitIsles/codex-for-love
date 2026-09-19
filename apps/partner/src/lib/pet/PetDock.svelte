@@ -4,7 +4,7 @@
   import { boundedPoint, defaultDock, dockPoint, keyboardDock, snapDock, type DockPosition, type Viewport } from './dock.ts';
   import { clipPlan, nextFrame, type ClipPlan } from './playback.ts';
   type Activity = 'idle' | 'thinking' | 'read' | 'work' | 'replying' | 'success' | 'concern'; export let activity: Activity; export let label: string;
-  const key = 'lamplitisles.pet-dock.v1'; let host: HTMLDivElement; let position: DockPosition; let live: { x: number; y: number } | undefined; let dragging = false; let origin = { x: 0, y: 0 }; let pointerOffset = { x: 0, y: 0 }; let moved = false;
+  const key = 'her.pet-dock.v1'; let host: HTMLDivElement; let position: DockPosition; let live: { x: number; y: number } | undefined; let dragging = false; let origin = { x: 0, y: 0 }; let pointerOffset = { x: 0, y: 0 }; let moved = false;
   let scene: { setActivity: (activity: Activity) => Promise<void> } | undefined;
   const view = (): Viewport => ({ width: innerWidth, height: innerHeight, size: Math.min(160, Math.max(96, innerWidth * .12)) }); const visual = () => live ?? dockPoint(position ?? defaultDock(view()), view()); const style = () => { const p = visual(); return `left:${p.x}px;top:${p.y}px`; };
   function save() { try { localStorage.setItem(key, JSON.stringify(position)); } catch {} }

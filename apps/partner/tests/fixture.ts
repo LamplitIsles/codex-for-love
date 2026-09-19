@@ -27,7 +27,7 @@ export async function fixture() {
   const fakeStatePath = join(directory, 'fake-state.json');
   await writeFile(controlPath, '{}', { mode: 0o600 });
   const config: Config = {
-    name: 'Mica', persona, state: directory, workspace, port: 3082,
+    name: 'Mica', persona, state: directory, workspace, port: 3082, listen_host: '127.0.0.1',
     codex: { command: fakeServer, model: 'gpt-5.6-luna', version: '0.154.0', home: join(directory, 'codex-home'), local_compaction: false, context_round_limit: 10 },
     pet: { enabled: false },
   };
@@ -58,6 +58,7 @@ export async function fixture() {
     async createPartner(dependencies: Omit<PartnerDependencies, 'appServer'> = {}) { partner = await createPartner(config, credentials, { ...dependencies, appServer }); return partner; },
     holdProvider(value: boolean) { return writeFile(controlPath, JSON.stringify({ hold: value }), { mode: 0o600 }); },
     holdVoiceFinal(value: boolean) { return writeFile(controlPath, JSON.stringify({ holdVoiceFinal: value }), { mode: 0o600 }); },
+    missingRollout(value: boolean) { return writeFile(controlPath, JSON.stringify({ missingRollout: value }), { mode: 0o600 }); },
     async enableLocalCompaction() {
       const executable = join(directory, 'codex.mjs');
       await writeFile(executable, `#!/usr/bin/env node\nimport ${JSON.stringify(pathToFileURL(fakeServer).href)};\n`, { mode: 0o755 });

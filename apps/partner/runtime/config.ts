@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { isIP } from 'node:net';
 import { dirname, resolve } from 'node:path';
 import { parse } from 'smol-toml';
 import { z } from 'zod';
@@ -21,6 +22,7 @@ const schema = z.object({
     user: z.string().min(1),
   }).strict().optional(),
   port: z.number().int().min(1024).max(65535).default(3082),
+  listen_host: z.string().refine((value) => isIP(value) === 4, 'Listen host must be an IPv4 address').default('127.0.0.1'),
   codex: z.object({
     command: z.string().min(1).default('codex-app-server'),
     model: z.string().min(1).default(DEFAULT_CODEX_MODEL),

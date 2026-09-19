@@ -13,6 +13,13 @@ test('CFL config fixes execution to a direct app-server', async () => {
     const defaults = await loadConfig(path);
     assert.equal(defaults.codex.command, 'codex-app-server');
     assert.equal(defaults.codex.context_round_limit, 10);
+    assert.equal(defaults.listen_host, '127.0.0.1');
+
+    await writeFile(path, 'name = "Mica"\npersona = "persona.md"\nstate = "state"\nlisten_host = "0.0.0.0"\n');
+    assert.equal((await loadConfig(path)).listen_host, '0.0.0.0');
+
+    await writeFile(path, 'name = "Mica"\npersona = "persona.md"\nstate = "state"\nlisten_host = "localhost"\n');
+    await assert.rejects(loadConfig(path), /IPv4/);
 
     await writeFile(path, 'name = "Mica"\npersona = "persona.md"\nstate = "state"\n[codex]\ncontext_round_limit = 3\n');
     assert.equal((await loadConfig(path)).codex.context_round_limit, 3);

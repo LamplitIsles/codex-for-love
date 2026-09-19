@@ -63,7 +63,7 @@ if (command === 'credential') {
   try { app = createWebServer(partner, assets); }
   catch (error) { await partner.close(); throw error; }
   app.server.on('error', async (error) => { console.error(error.message); await partner.close(); process.exitCode = 1; });
-  app.server.listen(config.port, '127.0.0.1', () => console.log(`Companion: http://127.0.0.1:${config.port}`));
+  app.server.listen(config.port, config.listen_host, () => console.log(`Companion: http://${config.listen_host}:${config.port}`));
   let stopping = false;
   const stop = async () => { if (stopping) return; stopping = true; await app.close(); };
   process.once('SIGINT', stop); process.once('SIGTERM', stop);

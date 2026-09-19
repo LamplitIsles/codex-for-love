@@ -26,7 +26,7 @@
     compactions?: CompactBoundary[]; lifecycle?: CompanionContinuitySnapshot;
     relationship?: { mood: string; moodLabel: string; note?: string; affinity: number; affinityStage: string; signature: string };
     history?: CompanionStateRecord[]; results?: TurnResult[]; draft?: CompanionRecoveredDraft; pet?: { activity: 'idle' | 'thinking' | 'read' | 'work' | 'replying' | 'success' | 'concern'; revision: number } };
-  let session = $state<Snapshot>({ cursor: 0, before: null, hasMore: false, hasChangesMore: false, pendingCount: 0, cancellable: [], name: 'Lamplit', typing: false, messages: [], storageError: false, results: [] });
+  let session = $state<Snapshot>({ cursor: 0, before: null, hasMore: false, hasChangesMore: false, pendingCount: 0, cancellable: [], name: 'Her', typing: false, messages: [], storageError: false, results: [] });
   let before = $state<number | null>(null), hasMore = $state(false), loadingOlder = $state(false);
   let cursor: number | undefined;
   let connected = $state(false), loaded = $state(false), error = $state('');
@@ -204,7 +204,7 @@
     return () => { disposed = true; recovery?.close(); controller.abort(); retirements.clear(); media.removeEventListener('change', updateScheme); };
   });
 </script>
-<svelte:head><title>{session.name} · Lamplit</title></svelte:head>
+<svelte:head><title>{session.name} · Her</title></svelte:head>
 <Companion {projection} {actions} {t} locale={language} {appearance} onLanguageChange={selectLanguage} onAppearanceChange={selectAppearance} sessionId="partner" voiceCapability={session.speech ? "available" : "unavailable"} imageLimits={session.imageLimits} onHistoryOpenChange={undefined}
   keetLosses={session.keetLosses ?? []}
   identity={{ companionName: session.name, userName: '你', preferredAddress: '你', companionAvatar: session.avatars?.companion, userAvatar: session.avatars?.user, signature: session.relationship?.signature ?? '',

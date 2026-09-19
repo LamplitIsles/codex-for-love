@@ -2,8 +2,8 @@ export type CompanionLanguage = "en" | "zh";
 export type CompanionAppearance = "light" | "dark" | "system";
 export type CompanionScheme = Exclude<CompanionAppearance, "system">;
 
-export const LANGUAGE_STORAGE_KEY = "lamplitisles.companion.language";
-export const APPEARANCE_STORAGE_KEY = "lamplitisles.companion.appearance";
+export const LANGUAGE_STORAGE_KEY = "her.companion.language";
+export const APPEARANCE_STORAGE_KEY = "her.companion.appearance";
 
 export function languagePreference(value: unknown): CompanionLanguage | undefined {
   return value === "en" || value === "zh" ? value : undefined;

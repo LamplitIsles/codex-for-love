@@ -486,6 +486,19 @@ test('model changes resume the same thread and preserve history across restarts'
   } finally { await partner.close(); await f.close(); }
 });
 
+test('a missing official rollout starts a fresh empty thread', async () => {
+  const f = await fixture(); let partner = await f.createPartner();
+  try {
+    await partner.close();
+    await f.missingRollout(true);
+    partner = await f.createPartner();
+    const requests = await f.requests();
+    assert.equal(requests.filter((request) => request.method === 'thread/resume').length, 1);
+    assert.equal(requests.filter((request) => request.method === 'thread/start').length, 2);
+    assert.equal((await partner.snapshot()).messages.length, 0);
+  } finally { await partner.close(); await f.close(); }
+});
+
 test('missing native image capability fails explicitly', async () => {
   const unavailable = await fixture();
   unavailable.appServer.env.FAKE_IMAGE_CAPABILITY = 'false';

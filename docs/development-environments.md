@@ -2,18 +2,24 @@
 
 Use this document for host-local Partner installation, deployment, acceptance,
 or service recovery. The enduring unit definitions belong to the Kosmos WSL
-configuration; this is the operating contract for the two CFL targets.
+configuration; this is the operating contract for the three CFL targets.
 
 ## Canonical targets
 
 | Target | User service | Runtime source | Configuration | Loopback port |
 | --- | --- | --- | --- | ---: |
-| Mika dev | `codex-for-love-dev.service` | current checkout | `~/.local/state/codex-for-love/dev/partner.toml` | 3082 |
+| Mika dev | `codex-for-love-dev.service` | current checkout | `~/.local/state/codex-for-love/dev/partner.toml` | 3082 (also LAN on `192.168.1.179`) |
+| Mika staging | `codex-for-love-staging.service` | current checkout | `~/.local/state/codex-for-love/staging/partner.toml` | 3083 |
 | Shio prod | `codex-for-love-prod.service` | selected installed CLI | `~/.local/state/codex-for-love/prod/partner.toml` | 3084 |
 
 Each configuration owns a distinct state root, workspace, projection database,
-attachments, persona, and official Codex thread. Never copy state between the
-two targets.
+attachments, persona, and official Codex thread. Mika dev and staging begin
+with matching profile assets and Markdown, but their state and sessions remain
+separate.
+
+Dev and staging both serve `apps/partner/build` from this checkout. Run one
+checkout `pnpm build` before restarting either service; do not build a separate
+staging UI artifact.
 
 ## Install and deploy dev
 

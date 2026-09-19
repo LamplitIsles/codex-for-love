@@ -322,6 +322,7 @@ async function handle(request) {
     }
     case 'thread/resume': {
       if (typeof p.path === 'string' && p.path) loadRollout(p.path);
+      if (control().missingRollout) rpcError(-32600, `no rollout found for thread id ${String(p.threadId ?? '')}`);
       if (control().failResume) rpcError(-32603, 'fixture resume rejected');
       if (Array.isArray(p.history)) {
         if (!p.history.length) rpcError(-32602, 'history must contain at least one item');

@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { access, mkdir, readFile, writeFile, readdir, lstat } from 'node:fs/promises';
+import { access, mkdir, readFile, writeFile, readdir, lstat, unlink } from 'node:fs/promises';
 import { basename, extname, isAbsolute, join, relative, resolve, sep as pathSeparator } from 'node:path';
 import type { z } from 'zod';
 import {
@@ -300,6 +300,11 @@ function historyImage(path: string, operationId: string, index: number): StoredI
 function noHistoryYet(error: unknown): boolean {
   return error instanceof AppServerInvalidRequestError
     && error.rpcMessage.includes('thread/turns/list is unavailable before first user message');
+}
+
+function noRolloutForThread(error: unknown): boolean {
+  return error instanceof AppServerInvalidRequestError
+    && error.rpcMessage.startsWith('no rollout found for thread id ');
 }
 
 function rpcMessage(error: unknown): string | undefined {
@@ -1339,17 +1344,34 @@ export async function createPartner(config: Config, credentials: Credentials, de
           : {}),
       },
     };
+    const connectedAppServer = appServer;
+    if (!connectedAppServer) throw new Error('Codex app-server connection was not initialized');
     let response: v2.ThreadStartResponse | v2.ThreadResumeResponse;
-    if (marker?.threadId) {
-      const resume: v2.ThreadResumeParams = { ...shared, threadId: marker.threadId, excludeTurns: true };
-      response = await appServer.call('thread/resume', resume);
-      threadId = response.thread.id;
-    } else {
+    let resumed = false;
+    const startThread = async (): Promise<v2.ThreadStartResponse> => {
       const start: v2.ThreadStartParams = { ...shared, historyMode: 'paginated', sessionStartSource: 'startup' };
-      response = await appServer.call('thread/start', start);
-      threadId = response.thread.id;
+      const started = await connectedAppServer.call('thread/start', start);
+      threadId = started.thread.id;
       if (!threadId) throw new Error('Codex app-server did not return a thread id');
       await writeFile(markerPath, JSON.stringify({ threadId, model: config.codex.model }), { mode: 0o600 });
+      return started;
+    };
+    if (marker?.threadId) {
+      const resume: v2.ThreadResumeParams = { ...shared, threadId: marker.threadId, excludeTurns: true };
+      try {
+        response = await connectedAppServer.call('thread/resume', resume);
+        threadId = response.thread.id;
+        resumed = true;
+      } catch (error) {
+        if (!noRolloutForThread(error) || messageIds.size) throw error;
+        await unlink(markerPath);
+        marker = undefined;
+        startupPending = true;
+        await refreshBootstrap();
+        response = await startThread();
+      }
+    } else {
+      response = await startThread();
     }
     const readinessDeadline = Date.now() + 10_000;
     for (;;) {
@@ -1367,7 +1389,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
     if (response.model !== undefined && response.model !== config.codex.model) throw new Error(`Codex selected ${String(response.model)} instead of configured ${config.codex.model}`);
-    if (marker?.threadId && marker.model !== config.codex.model) {
+    if (resumed && marker?.threadId && marker.model !== config.codex.model) {
       await writeFile(markerPath, JSON.stringify({ threadId, model: config.codex.model }), { mode: 0o600 });
     }
     await hydrateHistory();
