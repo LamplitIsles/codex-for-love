@@ -337,7 +337,10 @@ remains an invalidation stream rather than an execution journal:
   has not been acknowledged by official history, it remains visibly unresolved
   and editable; it is never silently retried.
 - `POST /api/compact` requests native official compaction when no turn or
-  recovery submission is active.
+  recovery submission is active. It returns HTTP 202 when app-server accepts
+  the request; completion or failure arrives through the session lifecycle.
+  There is no application-imposed completion timeout. A later projection
+  refresh failure does not restore an accepted `/compact` command.
 - `GET /api/events` invalidates the projection for browser refresh.
 
 The session response keeps user inputs and turn replies separate. `messages`

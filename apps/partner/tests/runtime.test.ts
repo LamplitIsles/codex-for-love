@@ -409,6 +409,7 @@ test('native compact lifecycle, zero token observation and post-compact bootstra
     const id = randomUUID(); await partner.submit(id, 'before compact');
     await eventually(async () => (await partner.snapshot()).results?.some((result) => result.sourceIds.includes(id) && result.answers.length > 0) === true);
     await partner.compact();
+    await eventually(async () => (await partner.snapshot()).lifecycle.latest?.status === 'complete');
     const view = await partner.snapshot();
     assert.equal(view.compactions.length, 1);
     assert.equal(view.compactions[0]?.anchorId, id);

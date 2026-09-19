@@ -40,6 +40,10 @@ After compaction, CFL also supplies the newest completed text rounds for immedia
 continuity. Set `codex.context_round_limit` in the Partner TOML to choose that
 tail (10 by default), then restart Partner; see the [operator guide](docs/operator-guide.md#context-boundaries-and-compaction).
 
+`/compact` clears from the composer once submitted. Acceptance starts native
+compaction; the UI follows its running, completed or failed state without a
+one-minute completion deadline. A rejected request restores the command.
+
 The transcript remains the evidence. Relationship state is explicit and append-only. Neither is replaced by an automatic memory framework claiming to define who the companion is.
 
 ## Local by default

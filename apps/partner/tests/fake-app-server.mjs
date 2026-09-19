@@ -272,9 +272,22 @@ async function compact() {
   state.turns.push(turn);
   state.active = turn.id;
   save();
+  while (control().holdCompactStart) await new Promise(resolve => setTimeout(resolve, 15));
   send({ method: 'turn/started', params: { threadId: state.threadId, turn } });
   const item = { type: 'contextCompaction', id: `context-${state.next++}` };
   send({ method: 'item/started', params: { threadId: state.threadId, turnId: turn.id, startedAtMs: Date.now(), item } });
+  if (process.env.FAKE_COMPACT_DELAY_MS) await new Promise(resolve => setTimeout(resolve, Number(process.env.FAKE_COMPACT_DELAY_MS)));
+  while (control().holdCompact && turn.status === 'inProgress') await new Promise(resolve => setTimeout(resolve, 15));
+  if (turn.status !== 'inProgress') return;
+  if (process.env.FAKE_COMPACT_STATUS) {
+    turn.status = process.env.FAKE_COMPACT_STATUS;
+    turn.completedAt = nowSeconds();
+    turn.error = turn.status === 'failed' ? { message: 'fixture compaction failed', codexErrorInfo: null, additionalDetails: null } : null;
+    state.active = null;
+    save();
+    send({ method: 'turn/completed', params: { threadId: state.threadId, turn } });
+    return;
+  }
   send({ method: 'item/completed', params: { threadId: state.threadId, turnId: turn.id, completedAtMs: Date.now(), item } });
   send({ method: 'thread/tokenUsage/updated', params: { threadId: state.threadId, turnId: turn.id, tokenUsage: { total: { cachedInputTokens: 0, inputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0, totalTokens: 0 }, last: { cachedInputTokens: 0, inputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0, totalTokens: 0 }, modelContextWindow: 200000 } } });
   turn.status = 'completed';

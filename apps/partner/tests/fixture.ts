@@ -57,6 +57,7 @@ export async function fixture() {
     directory, workspace, config, credentials, appServer, requests,
     async createPartner(dependencies: Omit<PartnerDependencies, 'appServer'> = {}) { partner = await createPartner(config, credentials, { ...dependencies, appServer }); return partner; },
     holdProvider(value: boolean) { return writeFile(controlPath, JSON.stringify({ hold: value }), { mode: 0o600 }); },
+    holdCompaction(value: boolean, holdStart = false) { return writeFile(controlPath, JSON.stringify({ holdCompact: value, holdCompactStart: holdStart }), { mode: 0o600 }); },
     holdVoiceFinal(value: boolean) { return writeFile(controlPath, JSON.stringify({ holdVoiceFinal: value }), { mode: 0o600 }); },
     missingRollout(value: boolean) { return writeFile(controlPath, JSON.stringify({ missingRollout: value }), { mode: 0o600 }); },
     async enableLocalCompaction() {

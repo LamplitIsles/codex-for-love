@@ -164,7 +164,8 @@
     async send(input, images, retire) {
       if (!connected) throw new CompanionPreControllerError(t('connection.interrupted'));
       if (input === '/compact' && !images.length) {
-        try { await post('/api/compact', {}); await refresh(); } catch { throw new CompanionPreControllerError(t('compact.admissionFailed')); }
+        try { await post('/api/compact', {}); } catch { throw new CompanionPreControllerError(t('compact.admissionFailed')); }
+        try { await refresh(); } catch { if (!disposed) error = t('connection.interrupted'); }
         return;
       }
       let id: string = crypto.randomUUID();

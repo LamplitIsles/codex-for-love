@@ -112,7 +112,7 @@ export function createWebServer(partner: Partner, assets: string, options: { hea
         await partner.submit(id, input, images, replaces);
         return json(response, { id }, 202);
       }
-      if (path === '/api/compact' && request.method === 'POST') { await partner.compact(); return json(response, { ok: true }); }
+      if (path === '/api/compact' && request.method === 'POST') { await partner.compact(); return json(response, { ok: true }, 202); }
       if (path === '/api/cancel' && request.method === 'POST') {
         const { id } = z.object({ id: z.string().min(1).max(300) }).strict().parse(await body(request));
         await partner.cancel(id); return json(response, { ok: true });

@@ -448,7 +448,6 @@ export async function createPartner(config: Config, credentials: Credentials, de
   let unsubscribeAppServer: Array<() => void> = [];
   let startupPending = false;
   let compacting = false;
-  let compactWaiter: { resolve: () => void; reject: (error: Error) => void } | undefined;
   let eventChain: Promise<void> = Promise.resolve();
   let admission: Promise<void> = Promise.resolve();
   let closePromise: Promise<void> | undefined;
@@ -989,7 +988,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
   }
 
   function drainRejectedSteers(): Promise<void> | undefined {
-    if (closing || activeTurnId || recoveryPromise || !rejectedSteers.length) return recoveryPromise;
+    if (closing || compacting || activeTurnId || recoveryPromise || !rejectedSteers.length) return recoveryPromise;
     const intents = rejectedSteers.splice(0);
     const ids = intents.flatMap((intent) => intent.ids);
     const merged: InputIntent = {
@@ -1014,7 +1013,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
 
   function drainKeet(): void {
     const task = admission.then(async () => {
-      if (closing || activeTurnId || recoveryPromise || !keetEnabled) return;
+      if (closing || compacting || activeTurnId || recoveryPromise || !keetEnabled) return;
       const pending = (await store.pendingMessages()).filter((item) => item.id.startsWith('keet:') && !observedInputIds.has(item.id));
       if (!pending.length || activeTurnId || closing) return;
       const first = pending[0]!;
@@ -1067,11 +1066,11 @@ export async function createPartner(config: Config, credentials: Credentials, de
     }).catch((error) => { keetConnecting = false; processError('keet.feed_failed', error); scheduleKeetReconnect(); });
   }
 
-  async function restoreUnconsumed(turnId?: string): Promise<void> {
+  async function restoreUnconsumed(turnId?: string, preserveQueued = false): Promise<void> {
     const ids: string[] = turnId ? [...sourceIdsForTurn(turnId)] : [];
     const selectedSteers = pendingSteers.filter((intent) => turnId === undefined || intent.turnId === turnId);
     const selectedStarts = [...pendingStarts.values()].filter((intent) => turnId === undefined || intent.turnId === turnId);
-    const selectedRejected = rejectedSteers.filter((intent) => turnId === undefined || intent.turnId === turnId);
+    const selectedRejected = preserveQueued ? [] : rejectedSteers.filter((intent) => turnId === undefined || intent.turnId === turnId);
     for (const intent of selectedSteers) ids.push(...intent.ids);
     for (const intent of selectedStarts) ids.push(...intent.ids);
     for (const intent of selectedRejected) ids.push(...intent.ids);
@@ -1141,17 +1140,13 @@ export async function createPartner(config: Config, credentials: Credentials, de
       endedAt: boundary.time,
     };
     await refreshBootstrap();
-    compactWaiter?.resolve();
-    compactWaiter = undefined;
     void turnId;
   }
 
-  function failCompaction(error: unknown): void {
+  function failCompaction(): void {
     if (lifecycle?.status === 'running') {
       lifecycle = { ...lifecycle, status: 'failed', endSeq: eventSequence, endedAt: now() };
     }
-    compactWaiter?.reject(error instanceof Error ? error : new Error(String(error)));
-    compactWaiter = undefined;
   }
 
   async function handleServerEvent(notification: SupportedNotification): Promise<void> {
@@ -1224,11 +1219,16 @@ export async function createPartner(config: Config, credentials: Credentials, de
           turnControllers.delete(turn.id);
         }
         if (reconciled && (turnStatus(reconciled) === 'interrupted' || turnStatus(reconciled) === 'cancelled')) await restoreUnconsumed(completedTurnId);
-        else if (reconciled && !userItems(reconciled).length && completedTurnId) await restoreUnconsumed(completedTurnId);
+        // Successful compact/review turns contain no user input. Their rejected
+        // steers belong to the next turn; only unconfirmed inputs need restoring.
+        else if (reconciled && !userItems(reconciled).length && completedTurnId) await restoreUnconsumed(completedTurnId, turnStatus(reconciled) === 'completed');
         syncActiveTurn();
         if (compacting) {
           compacting = false;
-          if (lifecycle?.status === 'running') await finishCompaction(reconciled?.id);
+          if (lifecycle?.status === 'running') {
+            if (turnStatus(reconciled) === 'completed') await finishCompaction(reconciled?.id);
+            else failCompaction();
+          }
         }
         await refreshBootstrap();
         if (!activeTurnId) { void drainRejectedSteers(); drainKeet(); }
@@ -1257,6 +1257,9 @@ export async function createPartner(config: Config, credentials: Credentials, de
     if (notification.method === 'turn/started') {
       const turn = registerTurn(record(notification.params).turn);
       if (turn) {
+        if (compacting) {
+          for (const intent of rejectedSteers) if (!intent.turnId) intent.turnId = turn.id;
+        }
         activeTurnId = turn.id;
         activeOperationId = sourceIdsForTurn(turn.id)[0] ?? activeOperationId;
         if (!turnControllers.has(turn.id)) turnControllers.set(turn.id, new AbortController());
@@ -1401,7 +1404,6 @@ export async function createPartner(config: Config, credentials: Credentials, de
     closing = true;
     for (const unsubscribe of unsubscribeAppServer.splice(0)) unsubscribe();
     for (const controller of turnControllers.values()) controller.abort();
-    compactWaiter?.reject(error instanceof Error ? error : new Error(String(error)));
     await appServer?.close().catch(() => undefined);
     await store.close().catch(() => undefined);
     throw error;
@@ -1562,8 +1564,15 @@ export async function createPartner(config: Config, credentials: Credentials, de
         if (replaces.length) await setRestoredDraft([...unresolvedInputIds]);
         await eventChain;
         syncActiveTurn();
-        if (rejectedSteers.length) await (drainRejectedSteers() ?? Promise.resolve());
         const intent: InputIntent = { ids: [id], input, images: materialized, transportId: id, source: 'owner' };
+        // Native acceptance can precede turn/started. Hold inputs until that
+        // compaction ends instead of racing a new turn against its start.
+        if (compacting && !activeTurnId) {
+          rejectedSteers.push(intent);
+          notify();
+          return;
+        }
+        if (rejectedSteers.length) await (drainRejectedSteers() ?? Promise.resolve());
         if (activeTurnId) await steerIntent(intent, activeTurnId);
         else await startIntent(intent);
         notify();
@@ -1590,22 +1599,15 @@ export async function createPartner(config: Config, credentials: Credentials, de
         await refreshBootstrap();
         lifecycle = { compactionId: `compact:${randomUUID()}`, status: 'running', startSeq: eventSequence + 1, startedAt: now() };
         compacting = true;
-        const wait = new Promise<void>((resolveWait, rejectWait) => { compactWaiter = { resolve: resolveWait, reject: rejectWait }; });
-        let timeout: NodeJS.Timeout | undefined;
+        notify();
         try {
           await appServer!.call('thread/compact/start', { threadId });
-          await Promise.race([wait, new Promise<never>((_, reject) => {
-            timeout = setTimeout(() => reject(new Error('Codex compaction timed out')), 60_000);
-          })]);
         } catch (error) {
           compacting = false;
-          failCompaction(error);
+          failCompaction();
           processError('compaction.failed', error);
           notify();
           throw error;
-        } finally {
-          if (timeout) clearTimeout(timeout);
-          compactWaiter = undefined;
         }
         notify();
       });
@@ -1621,8 +1623,6 @@ export async function createPartner(config: Config, credentials: Credentials, de
       keetFeed?.close();
       for (const unsubscribe of unsubscribeAppServer.splice(0)) unsubscribe();
       for (const controller of turnControllers.values()) controller.abort();
-      compactWaiter?.reject(new Error('Partner is closing'));
-      compactWaiter = undefined;
       compacting = false;
       const serverClose = appServer?.close() ?? Promise.resolve();
       closePromise = (async () => {
