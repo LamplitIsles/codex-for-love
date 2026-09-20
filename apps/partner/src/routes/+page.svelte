@@ -57,7 +57,7 @@
     const ordered: Array<{ unit: TimelineMessageUnit; order: number }> = [];
     const results = session.results ?? [];
     const resultBySource = new Map(results.flatMap((result) => result.sourceIds.map((id) => [id, result] as const)));
-    const resultOwners = new Set(results.map((result) => result.sourceIds.at(-1)).filter((id): id is string => Boolean(id)));
+    const resultAnchors = new Set(results.map((result) => result.sourceIds.at(-1)).filter((id): id is string => Boolean(id)));
     const visibleMessages = [...session.messages.filter(message => message.delivery !== 'replaced'), ...outgoing.filter(local => local.delivery !== 'replaced' && !session.messages.some(message => message.id === local.id))];
     const resultUnits = (result: TurnResult): TimelineMessageUnit[] => {
       const units = result.answers.map((answer, index): TimelineMessageUnit => {
@@ -88,14 +88,14 @@
       // keeps multi-input turns readable without copying the same answer to
       // every source message.
       let incoming: TimelineMessageUnit[] = [];
-      if (result && resultOwners.has(message.id)) {
+      if (result && resultAnchors.has(message.id)) {
         incoming = resultUnits(result);
       }
       if (message.inputError) incoming = [...incoming, { id: `${message.id}:input-error`, side: 'incoming', items: [{ id: `${message.id}:input-error`, messageKey: message.id, kind: 'notice', side: 'incoming', tone: 'error', text: message.inputError }] }];
       incoming.forEach((unit, index) => ordered.push({ order: order + 1 + index / 1000, unit }));
     }
     // Incremental snapshots can contain a changed source without its result
-    // owner. Keep the canonical result visible at the end rather than
+    // anchor. Keep the canonical result visible at the end rather than
     // manufacturing a duplicate per message.
     for (const result of results) {
       if (!visibleMessages.some((message) => message.id === result.sourceIds.at(-1))) {

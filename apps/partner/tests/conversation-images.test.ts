@@ -9,12 +9,12 @@ const image = (name: string, created: number, origin: ConversationImage['origin'
 };
 
 test('conversation image pages have stable newest-first opaque cursors across every included origin', () => {
-  const images = [image('owner', 10, 'owner'), image('partner', 30, 'partner'), image('historical', 20, 'historical')];
+  const images = [image('human', 10, 'human'), image('agent', 30, 'agent'), image('historical', 20, 'historical')];
   const first = pageConversationImages(images, 2);
-  assert.deepEqual(first.images.map((value) => value.filename), ['partner.png', 'historical.png']);
-  assert.ok(first.nextCursor); assert.match(first.nextCursor!, /^[A-Za-z0-9_-]{54}$/u); assert.doesNotMatch(first.nextCursor!, /partner|historical|30/);
+  assert.deepEqual(first.images.map((value) => value.filename), ['agent.png', 'historical.png']);
+  assert.ok(first.nextCursor); assert.match(first.nextCursor!, /^[A-Za-z0-9_-]{54}$/u); assert.doesNotMatch(first.nextCursor!, /agent|historical|30/);
   const next = pageConversationImages(images, 2, first.nextCursor);
-  assert.deepEqual(next.images.map((value) => value.filename), ['owner.png']);
+  assert.deepEqual(next.images.map((value) => value.filename), ['human.png']);
   assert.equal(next.nextCursor, undefined);
   assert.throws(() => pageConversationImages(images, 2, 'a'.repeat(53)), /Invalid conversation image cursor/);
   assert.throws(() => pageConversationImages(images, 2, '!'.repeat(54)), /Invalid conversation image cursor/);
@@ -23,7 +23,7 @@ test('conversation image pages have stable newest-first opaque cursors across ev
 });
 
 test('conversation image page omission defaults to five items', () => {
-  const images = Array.from({ length: 6 }, (_, index) => image(`image-${index}`, 60 - index, 'partner'));
+  const images = Array.from({ length: 6 }, (_, index) => image(`image-${index}`, 60 - index, 'agent'));
   const page = pageConversationImages(images);
   assert.equal(page.images.length, 5);
   assert.ok(page.nextCursor);

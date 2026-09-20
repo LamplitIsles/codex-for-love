@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { access, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 
-export type ConversationImageOrigin = 'owner' | 'partner' | 'historical';
+export type ConversationImageOrigin = 'human' | 'agent' | 'historical';
 export type ConversationImage = { id: string; filename: string; path: string; mediaType: string; created: number; origin: ConversationImageOrigin; available: boolean };
 export type ConversationImagePage = { images: ConversationImage[]; nextCursor?: string };
 

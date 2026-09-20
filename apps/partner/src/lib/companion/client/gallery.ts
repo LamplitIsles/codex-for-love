@@ -1,8 +1,9 @@
 export type GalleryImage = { id: string; filename: string; created: number; origin: string; available: boolean; url: string };
-export type GalleryRow = { kind: 'week'; key: string; label: string } | { kind: 'images'; key: string; images: GalleryImage[] };
+export type GalleryGrouping = 'day' | 'week';
+export type GalleryRow = { kind: 'group'; key: string; label: string } | { kind: 'images'; key: string; images: GalleryImage[] };
 
-/** Group instants by the viewer's local calendar week, newest week and image first. */
-export function galleryRows(images: readonly GalleryImage[], locale = 'en'): GalleryRow[] {
+/** Group instants by the viewer's selected local calendar period, newest period and image first. */
+export function galleryRows(images: readonly GalleryImage[], locale = 'en', grouping: GalleryGrouping = 'week'): GalleryRow[] {
   const info = (Intl.Locale.prototype as unknown as { getWeekInfo?: () => { firstDay: number; minimalDays: number } }).getWeekInfo?.call(new Intl.Locale(locale));
   const firstDay = (info?.firstDay ?? 1) % 7;
   const minimalDays = info?.minimalDays ?? 4;
@@ -23,13 +24,20 @@ export function galleryRows(images: readonly GalleryImage[], locale = 'en'): Gal
     const number = Math.floor((start.getTime() - firstWeek(year).getTime()) / (7 * 24 * 60 * 60 * 1_000)) + 1;
     return `${year} · W${number}`;
   };
+  const day = (created: number) => {
+    const value = new Date(created); value.setHours(0, 0, 0, 0);
+    return value;
+  };
+  const dayLabel = new Intl.DateTimeFormat(locale, { year: 'numeric', month: 'short', day: 'numeric' });
+  const period = grouping === 'day' ? day : week;
+  const label = grouping === 'day' ? (created: number) => dayLabel.format(new Date(created)) : weekLabel;
   const grouped = new Map<string, { start: Date; images: GalleryImage[] }>();
   for (const image of [...images].sort((a, b) => b.created - a.created || b.id.localeCompare(a.id))) {
-    const start = week(image.created); const key = String(start.getTime());
+    const start = period(image.created); const key = String(start.getTime());
     const group = grouped.get(key) ?? { start, images: [] }; group.images.push(image); grouped.set(key, group);
   }
   return [...grouped.entries()].sort(([, a], [, b]) => b.start.getTime() - a.start.getTime()).flatMap(([key, group]) => [
-    { kind: 'week' as const, key, label: weekLabel(group.images[0]!.created) },
+    { kind: 'group' as const, key, label: label(group.images[0]!.created) },
     ...Array.from({ length: Math.ceil(group.images.length / 3) }, (_, index) => ({ kind: 'images' as const, key: `${key}:${index}`, images: group.images.slice(index * 3, index * 3 + 3) })),
   ]);
 }

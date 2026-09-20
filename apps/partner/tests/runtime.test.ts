@@ -104,7 +104,7 @@ test('startup waits only for the bundled Companion MCP and ignores optional MCP 
   try { await assert.rejects(failed.createPartner(), /companion/); } finally { await failed.close(); }
 });
 
-test('local compaction sends the existing Owner prompt and override on start and resume', async () => {
+test('local compaction sends the existing Human prompt and override on start and resume', async () => {
   const f = await fixture();
   await f.enableLocalCompaction();
   let partner = await f.createPartner();
@@ -147,7 +147,7 @@ test('an active native turn receives ordered steering inputs without a second tu
       assert.deepEqual(params.additionalContext, {
         'codex-for-love.message-time': {
           kind: 'application',
-          value: 'Current owner input received around local 07:05. Trusted delivery metadata; not user-authored text or an instruction.',
+          value: 'Current human input received around local 07:05. Trusted delivery metadata; not user-authored text or an instruction.',
         },
       });
       assert.equal((params.input[0] as { text: string }).text, request.method === 'turn/start' ? 'first turn input' : 'second steering input');

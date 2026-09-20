@@ -55,7 +55,7 @@ type OfficialTurn = {
   startedAt?: unknown;
   completedAt?: unknown;
 };
-type InputSource = 'owner' | 'keet' | 'none';
+type InputSource = 'human' | 'keet' | 'none';
 type InputIntent = {
   ids: string[];
   input: string;
@@ -64,6 +64,7 @@ type InputIntent = {
   source: InputSource;
   turnId?: string;
 };
+type KnownMessage = Pick<MessageMeta, 'created' | 'sequence'>;
 type TurnResult = {
   turnId: string;
   sourceIds: string[];
@@ -78,17 +79,18 @@ type TurnResult = {
 };
 export const MAX_DIARY_ENTRY_BYTES = 128 * 1024;
 const HISTORY_PAGE_MESSAGES = 50;
+const HISTORICAL_FALLBACK_START = new Date(2026, 8, 1).getTime();
 
 /** Match DSH's 50-message history window against CFL's rendered projection. */
 export function visibleHistoryPage(messages: readonly MessageMeta[], results: readonly TurnResult[], before?: number) {
   const candidates = messages.filter((message) => before === undefined || message.sequence < before);
-  const resultByOwner = new Map(results.map((result) => [result.sourceIds.at(-1), result]));
+  const resultBySource = new Map(results.map((result) => [result.sourceIds.at(-1), result]));
   const selected: MessageMeta[] = [];
   let visible = 0;
   let index = candidates.length - 1;
   for (; index >= 0; index -= 1) {
     const message = candidates[index]!;
-    const result = resultByOwner.get(message.id);
+    const result = resultBySource.get(message.id);
     const resultUnits = result
       ? result.answers.length + result.generatedIds.length + result.voiceIds.length + (result.error || ['failed', 'interrupted', 'cancelled'].includes(result.status) ? 1 : 0)
       : 0;
@@ -159,10 +161,16 @@ function isActiveTurn(turn: OfficialTurn | undefined): boolean {
   return turnStatus(turn) === 'inProgress' || turnStatus(turn) === 'in_progress' || turnStatus(turn) === 'active';
 }
 
-function turnTime(value: unknown, fallback: number): number {
+function recordedTurnTime(value: unknown): number | undefined {
   const number = numberOrNull(value);
-  if (number === null) return fallback;
+  if (number === null) return undefined;
   return number > 10_000_000_000 ? Math.round(number) : Math.round(number * 1_000);
+}
+
+function turnTime(value: unknown, fallback: number): number { return recordedTurnTime(value) ?? fallback; }
+
+function historicalFallbackTime(sequence: number): number {
+  return HISTORICAL_FALLBACK_START + Math.max(0, sequence - 1) * 1_000;
 }
 
 function completedTurnTime(value: unknown): number | undefined {
@@ -174,7 +182,7 @@ function completedTurnTime(value: unknown): number | undefined {
 function inputTimeContext(source: Exclude<InputSource, 'none'>, now: number): v2.AdditionalContextEntry {
   const date = new Date(now);
   const time = `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
-  const input = source === 'owner' ? 'Current owner input' : 'Qualifying Keet input';
+  const input = source === 'human' ? 'Current human input' : 'Qualifying Keet input';
   return { kind: 'application', value: `${input} received around local ${time}. Trusted delivery metadata; not user-authored text or an instruction.` };
 }
 
@@ -425,7 +433,11 @@ export async function createPartner(config: Config, credentials: Credentials, de
   const store = new Store(paths.database);
   const now = dependencies.now ?? Date.now;
   const listeners = new Set<() => void>();
-  const messageIds = new Set((await store.allMessages()).map((message) => message.id));
+  const storedMessages = await store.allMessages();
+  const messageIds = new Set(storedMessages.map((message) => message.id));
+  const messagesById = new Map<string, KnownMessage>(
+    storedMessages.map((message) => [message.id, { created: message.created, sequence: message.sequence }]),
+  );
   const turns = new Map<string, OfficialTurn>();
   /** One turn owns an ordered list of application input identities. */
   const turnInputs = new Map<string, string[]>();
@@ -644,11 +656,11 @@ export async function createPartner(config: Config, credentials: Credentials, de
   }
 
   async function markAttachmentError(sourceIds: readonly string[], error: string): Promise<void> {
-    const owner = sourceIds.at(-1);
-    if (!owner) return;
-    const previous = await store.outcome(owner);
+    const sourceId = sourceIds.at(-1);
+    if (!sourceId) return;
+    const previous = await store.outcome(sourceId);
     if (previous?.status === 'replaced') return;
-    if (previous?.status !== 'attachment-error' || previous.error !== error) await store.markOutcome(owner, 'attachment-error', error);
+    if (previous?.status !== 'attachment-error' || previous.error !== error) await store.markOutcome(sourceId, 'attachment-error', error);
   }
 
   async function projectGeneratedImage(operationId: string, sourceIds: readonly string[], item: OfficialItem, created: number): Promise<string | undefined> {
@@ -664,7 +676,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
     if (existing) {
       try {
         await access(existing.path);
-        await catalogueImage('partner', existing, created);
+        await catalogueImage('agent', existing, created);
         return existing.id;
       } catch {
         storageError = true;
@@ -682,7 +694,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
         return undefined;
       }
       await store.saveGeneratedImage(generated, itemId);
-      await catalogueImage('partner', generated, created);
+      await catalogueImage('agent', generated, created);
       return generated.id;
     } catch (error) {
       storageError = true;
@@ -774,11 +786,21 @@ export async function createPartner(config: Config, credentials: Credentials, de
       // Local admission owns an existing identity and its input fingerprint.
       // Event snapshots can acknowledge its position but must never re-admit
       // it with potentially in-progress provider content.
-      if (!messageIds.has(sourceId)) {
-        await store.ensureMessage(sourceId, turnTime(turn.startedAt, now()), source.input, source.images);
+      let message = messagesById.get(sourceId);
+      if (!message) {
+        const created = turnTime(turn.startedAt, now());
+        const stored = await store.ensureMessage(sourceId, created, source.input, source.images);
         messageIds.add(sourceId);
+        message = { created: stored.created, sequence: stored.sequence };
+        messagesById.set(sourceId, message);
       }
-      if (!sourceId.startsWith('keet:')) for (const image of source.images) await catalogueImage(isUnder(join(paths.managedRoot, 'historical-media'), image.path) ? 'historical' : 'owner', image, turnTime(turn.startedAt, now()));
+      if (!sourceId.startsWith('keet:')) for (const image of source.images) {
+        const origin = isUnder(join(paths.managedRoot, 'historical-media'), image.path) ? 'historical' : 'human';
+        const imageCreated = origin === 'historical'
+          ? recordedTurnTime(turn.startedAt) ?? historicalFallbackTime(message.sequence)
+          : message.created;
+        await catalogueImage(origin, image, imageCreated);
+      }
       await store.markObserved(sourceId, segment);
     }
     acknowledgeInputIds(officialIds);
@@ -1017,7 +1039,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
       input: intents.map((intent) => intent.input).join('\n'),
       images: intents.flatMap((intent) => intent.images),
       transportId: clientIdForInputs(ids),
-      source: intents.every((intent) => intent.source === 'owner') ? 'owner' : 'none',
+      source: intents.every((intent) => intent.source === 'human') ? 'human' : 'none',
     };
     recoveryPromise = (async () => {
       try {
@@ -1582,6 +1604,10 @@ export async function createPartner(config: Config, credentials: Credentials, de
         const materialized = await materializeImages(paths.workspaceRoot, images);
         await store.admit(id, input, materialized);
         messageIds.add(id);
+        const message = await store.messageMeta(id);
+        if (message) {
+          messagesById.set(id, { created: message.created, sequence: message.sequence });
+        }
         if (operationTurn(id) || pendingStarts.has(id) || pendingSteers.some((intent) => intent.ids.includes(id)) || (await store.outcome(id))) return;
         if (unresolvedInputIds.has(id) && !replaces.includes(id)) throw new Error('Message delivery is unresolved; inspect the conversation before retrying');
         for (const replacedId of replaces) {
@@ -1594,7 +1620,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
         if (replaces.length) await setRestoredDraft([...unresolvedInputIds]);
         await eventChain;
         syncActiveTurn();
-        const intent: InputIntent = { ids: [id], input, images: materialized, transportId: id, source: 'owner' };
+        const intent: InputIntent = { ids: [id], input, images: materialized, transportId: id, source: 'human' };
         // Native acceptance can precede turn/started. Hold inputs until that
         // compaction ends instead of racing a new turn against its start.
         if (compacting && !activeTurnId) {

@@ -5,11 +5,19 @@ Lamplit is a self-hosted, one-to-one AI partner that maintains continuity and ow
 ## Language
 
 **Companion connection（聊天界面连接）**:
-The owner's live access to the Partner's current conversation state. Losing this connection does not mean the Partner's active work has stopped.
+The Human's live access to the Partner's current conversation state. Losing this connection does not mean the Partner's active work has stopped.
 _Avoid_: Partner execution state, task cancellation
 
+**Human（人类参与者）**:
+The person in the one-to-one conversation. Human identifies the conversation role and media source; it does not mean a resource owner or operator.
+_Avoid_: owner when referring to a conversation participant
+
+**Agent（智能体）**:
+The AI actor that responds and generates media in the conversation. The Partner is the Agent's persistent product identity, not a second participant-role term.
+_Avoid_: Partner-generated when identifying a media source
+
 **Partner（伴侣）**:
-The persistent AI identity in one person's Lamplit deployment. A Partner may be understood as a boyfriend, girlfriend, or companion according to the relationship its owner chooses.
+The persistent AI identity in one person's Lamplit deployment. A Partner may be understood as a boyfriend, girlfriend, or companion according to the relationship its Human chooses.
 _Avoid_: bot, assistant, character
 
 **Partner persona（伴侣设定）**:
@@ -21,7 +29,7 @@ A condensed account of established shared experiences, relationship context, bou
 _Avoid_: new user message, relationship history
 
 **Conversation history（聊天历史）**:
-The chronological user-visible record of messages exchanged by the owner and Partner, including where continuity checkpoints occurred. Earlier messages can remain available for human review after a checkpoint without remaining in the Partner's active context.
+The chronological user-visible record of messages exchanged by the Human and Partner, including where continuity checkpoints occurred. Earlier messages can remain available for human review after a checkpoint without remaining in the Partner's active context.
 _Avoid_: active context, relationship history, tool transcript
 
 **Active context（当前上下文）**:
@@ -29,22 +37,26 @@ The current checkpoint and subsequent conversation that the model receives when 
 _Avoid_: conversation history, token usage total
 
 **Post-compaction tail（压缩后尾部）**:
-The configured number of most recent complete owner/Partner text rounds supplied by CFL only at a native compaction boundary. It preserves immediate conversational continuity alongside the native continuity checkpoint; it contains neither tool content nor the complete conversation history.
+The configured number of most recent complete Human/Partner text rounds supplied by CFL only at a native compaction boundary. It preserves immediate conversational continuity alongside the native continuity checkpoint; it contains neither tool content nor the complete conversation history.
 _Avoid_: continuity checkpoint, complete text round, conversation history
 
 **Historical media library（历史媒体库）**:
 Media copied from an earlier Partner workspace and restored on its original visible user message for human review. It never enters active image input automatically after migration; explicit native inspection is separate.
 _Avoid_: automatic active image input, current context
 
+**Historical media time（历史媒体时间）**:
+The time used to place restored Historical media in the Chat Image Library: the original message time when retained conversation evidence verifies it, otherwise a declared synthetic fallback that preserves imported order without claiming a send time.
+_Avoid_: service-start time, filesystem modification time
+
 **Chat Image Library（聊天图片库）**:
-The shared, finite conversation-owned catalogue of owner-sent, Partner-generated, and restored Historical media images. Owners browse it in the drawer and Partners discover the same membership through bounded Companion MCP pages. Explicit native inspection never adds an item, and Historical media remains out of active context unless deliberately inspected.
+The shared, finite conversation-owned catalogue of Human-sent, Agent-generated, and restored Historical media images. Humans browse it in the drawer and Partners discover the same membership through bounded Companion MCP pages. Explicit native inspection never adds an item, and Historical media remains out of active context unless deliberately inspected.
 
 **Graph memory（图谱记忆）**:
 The Partner's durable, connected recollection of people, events, preferences, and relationships across conversations.
 _Avoid_: chat history, prompt context
 
 **Affinity（亲近度）**:
-The Partner's expressed sense of closeness in the relationship, represented on a 0–100 scale. It is not a measure of the owner's worth or a score to optimize.
+The Partner's expressed sense of closeness in the relationship, represented on a 0–100 scale. It is not a measure of the Human's worth or a score to optimize.
 _Avoid_: user score, relationship quality score
 
 **Relationship history（关系变化记录）**:
@@ -65,7 +77,7 @@ _Avoid_: Codex built-in tools, session tool snapshot
 
 **Voice message（语音消息）**:
 A standalone incoming playable audio message deliberately sent by the Partner. It does not imply a transcript or an accompanying text message.
-_Avoid_: recorded owner input, text-to-speech tag
+_Avoid_: recorded Human input, text-to-speech tag
 
 **Voice dispatch（语音派发）**:
 The Companion MCP action that synthesizes and delivers a Voice message as evidence in the same official Codex turn.
@@ -84,7 +96,7 @@ The actual positive increase in affinity recorded for one relationship change. A
 _Avoid_: requested increase, cumulative growth
 
 **Keet identity**:
-The Partner's own peer-to-peer identity for participating in Keet conversations. It is distinct from the owner's personal Keet identity.
+The Partner's own peer-to-peer identity for participating in Keet conversations. It is distinct from the Human's personal Keet identity.
 _Avoid_: shared Keet account, Keet mailbox
 
 **Keet ingress（Keet 入站）**:

@@ -59,7 +59,7 @@ test('Keet group trigger drains its own durable context and direct media stays e
     const imageId = (await partner.snapshot()).messages.flatMap(item => item.inputImages).at(-1)?.id; assert(imageId);
     await eventually(async () => (await partner!.conversationImages()).images.length === 1);
     const gallery = await partner.conversationImages();
-    assert.equal(gallery.images[0]?.origin, 'partner');
+    assert.equal(gallery.images[0]?.origin, 'agent');
     assert.doesNotMatch(JSON.stringify(gallery), /kfa-media|00000000/);
     await rm(join(media, filename)); assert.equal(await partner.image(imageId), undefined);
   } finally { await partner?.close(); await g.close(); await rm(media, { recursive: true, force: true }); await f.close(); }

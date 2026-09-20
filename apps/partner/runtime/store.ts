@@ -376,6 +376,17 @@ export class Store {
     }));
   }
 
+  async messageMeta(id: string): Promise<MessageMeta | undefined> {
+    return this.transaction(() => {
+      const row = this.db.prepare(`
+        SELECT m.sequence,m.id,m.created,r.revision
+        FROM message_meta m JOIN message_revisions r ON r.message_id=m.id
+        WHERE m.id=?
+      `).get(id) as { sequence: number; id: string; created: number; revision: number } | undefined;
+      return row ? { id: row.id, created: Number(row.created), sequence: Number(row.sequence), revision: Number(row.revision) } : undefined;
+    });
+  }
+
   async pendingMessages(): Promise<PendingMessage[]> {
     return this.transaction(() => this.db.prepare(`
       SELECT m.sequence,m.id,m.created,r.revision,p.input

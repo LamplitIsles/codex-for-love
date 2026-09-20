@@ -13,11 +13,13 @@ type Row = Record<string, unknown>;
 function sessionLog(): string {
   const rows: Row[] = [{ type: 'session', version: 3, id: 'dsh-fixture', createdAt: 1, isSeeded: false, delegationDepth: 0, cwd: '/tmp/dsh-fixture' }];
   const events: Row[] = [];
-  const add = (type: string, data: Row, extra: Row = {}) => events.push({ type, seq: events.length, time: 1_780_000_000_000 + events.length, data, ...extra });
+  let time = 1_780_000_000_000;
+  const add = (type: string, data: Row, extra: Row = {}) => { events.push({ type, seq: events.length, time, data, ...extra }); time += 1; };
   const turn = (number: number, user: string, assistant: string, userContent?: unknown[]) => {
     add('turn/start', { turn: number });
     add('user/message', { id: `u${number}`, role: 'user', content: userContent ?? [{ type: 'text', text: user }], source: { kind: 'user' } }, { surfaceOp: 'append' });
     add('tool/call', { turn: number, callId: `tool-${number}`, arguments: 'discard me' });
+    time += 2_000;
     add('assistant/message', { turn: number, message: { id: `a${number}`, role: 'assistant', content: [{ type: 'text', text: assistant }], source: { kind: 'model' } }, stream: [] }, { surfaceOp: 'append' });
     add('turn/end', { turn: number, reason: { kind: 'completed' } });
   };
@@ -222,6 +224,11 @@ test('dry-run is side-effect free and conversion creates one native candidate', 
     const rolloutPath = converted.destination.rolloutPath!;
     const rollout = (await readFile(rolloutPath, 'utf8')).trim().split('\n').map((line) => JSON.parse(line) as Row);
     assert.equal(rollout.filter((line) => line.type === 'compacted').length, 2);
+    const started = rollout.filter((line) => line.type === 'event_msg' && (line.payload as Row)?.type === 'task_started')
+      .map((line) => ((line.payload as Row).started_at));
+    const completed = rollout.filter((line) => line.type === 'event_msg' && (line.payload as Row)?.type === 'task_complete')
+      .map((line) => ((line.payload as Row).started_at));
+    assert.deepEqual(completed, started);
     const importedUsers = rollout
       .filter((line) => line.type === 'event_msg' && (line.payload as Row)?.type === 'item_completed')
       .map((line) => ((line.payload as Row).item as Row))

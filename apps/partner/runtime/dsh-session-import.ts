@@ -848,6 +848,7 @@ function buildRollout(extraction: DshImportExtraction, media: readonly ResolvedM
   const firstByTurn = new Map<number, number>();
   const lastByTurn = new Map<number, number>();
   extraction.records.forEach((record, index) => { if (record.type !== 'compact') { if (!firstByTurn.has(record.turn)) firstByTurn.set(record.turn, index); lastByTurn.set(record.turn, index); } });
+  const startedAtByTurn = new Map([...firstByTurn].map(([turn, index]) => [turn, Math.floor(extraction.records[index]!.time / 1_000)]));
   for (const [index, record] of extraction.records.entries()) {
     const timestamp = new Date(record.time).toISOString();
     if (record.type === 'compact') {
@@ -858,14 +859,15 @@ function buildRollout(extraction: DshImportExtraction, media: readonly ResolvedM
       const turnId = `compact-${record.compactionId}`;
       add('event_msg', { type: 'task_started', turn_id: turnId, started_at: Math.floor(record.time / 1000), model_context_window: null, collaboration_mode_kind: 'default' }, timestamp);
       add('event_msg', { type: 'item_completed', thread_id: threadId, turn_id: turnId, item: { type: 'ContextCompaction', id: `compact-${randomUUID()}` }, started_at_ms: record.time, completed_at_ms: record.time }, timestamp);
-      add('event_msg', { type: 'task_complete', turn_id: turnId, last_agent_message: null, completed_at: Math.floor(record.time / 1000) }, timestamp);
+      add('event_msg', { type: 'task_complete', turn_id: turnId, last_agent_message: null, started_at: Math.floor(record.time / 1000), completed_at: Math.floor(record.time / 1000) }, timestamp);
       boundaries.push({ id: `dsh:${record.compactionId}`, anchorId: precedingUserId, position: 'after', time: record.time });
       window = nextWindow;
       continue;
     }
     const turnId = `turn-${record.turn}`;
+    const startedAt = startedAtByTurn.get(record.turn)!;
     if (firstByTurn.get(record.turn) === index) {
-      add('event_msg', { type: 'task_started', turn_id: turnId, started_at: Math.floor(record.time / 1000), model_context_window: null, collaboration_mode_kind: 'default' }, timestamp);
+      add('event_msg', { type: 'task_started', turn_id: turnId, started_at: startedAt, model_context_window: null, collaboration_mode_kind: 'default' }, timestamp);
     }
     if (record.type === 'user') {
       const clientId = randomUUID();
@@ -881,7 +883,7 @@ function buildRollout(extraction: DshImportExtraction, media: readonly ResolvedM
       add('response_item', responseMessage('assistant', record.text), timestamp);
       add('event_msg', { type: 'item_completed', thread_id: threadId, turn_id: turnId, item: { type: 'AgentMessage', id: `agent-${randomUUID()}`, content: [{ type: 'Text', text: record.text }], phase: 'final_answer' }, started_at_ms: record.time, completed_at_ms: record.time }, timestamp);
     }
-    if (lastByTurn.get(record.turn) === index) add('event_msg', { type: 'task_complete', turn_id: turnId, last_agent_message: record.type === 'assistant' ? record.text : null, started_at: null, completed_at: Math.floor(record.time / 1000), duration_ms: null }, timestamp);
+    if (lastByTurn.get(record.turn) === index) add('event_msg', { type: 'task_complete', turn_id: turnId, last_agent_message: record.type === 'assistant' ? record.text : null, started_at: startedAt, completed_at: Math.floor(record.time / 1000), duration_ms: null }, timestamp);
   }
   add('response_item', responseMessage('user', formatBootstrapContext(relationship)));
   return { lines, boundaries };

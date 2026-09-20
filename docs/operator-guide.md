@@ -9,7 +9,7 @@ transcription and workspace attachments.
 
 ## Browser appearance and language
 
-The Companion header settings control lets an owner choose 中文 or English and
+The Companion header settings control lets a Human choose 中文 or English and
 light, dark, or system appearance. These are browser-local preferences only:
 they do not add TOML fields, service configuration, workspace state, or
 operator recovery steps. If browser storage is unavailable, the selection still
@@ -120,7 +120,7 @@ when KFA PR #23 is installed and running under the same local account. The
 endpoint must be a bare loopback `http://127.0.0.1:PORT` URL and `media_root`
 must be KFA's absolute CFL media directory; paths, remote hosts, and separate
 MCP/feed URLs are rejected. Put the gateway bearer token only in the existing
-owner-only credential file:
+Owner-only credential file:
 
 ```sh
 printf '%s' "$KFA_TOKEN" | codex-for-love credential /path/to/partner.toml keet --stdin
@@ -380,8 +380,8 @@ source artifact. A later edit can use an uploaded path or the official native
 image tool's prior-generated image inputs; tool logs, paths and base64 are
 never rendered as chat text.
 
-The Chat Image Library is a metadata-only, newest-first catalogue of owner-sent,
-Partner-generated, and restored historical conversation images. `GET
+The Chat Image Library is a metadata-only, newest-first catalogue of Human-sent,
+Agent-generated, and restored historical conversation images. `GET
 /api/conversation-images` exposes bounded cursor pages containing same-origin
 display URLs only; the Companion MCP `list_photos` tool exposes the same shared
 photo library membership with filenames and trusted local paths for deliberate native
