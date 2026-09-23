@@ -20,12 +20,17 @@ const nativeVersion = JSON.parse(readFileSync(join(packageRoot, 'package.json'),
 if (typeof nativeVersion !== 'string') {
   throw new Error(`Missing exact optional dependency declaration for ${nativePackage}.`);
 }
-let nativeRoot;
+let nativeManifestPath;
 try {
-  nativeRoot = dirname(require.resolve(`${nativePackage}/package.json`));
+  nativeManifestPath = require.resolve(`${nativePackage}/package.json`);
 } catch (error) {
   throw new Error(`Missing ${nativePackage}@${nativeVersion}. Reinstall the matching main package.`, { cause: error });
 }
+const installedNativeVersion = JSON.parse(readFileSync(nativeManifestPath, 'utf8')).version;
+if (installedNativeVersion !== nativeVersion) {
+  throw new Error(`Expected ${nativePackage}@${nativeVersion}, found ${installedNativeVersion ?? 'unknown'}. Reinstall the matching main package.`);
+}
+const nativeRoot = dirname(nativeManifestPath);
 const child = spawn(process.execPath, [join(packageRoot, 'vendor', 'runtime', 'cli.mjs'), '--native-package-root', nativeRoot, ...process.argv.slice(2)], {
   stdio: 'inherit',
 });

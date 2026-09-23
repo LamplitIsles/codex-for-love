@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -61,3 +61,21 @@ for (const signal of ['SIGTERM', 'SIGINT']) {
     }
   });
 }
+
+test('launcher refuses a resolved native package that differs from its exact pin', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'cfl-launcher-pin-test-'));
+  try {
+    const nativeName = process.platform === 'darwin' ? '@lamplitisles/codex-for-love-darwin-arm64' : '@lamplitisles/codex-for-love-linux-x64';
+    const native = join(directory, 'node_modules', nativeName);
+    await mkdir(join(directory, 'bin'), { recursive: true });
+    await mkdir(native, { recursive: true });
+    await cp(new URL('../packages/codex-for-love/bin/codex-for-love.mjs', import.meta.url), join(directory, 'bin/launcher.mjs'));
+    await writeFile(join(directory, 'package.json'), JSON.stringify({ optionalDependencies: { [nativeName]: '0.5.0' } }));
+    await writeFile(join(native, 'package.json'), '{"version":"0.4.2"}');
+    const result = spawnSync(process.execPath, [join(directory, 'bin/launcher.mjs'), '--help'], { encoding: 'utf8' });
+    assert.notEqual(result.status, 0);
+    assert.ok(result.stderr.includes(`Expected ${nativeName}@0.5.0, found 0.4.2`));
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});

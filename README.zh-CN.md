@@ -49,7 +49,7 @@ CFL 对 Codex 行为唯一的改动就是上下文压缩，大约是 160 行代�
 
 ## 快速开始
 
-CLI 支持 **Linux x64 和 macOS Apple Silicon**，包含版本匹配的独立 Codex app-server 与 code-mode host。使用前需要 Node 24，以及已经登录的官方 Codex 命令行工具。当前源码固定使用 Codex 0.156.1 native 包；已安装的 CLI 要等下一次主包发布才会选用它们。已发布的 CFL 0.1.1 仅支持 Linux。
+CLI 支持 **Linux x64 和 macOS Apple Silicon**，包含版本匹配的独立 Codex app-server 与 code-mode host。使用前需要 Node 24，以及已经登录的官方 Codex 命令行工具。当前源码的 launcher 会在启动前核对实际安装的 native 包版本是否等于主包的精确 pin。当前公开的主包为两个平台都固定使用 Codex 0.156.1 native 包。
 
 ### 1. 确认 Codex 已登录
 

@@ -62,8 +62,8 @@ workflow is described below.
 - Linux x64 and macOS ARM64 users can install the package with
   `npm install -g @lamplitisles/codex-for-love`. It brings the
   exact matching native app-server and code-mode host package (musl on Linux).
-  Windows and Intel Macs are unsupported. macOS support requires the next
-  main-package release; already-published CFL 0.1.1 is Linux-only.
+  Windows and Intel Macs are unsupported. The current public main package pins
+  the matching Codex 0.156.1 native packages for both supported platforms.
 - The Partner uses `@jaminzhou/codex-app-server-client` 0.2.1 for typed,
   SDK-managed stdio. Its generated protocol baseline is Codex 0.154.0; the
   Codex 0.156.1 app-server passes CFL's strict SDK integration checks. CFL

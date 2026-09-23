@@ -1,8 +1,9 @@
 import { execFileSync, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { mkdtemp, mkdir, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const root = resolve(import.meta.dirname, '..');
@@ -48,11 +49,15 @@ try {
   if (typeof nativeVersion !== 'string') throw new Error('Main package does not pin an exact native package version.');
   const native = `${nativePackageName}@${nativeVersion}`;
   const prefix = join(temporary, 'prefix');
-  const installInputs = [native, publicRegistry ? main : join(artifacts, main)];
+  const installInputs = [publicRegistry ? main : join(artifacts, main)];
   execFileSync('npm', ['install', '--global', '--ignore-scripts', '--prefer-online', '--prefix', prefix, ...installInputs], { stdio: 'inherit', timeout: 120_000 });
   execFileSync(join(prefix, 'bin', 'codex-for-love'), ['--help'], { stdio: 'inherit', env: { ...process.env, HOME: join(temporary, 'home') } });
-  const nativeRoot = join(prefix, 'lib', 'node_modules', '@lamplitisles', mac ? 'codex-for-love-darwin-arm64' : 'codex-for-love-linux-x64');
   const mainRoot = join(prefix, 'lib', 'node_modules', '@lamplitisles', 'codex-for-love');
+  const installedRequire = createRequire(join(mainRoot, 'bin', 'codex-for-love.mjs'));
+  const nativeManifestPath = installedRequire.resolve(`${nativePackageName}/package.json`);
+  const installedNativeVersion = JSON.parse(await readFile(nativeManifestPath, 'utf8')).version;
+  if (installedNativeVersion !== nativeVersion) throw new Error(`Expected ${native}, installed ${installedNativeVersion ?? 'unknown'}.`);
+  const nativeRoot = dirname(nativeManifestPath);
   execFileSync(join(nativeRoot, 'bin', 'codex-app-server'), ['--version'], { stdio: 'inherit' });
   execFileSync(join(nativeRoot, 'bin', 'codex-code-mode-host'), ['--help'], { stdio: 'ignore' });
 

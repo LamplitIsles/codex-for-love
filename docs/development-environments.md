@@ -63,19 +63,27 @@ inspect credentials.
 ## Install and deploy prod
 
 Production uses the published CLI in an explicit, stable prefix rather than a
-checkout. Install the approved version, then validate the installed executable:
+checkout. Install only the approved main package in that prefix; npm resolves
+its native dependency from the main package's exact pin. After installation,
+verify that no separately installed native package remains at the prefix root,
+then validate the launcher before restarting prod:
 
 ```sh
 npm install --global --ignore-scripts --prefer-online --prefix /home/neil/.local/share/codex-for-love/prod-current @lamplitisles/codex-for-love@<approved-version>
+npm ls --global --depth=0 --prefix /home/neil/.local/share/codex-for-love/prod-current
 /home/neil/.local/share/codex-for-love/prod-current/bin/codex-for-love --help
 ```
 
-The published launcher resolves its platform-native app-server exclusively from
-the main package's exact `optionalDependencies` pin. A native-only npm
-publication is therefore available for a later main release but is not itself a
-production deployment. Keep `codex.command` absent from the production Partner
-TOML; `codex.provenance` is not a supported setting. Checkout development is
-the only path that selects a direct executable path.
+The top-level package list should contain only `@lamplitisles/codex-for-love`.
+The launcher in this checkout resolves the native package relative to itself
+and refuses a version that differs from its pinned optional dependency,
+including for `--help`. An old native package previously installed at the prefix
+root is not a valid reason to keep a second version installed.
+
+A native-only npm publication is available for a later main release but is not
+itself a production deployment. Keep `codex.command` absent from the production
+Partner TOML; `codex.provenance` is not a supported setting. Checkout
+development is the only path that selects a direct executable path.
 
 Point the production override at that stable executable and its fixed production
 configuration:
