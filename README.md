@@ -18,6 +18,7 @@ It began when Neil moved his own companion, Shio, from DeepSeek Harness to Codex
 | Relationship continuity | Explicit relationship updates live in an append-only local journal instead of a generated profile that defines the companion |
 | Voice | Speak naturally with speech-to-text and receive deliberate, standalone Voice messages in the companion's chosen voice |
 | Images | Share photos, understand images, create or edit images together, and browse the shared visual chat history |
+| Chat history search | Search past conversations from the chat header and read a complete matched message with nearby conversation context |
 | Diaries and memory | Read and write ordinary workspace files, including human-readable daily memories |
 | Tools, skills, and MCP | Give each companion the capabilities that belong in their own life and workspace |
 | Desktop and mobile | Use the complete companion experience from a computer or through the released [Lamplit Mobile](https://github.com/LamplitIsles/lamplit-mobile) Android app |
@@ -85,6 +86,22 @@ CFL binds to `127.0.0.1` and prints the local URL. Use a fresh workspace for a n
 
 The Companion header’s settings button changes language and appearance immediately without changing the conversation. These choices are browser-local preferences, not settings stored in the Partner configuration or workspace.
 
+### Optional chat history search
+
+Install and set up `flicklog` on the Partner host to enable the search button in
+the Companion header. Search runs the FlickLog CLI in the Partner's configured
+workspace, using the Partner's Codex home. FlickLog owns its rebuildable index;
+CFL does not copy conversation history into its own database. Results are limited
+to that workspace and show highlighted excerpts. Opening a result shows the
+complete message and nearby context in the search panel, without changing the
+active conversation. The same bounded search and record-reading capability is
+available to the companion through Companion MCP. Without FlickLog, the chat
+still works, but search requests report that search is unavailable.
+For a keyed external Meilisearch instance, provide `FLICKLOG_MEILI_URL` and
+either `FLICKLOG_MEILI_KEY` or a systemd credential named `flicklog-meili-key`
+to the Partner service. If its executable is not on the Partner process's
+`PATH`, set `FLICKLOG_BIN` to its absolute path.
+
 ### Optional local pet
 
 The animated companion pet is disabled by default. To enable it, add this to the Partner TOML and restart Partner:
@@ -121,7 +138,6 @@ media and CFL never automatically replies. See the [operator guide](docs/operato
 CFL is already where Shio lives, but it is not finished. Next directions include:
 
 - **Keet P2P chat and identity**, so companions can talk privately with people and other agents without a central messaging service
-- **Session search**, using a rebuildable Meilisearch index over original conversation evidence
 - **More natural speech**, including additional MiniMax voice controls
 - **User-configured activities**, where a companion can choose from skill-backed things to do rather than only waiting for a prompt
 - **Persona creation and review tools**, to help people create a companion without reducing them to a list of traits

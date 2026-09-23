@@ -1,0 +1,42 @@
+#dsh-companion .companion-search-dialog{width:100vw;max-width:none;height:100dvh;max-height:none;margin:0;padding:0;border:0;background:transparent;place-items:stretch end;overflow:hidden}
+#dsh-companion .companion-search-dialog::backdrop{background:transparent}
+#dsh-companion .companion-search-dialog .cmp-modal-backdrop{position:fixed;inset:0;z-index:0;display:block;background:color-mix(in srgb,var(--color-neutral) 53%,transparent);backdrop-filter:blur(5px)}
+#dsh-companion .companion-search-dialog .cmp-modal-backdrop button{position:absolute;inset:0;width:100%;height:100%;border:0;opacity:0}
+#dsh-companion .companion-search-box{position:relative;z-index:1;display:flex;flex-direction:column;width:min(560px,100vw);max-width:none;height:100dvh;max-height:none;margin:0;padding:0;border:0;border-left:1px solid var(--cmp-line);border-radius:24px 0 0 24px;color:var(--color-base-content);background:var(--color-base-100);box-shadow:-20px 0 65px rgb(0 0 0 / .24);animation:companion-search-in .25s cubic-bezier(.2,.8,.2,1)}
+#dsh-companion .companion-search-header{display:flex;flex:none;align-items:center;gap:12px;min-height:78px;padding:max(12px,env(safe-area-inset-top)) 22px 12px;border-bottom:1px solid var(--cmp-line);background:linear-gradient(115deg,color-mix(in srgb,var(--color-primary) 10%,var(--color-base-100)),var(--color-base-100) 60%)}
+#dsh-companion .companion-search-header>.cmp-btn{flex:none;color:var(--color-base-content)}
+#dsh-companion .companion-search-heading{flex:1;min-width:0}
+#dsh-companion .companion-search-heading h2{margin:1px 0 0;font-size:1.15rem;font-weight:800;letter-spacing:-.035em}
+#dsh-companion .companion-search-form{display:flex;flex:none;gap:9px;padding:19px 22px 18px;border-bottom:1px solid var(--cmp-line)}
+#dsh-companion .companion-search-input-wrap{display:flex;flex:1;min-width:0;align-items:center;gap:9px;padding:0 12px;border:1px solid color-mix(in srgb,var(--color-base-content) 16%,transparent);border-radius:14px;color:color-mix(in srgb,var(--color-base-content) 55%,transparent);background:var(--color-base-200);transition:border-color .16s ease,box-shadow .16s ease}
+#dsh-companion .companion-search-input-wrap:focus-within{border-color:var(--color-primary);box-shadow:0 0 0 3px color-mix(in srgb,var(--color-primary) 13%,transparent)}
+#dsh-companion .companion-search-input-wrap .cmp-input{flex:1;min-width:0;width:100%;height:45px;padding:0;border:0;outline:0;background:transparent;box-shadow:none;color:var(--color-base-content)}
+#dsh-companion .companion-search-form>.cmp-btn{flex:none;min-height:45px;border-radius:13px}
+#dsh-companion .companion-search-results,#dsh-companion .companion-search-reader{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain}
+#dsh-companion .companion-search-count{padding:15px 24px 10px;color:color-mix(in srgb,var(--color-base-content) 62%,transparent);font-size:.73rem;font-weight:650}
+#dsh-companion .companion-search-list{padding:0 14px max(24px,env(safe-area-inset-bottom))}
+#dsh-companion .companion-search-result{display:flex;width:100%;height:auto;min-height:98px;align-items:flex-start;justify-content:flex-start;gap:12px;margin:2px 0;padding:16px 11px;border-radius:14px;color:inherit;text-align:left;white-space:normal;transition:background-color .16s ease,transform .16s ease}
+#dsh-companion .companion-search-result:hover,#dsh-companion .companion-search-result:focus-visible{background:color-mix(in srgb,var(--color-primary) 9%,var(--color-base-100));transform:translateX(2px)}
+#dsh-companion .companion-search-avatar{display:grid;flex:none;width:38px;height:38px;place-items:center;border-radius:14px;background:color-mix(in srgb,var(--color-secondary) 26%,var(--color-base-100));color:var(--color-secondary-content);font-weight:850;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--color-secondary) 36%,transparent)}
+#dsh-companion .companion-search-avatar.human{background:color-mix(in srgb,var(--color-primary) 19%,var(--color-base-100));color:var(--color-base-content)}
+#dsh-companion .companion-search-result-body{display:block;flex:1;min-width:0;padding-bottom:14px;border-bottom:1px solid var(--cmp-line)}
+#dsh-companion .companion-search-result-top{display:flex;min-width:0;align-items:baseline;justify-content:space-between;gap:10px;margin:0 0 6px}
+#dsh-companion .companion-search-result-top strong{min-width:0;overflow:hidden;font-size:.85rem;font-weight:780;text-overflow:ellipsis;white-space:nowrap}
+#dsh-companion .companion-search-result-top time{flex:none;color:color-mix(in srgb,var(--color-base-content) 57%,transparent);font-size:.69rem;font-weight:500}
+#dsh-companion .companion-search-snippet{display:-webkit-box;overflow:hidden;color:color-mix(in srgb,var(--color-base-content) 78%,transparent);font-size:.83rem;font-weight:450;line-height:1.65;overflow-wrap:anywhere;-webkit-box-orient:vertical;-webkit-line-clamp:2}
+#dsh-companion .companion-search-snippet mark,#dsh-companion .companion-search-bubble mark{padding:.04em .13em;border-radius:3px;background:color-mix(in srgb,var(--color-accent) 72%,var(--color-base-100));color:var(--color-base-content);box-decoration-break:clone;-webkit-box-decoration-break:clone;box-shadow:inset 0 -.11em 0 color-mix(in srgb,var(--color-accent) 94%,transparent)}
+#dsh-companion .companion-search-state{display:flex;align-items:center;justify-content:center;gap:10px;min-height:160px;margin:0;padding:24px;text-align:center;color:color-mix(in srgb,var(--color-base-content) 70%,transparent);font-size:.85rem}
+#dsh-companion .companion-search-state[role="alert"]{flex-direction:column}
+#dsh-companion .companion-search-welcome{display:grid;min-height:45%;place-items:center;padding:30px;text-align:center;color:color-mix(in srgb,var(--color-base-content) 64%,transparent);font-size:.86rem}
+#dsh-companion .companion-search-reader{padding:17px 22px max(35px,env(safe-area-inset-bottom));background:radial-gradient(circle at 87% 2%,color-mix(in srgb,var(--color-secondary) 12%,transparent),transparent 28%),var(--color-base-100)}
+#dsh-companion .companion-search-dayline{width:fit-content;margin:8px auto 24px;padding:6px 12px;border-radius:999px;background:color-mix(in srgb,var(--color-base-content) 7%,var(--color-base-100));color:color-mix(in srgb,var(--color-base-content) 67%,transparent);font-size:.69rem}
+#dsh-companion .companion-search-message{display:flex;flex-direction:column;align-items:flex-start;gap:5px;margin:18px 0}
+#dsh-companion .companion-search-message.from-human{align-items:flex-end}
+#dsh-companion .companion-search-sender{padding:0 4px;color:color-mix(in srgb,var(--color-base-content) 63%,transparent);font-size:.7rem;font-weight:650}
+#dsh-companion .companion-search-bubble{max-width:min(88%,460px);padding:12px 15px;border:1px solid color-mix(in srgb,var(--color-base-content) 9%,transparent);border-radius:18px 18px 18px 5px;background:var(--color-base-200);box-shadow:0 4px 12px color-mix(in srgb,var(--color-base-content) 5%,transparent);font-size:.88rem;line-height:1.7;overflow-wrap:anywhere;white-space:pre-wrap}
+#dsh-companion .from-human .companion-search-bubble{border-radius:18px 18px 5px 18px;background:color-mix(in srgb,var(--color-primary) 17%,var(--color-base-100))}
+#dsh-companion .search-target .companion-search-bubble{border-color:color-mix(in srgb,var(--color-accent) 76%,var(--color-base-content));box-shadow:0 0 0 3px color-mix(in srgb,var(--color-accent) 18%,transparent),0 7px 18px color-mix(in srgb,var(--color-base-content) 8%,transparent)}
+#dsh-companion .companion-search-truncated{padding:18px 4px;text-align:center;color:color-mix(in srgb,var(--color-base-content) 62%,transparent);font-size:.72rem}
+@keyframes companion-search-in{from{opacity:.7;transform:translateX(22px)}to{opacity:1;transform:none}}
+@media (max-width:640px){#dsh-companion .companion-search-box{width:100vw;border-left:0;border-radius:0;animation:none}#dsh-companion .companion-search-header{min-height:68px;padding-inline:13px}#dsh-companion .companion-search-form{padding:14px 13px}#dsh-companion .companion-search-reader{padding-inline:14px}#dsh-companion .companion-search-result{padding-inline:7px}#dsh-companion .companion-search-list{padding-inline:8px}#dsh-companion .companion-search-count{padding-inline:18px}}
+@media (prefers-reduced-motion:reduce){#dsh-companion .companion-search-box,#dsh-companion .companion-search-result{animation:none;transition:none}}

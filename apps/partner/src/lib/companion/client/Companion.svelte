@@ -14,6 +14,7 @@
   import ImagePlus from "lucide-svelte/icons/image-plus";
   import Menu from "lucide-svelte/icons/menu";
   import Settings from "lucide-svelte/icons/settings";
+  import Search from "lucide-svelte/icons/search";
   import Pause from "lucide-svelte/icons/pause";
   import Play from "lucide-svelte/icons/play";
   import Square from "lucide-svelte/icons/square";
@@ -72,6 +73,7 @@
   import { companionHistoryChanges } from "../relationship-history.js";
   import type { CompanionHistoryChange } from "../domain.js";
   import Markdown from "./Markdown.svelte";
+  import ConversationSearch from "./ConversationSearch.svelte";
   import {
     isPlainTextMessage,
     formatMessageTime,
@@ -248,6 +250,7 @@
   let relationshipDrawer: HTMLElement;
   let lightboxDialog: HTMLDialogElement;
   let overlayHistory = false;
+  let searchOpen = false;
   let lightboxCloseFromHistory = false;
   let statusText = "";
   let imageGenerationRunning = false;
@@ -1409,6 +1412,17 @@
       globalThis.history.back();
     }
   }
+  function openSearch(): void {
+    if (detailOpen) closeDetail(false);
+    preferencesOpen = false;
+    searchOpen = true;
+    pushOverlayHistory();
+  }
+  function closeSearch(): void {
+    if (!searchOpen) return;
+    searchOpen = false;
+    closeHistory();
+  }
   function openDetail(): void {
     detailReturnFocus = document.activeElement as HTMLElement;
     detailOpen = true;
@@ -1485,6 +1499,7 @@
   }
   function onPopState(): void {
     overlayHistory = false;
+    searchOpen = false;
     if (lightbox) closeLightbox(true);
   }
   function pushOverlayHistory(): void {
@@ -1653,6 +1668,7 @@
               ></span>{statusText} · {identity.moodLabel}
             </div>
           </div>
+          <button type="button" class="cmp-btn cmp-btn-ghost cmp-btn-circle companion-search-trigger" aria-label={t('search.open')} aria-haspopup="dialog" on:click={openSearch}><Search size={19} strokeWidth={1.8} aria-hidden="true" /></button>
           <div class="companion-preferences">
             <button bind:this={preferencesButton} type="button" class="cmp-btn cmp-btn-ghost cmp-btn-circle companion-preferences-trigger" aria-label={t("preferences.open")} aria-controls="companion-preferences-panel" aria-expanded={preferencesOpen} on:click={() => preferencesOpen = !preferencesOpen}><Settings size={18} strokeWidth={1.8} aria-hidden="true" /></button>
             {#if preferencesOpen}
@@ -2657,6 +2673,7 @@
       </form>
     </dialog>
   {/if}
+  {#if searchOpen}<ConversationSearch {t} {locale} companionName={identity.companionName} onClose={closeSearch} />{/if}
 </div>
 <div class="companion-sr-only" aria-live="assertive">
   {typeof liveAnnouncement === "string"

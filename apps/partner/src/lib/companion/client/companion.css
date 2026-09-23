@@ -27,6 +27,8 @@
 #dsh-companion .companion-history-toggle{color:inherit;opacity:.64}
 #dsh-companion .companion-preferences{position:relative;flex:none}
 #dsh-companion .companion-preferences-trigger{width:44px;height:44px;color:inherit;opacity:.72}
+#dsh-companion .companion-search-trigger{flex:none;width:44px;height:44px;color:inherit;opacity:.72}
+#dsh-companion .companion-search-trigger:hover,#dsh-companion .companion-search-trigger:focus-visible{opacity:1;color:var(--color-primary)}
 #dsh-companion .companion-preferences-trigger:hover,#dsh-companion .companion-preferences-trigger:focus-visible{opacity:1;color:var(--color-primary)}
 #dsh-companion .companion-preferences-panel{position:absolute;top:calc(100% + 9px);right:0;z-index:20;width:min(280px,calc(100vw - 24px));padding:13px;border:1px solid color-mix(in srgb,var(--color-base-content) 14%,transparent);border-radius:16px;background:var(--color-base-100);box-shadow:0 14px 38px rgb(0 0 0 / .2);animation:companion-preferences-in .14s ease}
 #dsh-companion .companion-preferences-panel fieldset{display:grid;gap:3px;margin:0;padding:0;border:0}

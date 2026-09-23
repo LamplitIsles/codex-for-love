@@ -6,6 +6,7 @@ import { loadConfig, loadCredentials } from './config.ts';
 import { convertDshSession } from './dsh-session-import.ts';
 import { createPartner } from './partner.ts';
 import { createWebServer } from './server.ts';
+import { createConversationSearch } from './conversation-search.ts';
 import { migrateRelationshipJournal } from './migrate-relationship-journal.ts';
 
 const cliArgs = process.argv.slice(2);
@@ -60,7 +61,7 @@ if (command === 'credential') {
   const credentials = await loadCredentials(config.state);
   const partner = await createPartner(config, credentials);
   let app: ReturnType<typeof createWebServer>;
-  try { app = createWebServer(partner, assets); }
+  try { app = createWebServer(partner, assets, { conversationSearch: createConversationSearch({ workspace: config.workspace!, codexHome: config.codex.home }) }); }
   catch (error) { await partner.close(); throw error; }
   app.server.on('error', async (error) => { console.error(error.message); await partner.close(); process.exitCode = 1; });
   app.server.listen(config.port, config.listen_host, () => console.log(`Companion: http://${config.listen_host}:${config.port}`));

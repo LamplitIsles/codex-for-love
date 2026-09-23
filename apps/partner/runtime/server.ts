@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { MAX_VOICE_DATA_URL_BYTES, normalizeVoiceMediaType } from '../src/lib/companion/voice-contract.ts';
 import type { Partner } from './partner.ts';
 import { PET_ACTIVITIES } from './pet.ts';
+import type { ConversationSearch } from './conversation-search.ts';
 
 async function body(request: IncomingMessage, limit = 65536): Promise<unknown> {
   let size = 0; const chunks: Buffer[] = [];
@@ -21,7 +22,7 @@ function json(response: ServerResponse, value: unknown, status = 200) {
   response.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
   response.end(JSON.stringify(value));
 }
-export function createWebServer(partner: Partner, assets: string, options: { heartbeatMs?: number } = {}) {
+export function createWebServer(partner: Partner, assets: string, options: { heartbeatMs?: number; conversationSearch?: ConversationSearch } = {}) {
   const serve = sirv(assets, {
     single: true,
     setHeaders(response, pathname) {
@@ -65,6 +66,23 @@ export function createWebServer(partner: Partner, assets: string, options: { hea
         const cursor = z.coerce.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
         const options = z.object({ before: cursor.optional(), after: cursor.optional() }).strict().refine(value => value.before === undefined || value.after === undefined).parse(params);
         return json(response, await partner.snapshot(options));
+      }
+      if (path === '/api/conversation-search' && request.method === 'GET') {
+        const params = Object.fromEntries(new URL(request.url!, 'http://localhost').searchParams);
+        const parsed = z.object({ q: z.string().trim().min(1).max(500) }).strict().safeParse(params);
+        if (!parsed.success) return json(response, { error: 'Invalid search query' }, 400);
+        try {
+          if (!options.conversationSearch) throw new Error('Search unavailable');
+          return json(response, await options.conversationSearch.search(parsed.data.q));
+        } catch { return json(response, { error: 'Search unavailable' }, 503); }
+      }
+      if (path.startsWith('/api/conversation-search/') && request.method === 'GET') {
+        const id = path.slice('/api/conversation-search/'.length);
+        if (!/^[a-f0-9]{64}$/u.test(id)) return json(response, { error: 'Invalid record id' }, 400);
+        try {
+          if (!options.conversationSearch) throw new Error('Search unavailable');
+          return json(response, await options.conversationSearch.read(id));
+        } catch { return json(response, { error: 'Record unavailable' }, 404); }
       }
       if (path === '/api/diary' && request.method === 'GET') {
         try { return json(response, { entries: await partner.diary() }); }

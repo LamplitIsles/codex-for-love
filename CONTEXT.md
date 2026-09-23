@@ -32,6 +32,10 @@ _Avoid_: new user message, relationship history
 The chronological user-visible record of messages exchanged by the Human and Partner, including where continuity checkpoints occurred. Earlier messages can remain available for human review after a checkpoint without remaining in the Partner's active context.
 _Avoid_: active context, relationship history, tool transcript
 
+**Conversation search（聊天记录搜索）**:
+A way to find text in the locally indexed conversation record set available to this Partner. A result is an excerpt that opens its source message and nearby context; searching does not change the active conversation.
+_Avoid_: relationship history search, active-context lookup
+
 **Active context（当前上下文）**:
 The current checkpoint and subsequent conversation that the model receives when continuing the relationship. It is a bounded projection of conversation history, not the complete user-visible record.
 _Avoid_: conversation history, token usage total

@@ -27,7 +27,7 @@ test('Companion MCP serves bounded journal tools over stdio', async () => {
   await client.connect(new StdioClientTransport({ command: process.execPath, args: [script, workspace], stderr: 'ignore' }));
   try {
     const tools = await client.listTools();
-    assert.deepEqual(tools.tools.map((tool) => tool.name).sort(), ['list_photos', 'read_relationship_history', 'roll_dice', 'send_voice', 'set_signature', 'update_relationship']);
+    assert.deepEqual(tools.tools.map((tool) => tool.name).sort(), ['list_photos', 'read_conversation_record', 'read_relationship_history', 'roll_dice', 'search_conversation', 'send_voice', 'set_signature', 'update_relationship']);
     assert.match(tools.tools.find((tool) => tool.name === 'list_photos')?.description ?? '', /our shared photo library: human-sent, Agent-generated, and restored historical conversation images/u);
     const defaultPage = await client.callTool({ name: 'list_photos', arguments: {} }) as { content: Array<{ text: string }> };
     assert.equal((JSON.parse((defaultPage.content[0] as { text: string }).text) as { images: unknown[] }).images.length, 5);
