@@ -28,7 +28,7 @@ export async function fixture() {
   await writeFile(controlPath, '{}', { mode: 0o600 });
   const config: Config = {
     name: 'Mica', persona, state: directory, workspace, port: 3082, listen_host: '127.0.0.1',
-    codex: { command: fakeServer, model: 'gpt-5.6-luna', version: '0.154.0', home: join(directory, 'codex-home'), local_compaction: false, context_round_limit: 10 },
+    codex: { command: fakeServer, model: 'gpt-5.6-luna', version: '0.156.1', home: join(directory, 'codex-home'), local_compaction: false, context_round_limit: 10 },
     pet: { enabled: false },
   };
   const credentials: Credentials = {};

@@ -60,7 +60,7 @@ The official Codex thread remains the conversation authority. CFL does not dupli
 
 ## Quick start
 
-The CLI supports **Linux x64 and macOS Apple Silicon** and includes the matching standalone Codex app-server and code-mode host. It requires Node 24 and an existing official Codex login. macOS support requires the next main-package release; published CFL 0.1.1 is Linux-only.
+The CLI supports **Linux x64 and macOS Apple Silicon** and includes the matching standalone Codex app-server and code-mode host. It requires Node 24 and an existing official Codex login. This checkout pins Codex 0.156.1 native packages; they take effect for CLI installations only after the next main-package release. Published CFL 0.1.1 is Linux-only.
 
 ### 1. Check the Codex login
 

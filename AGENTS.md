@@ -34,7 +34,7 @@ Before updating CFL native artifacts or releasing a CFL npm package, read
 
 - Run `pnpm install --frozen-lockfile`, `pnpm check`, `pnpm build` and `pnpm test` from the repository root.
 - Fork-native changes follow the local Codex build contract above. A native-only update locally stages Linux and macOS archives and publishes their exact npm tarballs through `skills/cfl-release`; it becomes deployable only after a later main-package change pins those public versions. The published launcher selects its pinned native package, not a production TOML executable override. The removed `pnpm codex:build` command is not a release path.
-- Run the Partner with `pnpm --filter @lamplitisles/partner start -- <config.toml>` after configuring the official Codex 0.154.0 app-server executable and existing device-auth login.
+- Run the Partner with `pnpm --filter @lamplitisles/partner start -- <config.toml>` after configuring the Codex 0.156.1 app-server executable and existing device-auth login.
 - Use a fresh test-owned workspace and the fake app-server for automated tests. Do not use the real Codex home, credentials or external message side effects in tests.
 - The official app-server is the execution owner. Do not reintroduce naco, Bridge model transport, custom imagegen/mail/skill wrappers, Docker, generic migration or cutover code. The narrow one-time DSH compacted-log converter is an explicit current feature, not a generic migration framework.
 - Keep `.scratch/`, `.lamplit/`, build output and runtime state out of Git. Preserve unrelated edits and update `docs/IMPORTS.md` when imported source attribution changes.

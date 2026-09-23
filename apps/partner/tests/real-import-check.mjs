@@ -57,12 +57,12 @@ try {
   await writeFile(join(codexHome, 'config.toml'), `model = "gpt-5.2"\nmodel_provider = "openai"\nopenai_base_url = "http://127.0.0.1:${port}/v1"\n[features]\nplugins = false\n[projects.${JSON.stringify(workspace)}]\ntrust_level = "trusted"\n`);
   const executable = process.env.CODEX_PATCHED_CODEX;
   if (!executable) throw new Error('CODEX_PATCHED_CODEX is required');
-  const config = { name: 'Mica', persona, state: stateRoot, workspace, port: 3082, codex: { command: executable, model: 'gpt-5.2', version: '0.154.0', home: codexHome, local_compaction: false } };
+  const config = { name: 'Mica', persona, state: stateRoot, workspace, port: 3082, codex: { command: executable, model: 'gpt-5.2', version: '0.156.1', home: codexHome, local_compaction: false } };
   const env = { HOME: root, CODEX_HOME: codexHome, OPENAI_API_KEY: 'test-loopback', CODEX_DISABLE_UPDATE_CHECK: '1', CODEX_DISABLE_FEEDBACK: '1' };
   const result = await convertDshSession(config, source, relationship, attachments, workspace, { appServer: { env } });
   assert.ok(result.destination.threadId);
   const { CodexAppServerClient } = await import('@jaminzhou/codex-app-server-client');
-  const client = new CodexAppServerClient({ codexPath: executable, cwd: workspace, env, protocolValidation: 'strict', capabilities: { experimentalApi: true, requestAttestation: false } });
+  const client = new CodexAppServerClient({ codexPath: executable, codexExecutableType: 'app-server', cwd: workspace, env, protocolValidation: 'strict', capabilities: { experimentalApi: true, requestAttestation: false } });
   try {
     await client.connect();
     const page = await client.call('thread/turns/list', { threadId: result.destination.threadId, limit: 20, sortDirection: 'asc', itemsView: 'full' });

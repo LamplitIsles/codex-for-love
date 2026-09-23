@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { CodexAppServerClient, resolveCodexBinary } from '@jaminzhou/codex-app-server-client';
 import { compactionPrompt } from '../runtime/prompts.ts';
 
-const CODEX_VERSION = '0.154.0';
+const CODEX_VERSION = '0.156.1';
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGP4DwQACfsD/fteaysAAAAASUVORK5CYII=', 'base64');
 
 function sleep(milliseconds) {

@@ -8,7 +8,7 @@ import {
   type CodexAppServerClientOptions,
 } from '@jaminzhou/codex-app-server-client';
 import type { v2 } from '@jaminzhou/codex-app-server-client/protocol';
-import type { Config } from './config.ts';
+import { SUPPORTED_CODEX_VERSION, type Config } from './config.ts';
 import {
   bootstrapPath,
   ensureHookDeclaration,
@@ -840,7 +840,7 @@ function buildRollout(extraction: DshImportExtraction, media: readonly ResolvedM
   const mediaById = new Map(media.map((item) => [item.attachmentId, item]));
   const add = (type: string, payload: Record<string, unknown>, timestamp = created) => lines.push({ timestamp, ordinal: lines.length, type, payload });
   add('session_meta', {
-    session_id: threadId, id: threadId, timestamp: created, cwd: destination, originator: 'codex_app_server_client_ts', cli_version: '0.154.0', source: 'vscode', model_provider: modelProvider,
+    session_id: threadId, id: threadId, timestamp: created, cwd: destination, originator: 'codex_app_server_client_ts', cli_version: SUPPORTED_CODEX_VERSION, source: 'vscode', model_provider: modelProvider,
     base_instructions: { text: `${companionPrompt}\n\n${persona}`, provenance: { type: 'custom' } }, history_mode: 'paginated', context_window: { window_id: initialWindow },
   });
   let window = initialWindow;

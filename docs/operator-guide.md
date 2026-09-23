@@ -65,8 +65,9 @@ workflow is described below.
   Windows and Intel Macs are unsupported. macOS support requires the next
   main-package release; already-published CFL 0.1.1 is Linux-only.
 - The Partner uses `@jaminzhou/codex-app-server-client` 0.2.1 for typed,
-  SDK-managed stdio. The SDK is pinned to the same Codex 0.154.0 protocol
-  baseline. CFL always invokes `codex.command` as a direct app-server; the SDK
+  SDK-managed stdio. Its generated protocol baseline is Codex 0.154.0; the
+  Codex 0.156.1 app-server passes CFL's strict SDK integration checks. CFL
+  always invokes `codex.command` as a direct app-server; the SDK
   does not select a CLI fallback.
 - An existing official Codex login. Run `codex login status` and complete the
   official device-auth login if necessary. The app does not read, copy, parse
@@ -199,7 +200,7 @@ pnpm --filter @lamplitisles/partner cli import-session \
 ```
 
 The command translates every finalized user and Partner text message and
-completed compact boundary into a native Codex 0.154.0 rollout. A historical
+completed compact boundary into a native Codex 0.156.1 rollout. A historical
 turn superseded by a later turn may lack `turn/end`; its finalized messages are
 still retained. Official pagination keeps
 the complete visible conversation, while only the newest compact replacement
@@ -212,7 +213,7 @@ byte-for-byte into `<new-workspace>/.lamplit/historical-media/`, and associated
 with their original user messages. The two DSH Companion avatars are decoded
 from the explicit DSH settings file into `<new-workspace>/.lamplit/profile/`;
 TOML stores their workspace-relative paths. Persona remains CFL-owned. Because
-Codex 0.154.0 path resume does not run the SessionStart startup hook, the
+Codex 0.156.1 path resume does not run the SessionStart startup hook, the
 converter places current relationship context directly into the initial active
 history exactly once; later compact hooks refresh it normally.
 
@@ -224,7 +225,7 @@ command does not claim rollback. All automated checks use temporary state and a
 fake or loopback provider.
 
 Run the isolated fixture suite with `pnpm test`. The pinned-runtime import
-check additionally requires the built Codex 0.154.0 executable and still uses
+check additionally requires the Codex 0.156.1 app-server executable and still uses
 only a loopback Responses provider:
 
 ```sh
@@ -432,7 +433,7 @@ The local summary uses a neutral continuity prefix; builtin OpenAI provider
 identity is unchanged. Without the override, upstream routing remains active;
 remote-v2 does not consume `compact_prompt`.
 
-An imported candidate uses the same owned hook declaration. Codex 0.154.0 path
+An imported candidate uses the same owned hook declaration. Codex 0.156.1 path
 resume does not execute the SessionStart startup hook, so conversion writes the
 current relationship state once into active history and marks startup bootstrap
 complete. The imported checkpoint is already in official history. A later

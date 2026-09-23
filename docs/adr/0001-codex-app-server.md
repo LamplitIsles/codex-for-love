@@ -25,7 +25,7 @@ materialization errors remain durable application facts. The Companion does not
 call the app-server durable queue APIs. Official history is read through
 paginated thread APIs on startup, refresh and resume.
 
-The configured app-server is pinned to `0.154.0` and defaults to
+The configured app-server is pinned to `0.156.1` and defaults to
 `gpt-5.6-luna`. A project-local Codex config overlay declares the bundled
 Companion MCP and relationship-context hook. FlickNote and Web are optional
 operator-provided MCPs described by a static template; CFL neither injects them
@@ -50,7 +50,7 @@ is metadata and historical evidence, not a new user message.
 
 ## Customized local compaction
 
-The maintained Codex 0.154.0 patches add an explicit local-compaction override
+The maintained Codex 0.156.1 patches add an explicit local-compaction override
 and neutral continuity prefix. With `codex.local_compaction` enabled, CFL
 starts the configured direct app-server, verifies its version through the SDK
 handshake, then passes the existing Owner prompt and override on thread start
