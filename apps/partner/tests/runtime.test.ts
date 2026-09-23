@@ -430,7 +430,7 @@ test('configured context round limit bounds the post-compact conversational tail
   try {
     for (const input of ['first retained round', 'second retained round']) {
       const id = randomUUID(); await partner.submit(id, input);
-      await eventually(async () => (await partner.snapshot()).results?.some((result) => result.sourceIds.includes(id) && result.answers.length > 0) === true);
+      await eventually(async () => (await partner.snapshot()).results?.some((result) => result.sourceIds.includes(id) && result.status === 'completed') === true);
     }
     const bootstrap = JSON.parse(await readFile(join(f.workspace, '.lamplit', 'context-bootstrap.json'), 'utf8')) as { compact: string };
     assert.match(bootstrap.compact, /second retained round/);
