@@ -22,8 +22,9 @@ test('pet configuration defaults off and finite projection never carries executi
     assert.equal(JSON.stringify(pet.snapshot()).includes('secret'), false);
     assert.equal(activityForItem({ type: 'mcpToolCall', server: 'companion', tool: 'read_relationship_history', arguments: { private: 'nope' } }), 'read');
     assert.equal(activityForItem({ type: 'commandExecution', command: 'secret command' }), 'work');
-    assert.equal(activityForItem({ type: 'mcpToolCall', server: 'keet', tool: 'keet_send_message' }), 'replying');
-    assert.equal(activityForItem({ type: 'mcpToolCall', server: 'keet', tool: 'keet_read_recent_messages' }), 'read');
+    assert.equal(activityForItem({ type: 'mcpToolCall', server: 'keet', tool: 'send_message' }), 'replying');
+    assert.equal(activityForItem({ type: 'mcpToolCall', server: 'keet', tool: 'send_file' }), 'replying');
+    assert.equal(activityForItem({ type: 'mcpToolCall', server: 'keet', tool: 'read_recent_messages' }), 'read');
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 

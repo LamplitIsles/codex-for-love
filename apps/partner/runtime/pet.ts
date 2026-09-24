@@ -52,7 +52,7 @@ function activityForMcp(server: string, tool: string): PetActivity {
     if (tool === 'send_voice' || tool === 'roll_dice') return tool === 'send_voice' ? 'replying' : 'thinking';
     return 'work';
   }
-  if (server === 'keet') return tool === 'keet_send_message' || tool === 'send_message' ? 'replying' : 'read';
+  if (server === 'keet') return tool === 'send_message' || tool === 'send_file' ? 'replying' : 'read';
   if (server === 'web' || server === 'openaiDeveloperDocs') return 'read';
   if (['project', 'flicknote', 'guion-email', 'og', 'skill'].includes(server)) return /(?:create|edit|update|write|send|apply|delete|move|organize)/iu.test(tool) ? (server === 'guion-email' && /(?:draft|send)/iu.test(tool) ? 'replying' : 'work') : 'read';
   return 'thinking';
