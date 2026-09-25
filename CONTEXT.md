@@ -8,6 +8,10 @@ Lamplit is a self-hosted, one-to-one AI partner that maintains continuity and ow
 The Human's live access to the Partner's current conversation state. Losing this connection does not mean the Partner's active work has stopped.
 _Avoid_: Partner execution state, task cancellation
 
+**Companion notification（聊天提醒）**:
+A privacy-preserving notice that identifies the Partner and that something new arrived after a Partner turn completes successfully, without revealing message content.
+_Avoid_: message preview, Partner turn status
+
 **Human（人类参与者）**:
 The person in the one-to-one conversation. Human identifies the conversation role and media source; it does not mean a resource owner or operator.
 _Avoid_: owner when referring to a conversation participant

@@ -7,12 +7,13 @@
   import { onMount } from 'svelte';
   import Companion from '$lib/companion/client/Companion.svelte';
   import { companionTranslate, type CompanionTranslate } from '$lib/companion/client/locale.js';
-  import { APPEARANCE_STORAGE_KEY, LANGUAGE_STORAGE_KEY, initialPreferences, resolveScheme, writePreference, type CompanionAppearance, type CompanionLanguage, type CompanionScheme } from '$lib/companion/client/preferences.js';
+  import { APPEARANCE_STORAGE_KEY, LANGUAGE_STORAGE_KEY, initialPreferences, readPreference, resolveScheme, writePreference, type CompanionAppearance, type CompanionLanguage, type CompanionScheme } from '$lib/companion/client/preferences.js';
   import type { CompanionActions, CompanionRecoveredDraft, KeetLossRange } from '$lib/companion/client/companion-bridge.js';
   import type { CompanionProjection, TimelineItem, TimelineMessageUnit } from '$lib/companion/projection.js';
   import type { CompanionStateRecord } from '$lib/companion/domain.js';
   import { CompanionPreControllerError } from '$lib/companion/client/admission.js';
   import { CompanionRecovery } from '$lib/companion/client/recovery.js';
+  import { CompanionNotificationObserver } from '$lib/companion/client/notifications.js';
   import { outgoingDeliveryPresentation, type MessageDelivery } from '$lib/message-delivery.ts';
   import { affinityStage } from '$lib/companion/domain.ts';
   import PetDock from '$lib/pet/PetDock.svelte';
@@ -33,6 +34,11 @@
   let disposed = false, refreshAgain = false, refreshing = false, recoveryGeneration = 0;
   let refreshTask: Promise<void> | undefined, refreshTaskGeneration = 0;
   let recovery: CompanionRecovery | undefined;
+  const notificationObserver = new CompanionNotificationObserver();
+  const NOTIFICATION_PROMPT_DISMISSED_KEY = 'her.companion.notifications.prompt-dismissed';
+  type NotificationPermissionState = NotificationPermission | 'unsupported';
+  let notificationOffer = $state(false);
+  let notificationPermission = $state<NotificationPermissionState>('unsupported');
   const controller = new AbortController();
   let outgoing = $state<Message[]>([]);
   const retirements = new Map<string, () => void>();
@@ -48,6 +54,33 @@
   $effect(() => { document.documentElement.lang = language === "zh" ? "zh-Hans" : "en"; document.documentElement.dataset.theme = scheme === "dark" ? "night-voyage" : "sticker-messenger"; });
   function selectLanguage(value: CompanionLanguage): void { language = value; writePreference(LANGUAGE_STORAGE_KEY, value); }
   function selectAppearance(value: CompanionAppearance): void { appearance = value; writePreference(APPEARANCE_STORAGE_KEY, value); }
+  function notificationState(): NotificationPermissionState {
+    return typeof Notification === 'undefined' ? 'unsupported' : Notification.permission;
+  }
+  function mayOfferNotifications(): boolean {
+    return notificationState() === 'default' && readPreference(NOTIFICATION_PROMPT_DISMISSED_KEY) !== 'true';
+  }
+  async function enableNotifications(): Promise<void> {
+    if (typeof Notification === 'undefined') return;
+    try { notificationPermission = await Notification.requestPermission(); }
+    catch { /* the browser remains the authority for permission state */ }
+    notificationOffer = false;
+    notificationPermission = notificationState();
+  }
+  function dismissNotificationOffer(): void {
+    notificationOffer = false;
+    writePreference(NOTIFICATION_PROMPT_DISMISSED_KEY, 'true');
+  }
+  function observeNotifications(results: readonly TurnResult[]): void {
+    const fresh = notificationObserver.observe(results);
+    if (document.visibilityState !== 'hidden' || notificationState() !== 'granted') return;
+    for (const _turnId of fresh) {
+      try {
+        const notification = new Notification(session.name, { body: t('notifications.newMessage') });
+        notification.onclick = () => { window.focus(); notification.close(); };
+      } catch { /* notification delivery must not break conversation refresh */ }
+    }
+  }
   function moodText(mood: string): string { return t(`mood.${mood}` as Parameters<CompanionTranslate>[0]); }
   function affinityText(value: number): string {
     const key = ({ "疏离": "affinity.distant", "生疏": "affinity.unfamiliar", "熟悉": "affinity.familiar", "亲近": "affinity.close", "深厚": "affinity.deep" } as const)[affinityStage(value)];
@@ -127,6 +160,7 @@
       if (disposed || (generation && generation !== recoveryGeneration)) continue;
       if (cursor === undefined) { before = batch.before; hasMore = batch.hasMore; }
       session = { ...batch, messages: mergeMessages(session.messages, batch.messages), results: mergeResults(session.results ?? [], batch.results ?? []) };
+      observeNotifications(session.results ?? []);
       observeOutgoing();
       cursor = batch.cursor; loaded = true;
       if (batch.hasChangesMore) refreshAgain = true;
@@ -180,6 +214,7 @@
         retirements.set(id, () => { observed = true; retire?.({ reason: 'observed' }); });
         observeOutgoing();
         await post('/api/messages', { id, input, images: attachments, replaces: session.draft?.sourceIds ?? [] });
+        if (mayOfferNotifications()) notificationOffer = true;
         outgoing = outgoing.map(message => message.id === id ? { ...message, delivery: 'pending' } : message);
         await refresh();
       } catch (cause) {
@@ -191,6 +226,7 @@
     async stop() { for (const id of session.cancellable) await post('/api/cancel', { id }); await refresh(); },
   };
   onMount(() => {
+    notificationPermission = notificationState();
     const media = matchMedia('(prefers-color-scheme: dark)'); const updateScheme = () => { systemDark = media.matches; }; updateScheme(); media.addEventListener('change', updateScheme);
     recovery = new CompanionRecovery({
       open: () => new EventSource('/api/events'), sync: (signal, generation) => refresh(signal, generation), now: () => Date.now(),
@@ -206,7 +242,7 @@
   });
 </script>
 <svelte:head><title>{session.name} · Her</title></svelte:head>
-<Companion {projection} {actions} {t} locale={language} {appearance} onLanguageChange={selectLanguage} onAppearanceChange={selectAppearance} sessionId="partner" voiceCapability={session.speech ? "available" : "unavailable"} imageLimits={session.imageLimits} onHistoryOpenChange={undefined}
+<Companion {projection} {actions} {t} locale={language} {appearance} onLanguageChange={selectLanguage} onAppearanceChange={selectAppearance} {notificationOffer} {notificationPermission} onEnableNotifications={enableNotifications} onDismissNotificationOffer={dismissNotificationOffer} sessionId="partner" voiceCapability={session.speech ? "available" : "unavailable"} imageLimits={session.imageLimits} onHistoryOpenChange={undefined}
   keetLosses={session.keetLosses ?? []}
   identity={{ companionName: session.name, userName: '你', preferredAddress: '你', companionAvatar: session.avatars?.companion, userAvatar: session.avatars?.user, signature: session.relationship?.signature ?? '',
     mood: session.relationship?.mood ?? 'neutral', moodLabel: moodText(session.relationship?.mood ?? 'neutral'), moodNote: session.relationship?.note,

@@ -23,6 +23,7 @@ It began when Neil moved his own companion, Shio, from DeepSeek Harness to Codex
 | Tools, skills, and MCP | Give each companion the capabilities that belong in their own life and workspace |
 | Desktop and mobile | Use the complete companion experience from a computer or through the released [Lamplit Mobile](https://github.com/LamplitIsles/lamplit-mobile) Android app |
 | Appearance and language | Use the header settings control to choose 中文 or English and light, dark, or system appearance; choices stay in that browser |
+| Browser notifications | After you opt in, an open background Companion page announces a successfully completed reply using only the Partner name and a generic new-message notice |
 | Connection recovery | A foreground Companion reconnects and re-synchronizes after a transient page connection loss while retaining its in-page draft; this is not offline sending, replay, or draft persistence after restart |
 | Local workspace | Keep relationship state, memories, attachments, and generated audio on a machine you control |
 | Session import | Bring an already-compacted DeepSeek Harness conversation into native Codex history without copying credentials or tool logs |
@@ -85,6 +86,8 @@ codex-for-love serve /path/to/partner.toml
 CFL binds to `127.0.0.1` and prints the local URL. Use a fresh workspace for a new conversation.
 
 The Companion header’s settings button changes language and appearance immediately without changing the conversation. These choices are browser-local preferences, not settings stored in the Partner configuration or workspace.
+
+After the first successfully sent message, Companion can ask for browser notification permission. When permission is granted, an open but hidden page announces each newly completed Partner turn once. Notifications contain the Partner name and a generic new-message notice, never reply content. This is page-local browser notification rather than Web Push: closing or suspending the page, losing its connection, or denying browser permission prevents delivery, and devices do not synchronize notification or read state.
 
 ### Optional chat history search
 

@@ -164,6 +164,10 @@
   export let appearance: CompanionAppearance = "system";
   export let onAppearanceChange: (appearance: CompanionAppearance) => void = () => undefined;
   export let onLanguageChange: (language: CompanionLanguage) => void = () => undefined;
+  export let notificationOffer = false;
+  export let notificationPermission: NotificationPermission | "unsupported" = "unsupported";
+  export let onEnableNotifications: () => void | Promise<void> = () => undefined;
+  export let onDismissNotificationOffer: () => void = () => undefined;
 
   const dispatch = createEventDispatcher<{ advanced: void; recovery: void }>();
   const LONG_WAIT_DELAY_MS = 12_000;
@@ -1683,11 +1687,26 @@
                     <label><input class="cmp-radio cmp-radio-primary" type="radio" name="companion-language" checked={locale === option[0]} on:change={() => onLanguageChange(option[0] as CompanionLanguage)} /><span>{option[1]}</span></label>
                   {/each}
                 </fieldset>
+                <fieldset><legend>{t("notifications.title")}</legend>
+                  <button type="button" class="cmp-btn cmp-btn-sm" disabled={notificationPermission !== "default"} on:click={() => void onEnableNotifications()}>
+                    {t(notificationPermission === "granted" ? "notifications.enabled" : notificationPermission === "denied" ? "notifications.blocked" : notificationPermission === "unsupported" ? "notifications.unsupported" : "notifications.enable")}
+                  </button>
+                </fieldset>
               </section>
             {/if}
           </div>
 
         </header>
+
+        {#if notificationOffer}
+          <div role="alert" class="cmp-alert companion-notification-offer">
+            <span>{t("notifications.offer")}</span>
+            <div class="companion-notification-actions">
+              <button type="button" class="cmp-btn cmp-btn-sm" on:click={onDismissNotificationOffer}>{t("notifications.notNow")}</button>
+              <button type="button" class="cmp-btn cmp-btn-primary cmp-btn-sm" on:click={() => void onEnableNotifications()}>{t("notifications.enable")}</button>
+            </div>
+          </div>
+        {/if}
 
         {#if effectiveWorkspaceReadiness === "loading"}
           <section
