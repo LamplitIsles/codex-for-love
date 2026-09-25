@@ -35,9 +35,9 @@
   let refreshTask: Promise<void> | undefined, refreshTaskGeneration = 0;
   let recovery: CompanionRecovery | undefined;
   const notificationObserver = new CompanionNotificationObserver();
-  const NOTIFICATION_PROMPT_DISMISSED_KEY = 'her.companion.notifications.prompt-dismissed';
+  const NOTIFICATION_REQUESTED_KEY = 'her.companion.notifications.requested';
   type NotificationPermissionState = NotificationPermission | 'unsupported';
-  let notificationOffer = $state(false);
+  let notificationRequestAttempted = false;
   let notificationPermission = $state<NotificationPermissionState>('unsupported');
   const controller = new AbortController();
   let outgoing = $state<Message[]>([]);
@@ -55,21 +55,19 @@
   function selectLanguage(value: CompanionLanguage): void { language = value; writePreference(LANGUAGE_STORAGE_KEY, value); }
   function selectAppearance(value: CompanionAppearance): void { appearance = value; writePreference(APPEARANCE_STORAGE_KEY, value); }
   function notificationState(): NotificationPermissionState {
-    return typeof Notification === 'undefined' ? 'unsupported' : Notification.permission;
-  }
-  function mayOfferNotifications(): boolean {
-    return notificationState() === 'default' && readPreference(NOTIFICATION_PROMPT_DISMISSED_KEY) !== 'true';
+    return !isSecureContext || typeof Notification === 'undefined' ? 'unsupported' : Notification.permission;
   }
   async function enableNotifications(): Promise<void> {
     if (typeof Notification === 'undefined') return;
+    notificationRequestAttempted = true;
+    writePreference(NOTIFICATION_REQUESTED_KEY, 'true');
     try { notificationPermission = await Notification.requestPermission(); }
     catch { /* the browser remains the authority for permission state */ }
-    notificationOffer = false;
     notificationPermission = notificationState();
   }
-  function dismissNotificationOffer(): void {
-    notificationOffer = false;
-    writePreference(NOTIFICATION_PROMPT_DISMISSED_KEY, 'true');
+  function requestNotificationsOnFirstSend(): void {
+    if (notificationRequestAttempted || readPreference(NOTIFICATION_REQUESTED_KEY) === 'true' || notificationState() !== 'default') return;
+    void enableNotifications();
   }
   function observeNotifications(results: readonly TurnResult[]): void {
     const fresh = notificationObserver.observe(results);
@@ -214,7 +212,6 @@
         retirements.set(id, () => { observed = true; retire?.({ reason: 'observed' }); });
         observeOutgoing();
         await post('/api/messages', { id, input, images: attachments, replaces: session.draft?.sourceIds ?? [] });
-        if (mayOfferNotifications()) notificationOffer = true;
         outgoing = outgoing.map(message => message.id === id ? { ...message, delivery: 'pending' } : message);
         await refresh();
       } catch (cause) {
@@ -242,7 +239,7 @@
   });
 </script>
 <svelte:head><title>{session.name} · Her</title></svelte:head>
-<Companion {projection} {actions} {t} locale={language} {appearance} onLanguageChange={selectLanguage} onAppearanceChange={selectAppearance} {notificationOffer} {notificationPermission} onEnableNotifications={enableNotifications} onDismissNotificationOffer={dismissNotificationOffer} sessionId="partner" voiceCapability={session.speech ? "available" : "unavailable"} imageLimits={session.imageLimits} onHistoryOpenChange={undefined}
+<Companion {projection} {actions} {t} locale={language} {appearance} onLanguageChange={selectLanguage} onAppearanceChange={selectAppearance} {notificationPermission} onEnableNotifications={enableNotifications} onFirstMessageSend={requestNotificationsOnFirstSend} sessionId="partner" voiceCapability={session.speech ? "available" : "unavailable"} imageLimits={session.imageLimits} onHistoryOpenChange={undefined}
   keetLosses={session.keetLosses ?? []}
   identity={{ companionName: session.name, userName: '你', preferredAddress: '你', companionAvatar: session.avatars?.companion, userAvatar: session.avatars?.user, signature: session.relationship?.signature ?? '',
     mood: session.relationship?.mood ?? 'neutral', moodLabel: moodText(session.relationship?.mood ?? 'neutral'), moodNote: session.relationship?.note,

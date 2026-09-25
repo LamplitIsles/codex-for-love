@@ -164,10 +164,9 @@
   export let appearance: CompanionAppearance = "system";
   export let onAppearanceChange: (appearance: CompanionAppearance) => void = () => undefined;
   export let onLanguageChange: (language: CompanionLanguage) => void = () => undefined;
-  export let notificationOffer = false;
   export let notificationPermission: NotificationPermission | "unsupported" = "unsupported";
   export let onEnableNotifications: () => void | Promise<void> = () => undefined;
-  export let onDismissNotificationOffer: () => void = () => undefined;
+  export let onFirstMessageSend: () => void = () => undefined;
 
   const dispatch = createEventDispatcher<{ advanced: void; recovery: void }>();
   const LONG_WAIT_DELAY_MS = 12_000;
@@ -1031,6 +1030,7 @@
     const text = restoreText.trim();
     if (text.length > MAX_MESSAGE_LENGTH) return;
     if ((!text && imageDrafts.length === 0) || composer.composing) return;
+    if (text !== "/compact" || imageDrafts.length > 0) onFirstMessageSend();
     const submittedDrafts = [...imageDrafts];
     const originSessionId = sessionId;
     composer = {
@@ -1697,16 +1697,6 @@
           </div>
 
         </header>
-
-        {#if notificationOffer}
-          <div role="alert" class="cmp-alert companion-notification-offer">
-            <span>{t("notifications.offer")}</span>
-            <div class="companion-notification-actions">
-              <button type="button" class="cmp-btn cmp-btn-sm" on:click={onDismissNotificationOffer}>{t("notifications.notNow")}</button>
-              <button type="button" class="cmp-btn cmp-btn-primary cmp-btn-sm" on:click={() => void onEnableNotifications()}>{t("notifications.enable")}</button>
-            </div>
-          </div>
-        {/if}
 
         {#if effectiveWorkspaceReadiness === "loading"}
           <section
