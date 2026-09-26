@@ -13,7 +13,7 @@
   import type { CompanionStateRecord } from '$lib/companion/domain.js';
   import { CompanionPreControllerError } from '$lib/companion/client/admission.js';
   import { CompanionRecovery } from '$lib/companion/client/recovery.js';
-  import { CompanionNotificationObserver } from '$lib/companion/client/notifications.js';
+  import { CompanionNotificationObserver, shouldNotifyForPageState } from '$lib/companion/client/notifications.js';
   import { outgoingDeliveryPresentation, type MessageDelivery } from '$lib/message-delivery.ts';
   import { affinityStage } from '$lib/companion/domain.ts';
   import PetDock from '$lib/pet/PetDock.svelte';
@@ -71,7 +71,7 @@
   }
   function observeNotifications(results: readonly TurnResult[]): void {
     const fresh = notificationObserver.observe(results);
-    if (document.visibilityState !== 'hidden' || notificationState() !== 'granted') return;
+    if (!shouldNotifyForPageState(document.visibilityState, document.hasFocus()) || notificationState() !== 'granted') return;
     for (const _turnId of fresh) {
       try {
         const notification = new Notification(session.name, { body: t('notifications.newMessage') });

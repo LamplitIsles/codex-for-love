@@ -3,6 +3,10 @@ export interface NotificationTurnResult {
   status: string;
 }
 
+export function shouldNotifyForPageState(visibilityState: DocumentVisibilityState, hasFocus: boolean): boolean {
+  return visibilityState === "hidden" || !hasFocus;
+}
+
 /** Tracks completed turns observed by one live Companion page. */
 export class CompanionNotificationObserver {
   readonly #completed = new Set<string>();

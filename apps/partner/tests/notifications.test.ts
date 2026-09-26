@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { CompanionNotificationObserver } from "../src/lib/companion/client/notifications.ts";
+import { CompanionNotificationObserver, shouldNotifyForPageState } from "../src/lib/companion/client/notifications.ts";
+
+test("turn notification follows page attention rather than visibility alone", () => {
+  assert.equal(shouldNotifyForPageState("visible", true), false);
+  assert.equal(shouldNotifyForPageState("visible", false), true);
+  assert.equal(shouldNotifyForPageState("hidden", false), true);
+});
 
 test("notification observer establishes a silent completion baseline", () => {
   const observer = new CompanionNotificationObserver();
