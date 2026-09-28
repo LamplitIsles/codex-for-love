@@ -111,9 +111,10 @@
     for (const [index, message] of visibleMessages.entries()) {
       const delivery = outgoingDeliveryPresentation(message.delivery);
       const order = message.sequence > 0 ? message.sequence * 2 : Number.MAX_SAFE_INTEGER - (visibleMessages.length - index) * 2;
-      const user: TimelineItem = { id: `${message.id}:user`, messageKey: `${message.id}:user`, kind: 'text', side: 'outgoing',
+      const side = message.keet ? 'incoming' : 'outgoing';
+      const user: TimelineItem = { id: `${message.id}:user`, messageKey: `${message.id}:user`, kind: 'text', side,
         text: message.keet ? `${message.keet.text}${message.keet.imageNote ?? ''}` : message.input, time: message.created, pending: ['sending', 'pending', 'unresolved'].includes(message.delivery), waitsForCurrentReply: message.delivery === 'pending' };
-      ordered.push({ order, unit: { id: user.id, side: 'outgoing', items: [...(user.text ? [user] : []), ...(message.inputImages ?? []).map((image): TimelineItem => ({ id: image.id, messageKey: user.messageKey, kind: 'image', side: 'outgoing', state: 'ready', previewUrl: image.url, alt: image.name }))], time: message.created, pending: delivery.pending, pendingLabel: delivery.labelKey ? t(delivery.labelKey) : undefined, ...(message.keet ? { keet: message.keet } : {}) } });
+      ordered.push({ order, unit: { id: user.id, side, items: [...(user.text ? [user] : []), ...(message.inputImages ?? []).map((image): TimelineItem => ({ id: image.id, messageKey: user.messageKey, kind: 'image', side, state: 'ready', previewUrl: image.url, alt: image.name }))], time: message.created, pending: delivery.pending, pendingLabel: delivery.labelKey ? t(delivery.labelKey) : undefined, ...(message.keet ? { keet: message.keet } : {}) } });
       const result = resultBySource.get(message.id);
       // A turn result is rendered once, after the last source input. This
       // keeps multi-input turns readable without copying the same answer to
