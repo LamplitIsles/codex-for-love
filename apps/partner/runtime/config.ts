@@ -35,12 +35,8 @@ const schema = z.object({
     endpoint: z.url().default('https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation'),
     tts: ttsSchema.optional(),
   }).strict().optional(),
-  // Keet is deliberately all-or-nothing at runtime.  Keeping the optional
-  // fields parseable lets an operator remove one value and return to an
-  // ordinary local Partner without a migration or a second configuration.
   keet: z.object({
     endpoint: z.string().min(1).optional(),
-    media_root: z.string().min(1).optional(),
   }).strict().optional(),
   pet: z.object({ enabled: z.boolean().default(false) }).strict().default({ enabled: false }),
 }).strict();
@@ -66,7 +62,6 @@ export async function loadConfig(path: string): Promise<Config> {
     },
     keet: config.keet ? {
       ...(config.keet.endpoint ? { endpoint: keetEndpoint(config.keet.endpoint) } : {}),
-      ...(config.keet.media_root ? { media_root: keetMediaRoot(config.keet.media_root) } : {}),
     } : undefined,
   };
 }
@@ -77,11 +72,6 @@ function keetEndpoint(value: string): string {
   if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || !url.port || url.username || url.password
     || url.pathname !== '/' || url.search || url.hash) throw new Error('Keet endpoint must be a bare http://127.0.0.1:PORT URL');
   return url.origin;
-}
-
-function keetMediaRoot(value: string): string {
-  if (!value.startsWith('/')) throw new Error('Keet media_root must be an absolute path');
-  return resolve(value);
 }
 
 /** Alibaba STT/TTS reuses speech; ByteDance TTS keeps its separate secret. */

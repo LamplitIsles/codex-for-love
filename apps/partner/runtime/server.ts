@@ -2,12 +2,15 @@ import { MAX_MESSAGE_LENGTH } from "../src/lib/message-input.ts";
 import { InvalidImageInput, imageInputSchema, messageBodyLimit } from './images.ts';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { extname } from 'node:path';
+import { keetEvent } from './keet.ts';
 import sirv from 'sirv';
 import { z } from 'zod';
 import { MAX_VOICE_DATA_URL_BYTES, normalizeVoiceMediaType } from '../src/lib/companion/voice-contract.ts';
 import type { Partner } from './partner.ts';
 import { PET_ACTIVITIES } from './pet.ts';
 import type { ConversationSearch } from './conversation-search.ts';
+
+const keetEventBodyLimit = 128 * 1024;
 
 async function body(request: IncomingMessage, limit = 65536): Promise<unknown> {
   let size = 0; const chunks: Buffer[] = [];
@@ -22,6 +25,10 @@ function json(response: ServerResponse, value: unknown, status = 200) {
   response.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
   response.end(JSON.stringify(value));
 }
+export function isLoopbackPeer(peer: string | undefined): boolean {
+  return peer === '127.0.0.1' || peer === '::1' || peer === '::ffff:127.0.0.1';
+}
+
 export function createWebServer(partner: Partner, assets: string, options: { heartbeatMs?: number; conversationSearch?: ConversationSearch } = {}) {
   const serve = sirv(assets, {
     single: true,
@@ -40,6 +47,20 @@ export function createWebServer(partner: Partner, assets: string, options: { hea
     try {
       const path = new URL(request.url ?? '/', 'http://localhost').pathname;
       if (!path.startsWith('/api/')) return serve(request, response);
+      if (path === '/api/keet/events' && request.method === 'POST') {
+        if (!partner.keetEnabled) return json(response, { error: 'Keet ingress unavailable' }, 404);
+        const peer = request.socket.remoteAddress;
+        if (!isLoopbackPeer(peer))
+          return json(response, { error: 'Local delivery only' }, 403);
+        let raw: unknown;
+        try { raw = await body(request, keetEventBodyLimit); }
+        catch { return json(response, { error: 'Invalid Keet event' }, 400); }
+        const parsed = keetEvent.safeParse(raw);
+        if (!parsed.success) return json(response, { error: 'Invalid Keet event' }, 422);
+        try { await partner.ingestKeet(parsed.data); }
+        catch { return json(response, { error: 'Keet admission unavailable' }, 503); }
+        return json(response, { accepted: true }, 202);
+      }
       if (path === '/api/voice/transcribe' && request.method === 'POST') {
         const mediaType = normalizeVoiceMediaType(request.headers['content-type']);
         if (!mediaType) return json(response, { error: '不支持的录音格式' }, 415);

@@ -59,11 +59,6 @@ export interface CompanionContinuityView {
   lifecycle?: CompanionContinuitySnapshot;
 }
 
-/** A retained Keet replay interval that could not be recovered. */
-export interface KeetLossRange {
-  first: number;
-  last: number;
-}
 
 export interface CompanionRecoveredDraft {
   key: string;
@@ -101,8 +96,6 @@ export interface CompanionBridgeProps {
   /** Optional DSH Speech capability observed by the Host RPC. */
   voiceCapability?: "loading" | "available" | "unavailable";
   continuity?: CompanionContinuityView;
-  /** Persisted Keet replay intervals that require operator recovery awareness. */
-  keetLosses?: readonly KeetLossRange[];
   recoveredDraft?: CompanionRecoveredDraft;
   history?: CompanionHistoryView;
   onHistoryOpenChange?: (open: boolean) => void;

@@ -26,7 +26,6 @@
     "pixi.js": "7.4.3",
     "sirv": "^3.0.2",
     "smol-toml": "^1.8.0",
-    "ws": "8.21.1",
     "yaml": "^2.9.1",
     "zod": "^4.6.2"
   },
@@ -37,7 +36,6 @@
     "@sveltejs/vite-plugin-svelte": "^7.3.0",
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^24.13.4",
-    "@types/ws": "8.5.13",
     "daisyui": "^5.7.28",
     "svelte": "^5.57.0",
     "svelte-check": "^4.7.6",

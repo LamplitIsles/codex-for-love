@@ -26,9 +26,9 @@ export type StoredGeneratedImage = MaterializedGeneratedImage;
 export type KeetDestination = { groupName: string; kind: 'group' | 'broadcast' | 'dm' };
 export type KeetGroupRecord = { senderLabel: string; text: string; replyTo?: { deviceId: string; seq: number } };
 export type KeetEvent = {
-  sequence: number; messageKey: string; destination: KeetDestination; senderLabel: string; text: string;
+  eventId: string; sequence: number; destination: KeetDestination; senderLabel: string; text: string;
   trigger?: 'mention' | 'label' | 'reply' | 'dm'; replyTo?: { deviceId: string; seq: number };
-  input?: { id: string; text: string; images: StoredImage[] };
+  input?: { id: string; text: string };
 };
 
 function identityConflict(): Error & { code: 'MESSAGE_IDENTITY_CONFLICT' } {
@@ -115,11 +115,8 @@ export class Store {
           revision INTEGER PRIMARY KEY AUTOINCREMENT,
           message_id TEXT NOT NULL UNIQUE REFERENCES message_meta(id) ON DELETE CASCADE
         );
-        CREATE TABLE IF NOT EXISTS keet_receipt (id INTEGER PRIMARY KEY CHECK(id=1), sequence INTEGER NOT NULL DEFAULT 0);
-        INSERT OR IGNORE INTO keet_receipt(id,sequence) VALUES(1,0);
-        CREATE TABLE IF NOT EXISTS keet_events (message_key TEXT PRIMARY KEY, sequence INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS keet_webhook_events (event_id TEXT PRIMARY KEY, sequence INTEGER NOT NULL);
         CREATE TABLE IF NOT EXISTS keet_group_buffers (group_name TEXT PRIMARY KEY, records TEXT NOT NULL);
-        CREATE TABLE IF NOT EXISTS keet_losses (id INTEGER PRIMARY KEY AUTOINCREMENT, first_sequence INTEGER NOT NULL, last_sequence INTEGER NOT NULL, created INTEGER NOT NULL);
       `);
       this.db.exec(`
         INSERT OR IGNORE INTO message_revisions(message_id)
@@ -179,11 +176,8 @@ export class Store {
   /** Atomically make one gateway event durable and, when qualified, create its native input. */
   async recordKeetEvent(event: KeetEvent): Promise<boolean> {
     return this.transaction(() => {
-      if (this.db.prepare('SELECT 1 FROM keet_events WHERE message_key=?').get(event.messageKey)) return false;
-      const receipt = Number((this.db.prepare('SELECT sequence FROM keet_receipt WHERE id=1').get() as { sequence: number }).sequence);
-      if (event.sequence <= receipt) return false;
-      this.db.prepare('INSERT INTO keet_events(message_key,sequence) VALUES(?,?)').run(event.messageKey, event.sequence);
-      this.db.prepare('UPDATE keet_receipt SET sequence=? WHERE id=1').run(event.sequence);
+      if (this.db.prepare('SELECT 1 FROM keet_webhook_events WHERE event_id=?').get(event.eventId)) return false;
+      this.db.prepare('INSERT INTO keet_webhook_events(event_id,sequence) VALUES(?,?)').run(event.eventId, event.sequence);
       if (event.destination.kind === 'broadcast') return true;
       if (event.destination.kind === 'group' && !event.trigger) {
         const prior = this.db.prepare('SELECT records FROM keet_group_buffers WHERE group_name=?').get(event.destination.groupName) as { records: string } | undefined;
@@ -198,24 +192,15 @@ export class Store {
       const input = event.destination.kind === 'group' ? renderKeetGroup(event, row ? JSON.parse(row.records) as KeetGroupRecord[] : []) : event.input.text;
       const existing = this.db.prepare('SELECT 1 FROM message_meta WHERE id=?').get(event.input.id);
       if (!existing) {
-        const fingerprint = createHash('sha256').update(JSON.stringify([input, event.input.images.map((image) => image.id).sort()])).digest('hex');
+        const fingerprint = createHash('sha256').update(JSON.stringify([input, []])).digest('hex');
         this.db.prepare('INSERT INTO message_meta(id,created,fingerprint) VALUES(?,?,?)').run(event.input.id, Date.now(), fingerprint);
         this.db.prepare('INSERT INTO pending_inputs(message_id,input) VALUES(?,?)').run(event.input.id, input);
-        for (const image of event.input.images) this.db.prepare('INSERT INTO input_images(id,operation_id,name,media_type,path) VALUES(?,?,?,?,?)').run(image.id, event.input.id, image.name, image.media_type, image.path);
         this.addRevision(event.input.id);
       }
       if (event.destination.kind === 'group') this.db.prepare('DELETE FROM keet_group_buffers WHERE group_name=?').run(event.destination.groupName);
       return true;
     });
   }
-
-  async keetReceipt(): Promise<number> { return this.transaction(() => Number((this.db.prepare('SELECT sequence FROM keet_receipt WHERE id=1').get() as { sequence: number }).sequence)); }
-  async recordKeetLoss(first: number, last: number): Promise<void> { await this.transaction(() => {
-    this.db.prepare('INSERT INTO keet_losses(first_sequence,last_sequence,created) VALUES(?,?,?)').run(first, last, Date.now());
-    this.db.prepare('DELETE FROM keet_group_buffers').run();
-    this.db.prepare('UPDATE keet_receipt SET sequence=? WHERE id=1').run(first - 1);
-  }); }
-  async keetLosses(): Promise<Array<{ first: number; last: number; created: number }>> { return this.transaction(() => this.db.prepare('SELECT first_sequence AS first,last_sequence AS last,created FROM keet_losses ORDER BY id').all() as Array<{ first: number; last: number; created: number }>); }
 
   async ensureMessage(id: string, created: number, input?: string, images: readonly StoredImage[] = []): Promise<MessageMeta> {
     return this.transaction(() => {

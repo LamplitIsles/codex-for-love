@@ -30,11 +30,10 @@ context_round_limit = 10
 #[pet]
 #enabled = true
 
-# Optional local Keet-for-Agent gateway. Both fields and a stdin-only `keet`
-# credential enable it; omit either field to keep ordinary local conversation.
+# Optional local KFA MCP endpoint and stdin-managed `keet` credential enable
+# text ingress. Point KFA at http://127.0.0.1:<CFL port>/api/keet/events.
 #[keet]
 #endpoint = "http://127.0.0.1:18769"
-#media_root = "/private/path/to/kfa-cfl-media"
 
 # Optional DashScope STT and tool-delivered Voice messages.
 [speech]

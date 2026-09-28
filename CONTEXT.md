@@ -108,7 +108,7 @@ The Partner's own peer-to-peer identity for participating in Keet conversations.
 _Avoid_: shared Keet account, Keet mailbox
 
 **Keet ingress（Keet 入站）**:
-The optional delivery of a trigger-qualified external Keet input into a Partner's conversation. When it is not configured or unavailable, the Partner's ordinary local conversation remains available and receives no Keet-derived input.
+The optional local webhook delivery of external Keet text to a Partner. Ordinary Group text is retained as bounded context; a qualifying Group message or DM starts a turn, while Broadcast text does not. When it is not configured or unavailable, the Partner's ordinary local conversation remains available and receives no Keet-derived input.
 _Avoid_: required Partner dependency, Keet read state, automatic reply
 
 **Keet Trigger（Keet 触发）**:
@@ -118,10 +118,6 @@ _Avoid_: every Group message, outgoing Keet message, automatic reply
 **Keet Group Context Buffer（Keet 群组上下文缓冲）**:
 The bounded per-Group sequence of ordinary external Group messages retained until the next Keet Trigger for that same Group. It accompanies that trigger in one Partner input but is not a sequence of independent Partner turns.
 _Avoid_: global group history, a Broadcast buffer, standalone turn queue
-
-**Keet media library（Keet 媒体库）**:
-The durable KFA-owned file collection of committed inbound DM images. Its image lifetime is independent of Keet event replay retention; CFL may reference validated files there directly without copying them into its workspace.
-_Avoid_: temporary replay attachment, CFL attachment directory, arbitrary local path
 
 **Agent mailbox**:
 The single real email address owned by the Partner for reading, sending, and replying to email.

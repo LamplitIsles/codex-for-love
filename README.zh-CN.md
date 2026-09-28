@@ -78,11 +78,13 @@ CFL 会监听 `127.0.0.1`，并打印本地访问地址。开始一段新对话�
 
 ### 可选 Keet 入站
 
-在 KFA PR #23 合并并由运营者安装后，可以为单个 Partner 配置本机回环 Keet 网关：一个
-`http://127.0.0.1:PORT` 地址、KFA 持有的绝对 DM 媒体目录，以及只能经标准输入写入的
-`keet` 凭据。普通群消息只进入有界上下文，直到 KFA 判定为触发消息；DM 按 FIFO 排队，
-广播消息会被忽略。KFA 仍拥有媒体文件，CFL 绝不会自动发送 Keet 回复。具体配置和安全
-边界见[运维指南](docs/operator-guide.md#optional-keet-ingress)。
+Partner 可通过 `POST /api/keet/events` 接收 KFA 的纯文本事件。配置本机回环 KFA MCP
+地址和现有的、经标准输入写入的 `keet` 凭据，再将 KFA 的 `KEET_WEBHOOK_URL`
+设为 `http://127.0.0.1:<CFL 端口>/api/keet/events`，不要配置 webhook Bearer
+令牌。此入站接口无需认证，只接受直接来自回环地址的连接；不要通过反向代理公开。
+普通群消息进入有界上下文，直到触发消息到来；每条 DM 都开始一轮，广播消息不会开始一轮。
+带说明文字的图片只传文字，纯图片消息不会发送。CFL 不会自动回复 Keet 消息。
+详见[运维指南](docs/operator-guide.md#optional-keet-ingress)。
 
 Android 端可以安装最新的 [Lamplit Mobile 版本](https://github.com/LamplitIsles/lamplit-mobile/releases/latest)，再填入手机能够访问的 CFL HTTP(S) 地址。
 

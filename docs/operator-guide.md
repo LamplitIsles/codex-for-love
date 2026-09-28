@@ -116,32 +116,36 @@ log.
 
 ## Optional Keet ingress
 
-Keet is optional for each Partner. Configure exactly one local KFA gateway only
-when KFA PR #23 is installed and running under the same local account. The
-endpoint must be a bare loopback `http://127.0.0.1:PORT` URL and `media_root`
-must be KFA's absolute CFL media directory; paths, remote hosts, and separate
-MCP/feed URLs are rejected. Put the gateway bearer token only in the existing
-Owner-only credential file:
+Keet is optional for each Partner. Configure the local KFA MCP endpoint as a
+bare `http://127.0.0.1:PORT` URL in `[keet]` and put its existing bearer token
+only in the Owner-owned credential file:
 
 ```sh
 printf '%s' "$KFA_TOKEN" | codex-for-love credential /path/to/partner.toml keet --stdin
 ```
 
-Never put that token in TOML, workspace files, prompts, or shell arguments.
-When endpoint, media root, and credential are all present CFL writes only its
-owned `keet` project MCP entry and passes the token only to its app-server
-child. Removing any value removes that entry and leaves normal local operation
-available.
+Never put that MCP token in TOML, workspace files, prompts, or shell arguments.
+The endpoint and credential enable CFL's owned `keet` project MCP entry and
+text ingress. Removing either disables the integration. `media_root` and the
+old `/cfl` WebSocket feed are no longer configuration options.
 
-KFA classifies ingress. Ordinary Group text is a bounded per-group context
-buffer and starts no turn; a mention, current-label, or reply trigger drains
-only that group into one turn. Every DM is queued FIFO after active Codex work;
-Broadcasts are discarded. CFL never sends an automatic Keet response. Direct
-DM image files remain KFA-owned and are referenced only after containment,
-no-follow regular-file, and type checks; a deleted or invalid file is an
-attachment failure, never copied or replaced. The feed reconnects from CFL's
-durable receipt; a KFA resync records the unavailable range, clears Group
-buffers, and resumes retained replay without inventing missing messages.
+For the direct cutover, stop the KFA–CFL pair, update both applications, set
+KFA's `KEET_WEBHOOK_URL` to
+`http://127.0.0.1:<CFL port>/api/keet/events`, leave
+`KEET_WEBHOOK_BEARER_TOKEN` unset, and start CFL before KFA. This cutover does
+not provide uninterrupted ingress or backfill while KFA is stopped. The
+incoming route requires no webhook credential and accepts only a direct
+loopback peer. Do not publish `/api/keet/events` through a reverse proxy:
+a local proxy could make remote requests appear to come from loopback.
+The MCP endpoint remains separately bearer-protected.
+
+KFA sends all admitted text, including ordinary Group and Broadcast events.
+CFL buffers ordinary Group text per Group until a mention, identity-label, or
+reply trigger drains that Group into one turn. Every DM starts a turn after
+active work; Broadcast text starts none. A caption contributes text without
+image bytes; image-only messages do not reach CFL. A duplicate `eventId` is
+acknowledged without another input, including after a Partner restart. CFL
+never sends an automatic Keet response.
 
 This feature does not deploy KFA or CFL, run an official Keet runtime, or send
 external messages.

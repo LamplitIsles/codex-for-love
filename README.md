@@ -129,12 +129,15 @@ For Android, install the latest [Lamplit Mobile release](https://github.com/Lamp
 
 ### Optional Keet ingress
 
-With merged KFA PR #23, a Partner may optionally consume its authenticated
-loopback Keet gateway. The configuration uses one `http://127.0.0.1:PORT`
-endpoint, KFA's absolute durable DM-media root, and a stdin-only `keet`
-credential. Group messages become bounded context only until KFA classifies a
-trigger; DMs run FIFO; Broadcasts are ignored. KFA retains ownership of direct
-media and CFL never automatically replies. See the [operator guide](docs/operator-guide.md#optional-keet-ingress).
+A Partner may receive KFA text events at `POST /api/keet/events`. Configure its
+loopback KFA MCP endpoint and the existing stdin-managed `keet` credential, then
+point KFA's `KEET_WEBHOOK_URL` at `http://127.0.0.1:<CFL port>/api/keet/events`
+without a webhook Bearer token. The ingress accepts direct loopback peers only;
+do not publish this unauthenticated route through a reverse proxy. Ordinary
+Group text is bounded context until a trigger, each DM starts a turn, and
+Broadcast text starts none. Caption text arrives without image bytes; image-only
+messages are omitted. CFL never automatically replies. See the
+[operator guide](docs/operator-guide.md#optional-keet-ingress).
 
 ## Roadmap
 
