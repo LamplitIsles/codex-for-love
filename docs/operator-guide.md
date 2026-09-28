@@ -126,7 +126,7 @@ printf '%s' "$KFA_TOKEN" | codex-for-love credential /path/to/partner.toml keet 
 
 Never put that MCP token in TOML, workspace files, prompts, or shell arguments.
 The endpoint and credential enable CFL's owned `keet` project MCP entry and
-text ingress. Removing either disables the integration. `media_root` and the
+message ingress and protected image fetch. Removing either disables the integration. `media_root` and the
 old `/cfl` WebSocket feed are no longer configuration options.
 
 For the direct cutover, stop the KFA–CFL pair, update both applications, set
@@ -139,11 +139,19 @@ loopback peer. Do not publish `/api/keet/events` through a reverse proxy:
 a local proxy could make remote requests appear to come from loopback.
 The MCP endpoint remains separately bearer-protected.
 
-KFA sends all admitted text, including ordinary Group and Broadcast events.
-CFL buffers ordinary Group text per Group until a mention, identity-label, or
-reply trigger drains that Group into one turn. Every DM starts a turn after
-active work; Broadcast text starts none. A caption contributes text without
-image bytes; image-only messages do not reach CFL. A duplicate `eventId` is
+KFA sends admitted text and image messages, including ordinary Group and
+Broadcast events. CFL buffers ordinary Group messages per Group until a mention,
+identity-label, or reply trigger drains that Group into one turn. Every DM,
+including a pure-image DM, starts a turn after active work; Broadcast messages
+start none. For a triggered DM, CFL fetches available originals from KFA's
+`GET /images/{ref}` using the existing MCP bearer, verifies them, and stores
+model-ready copies in its workspace attachments. Originals above 5 MiB are
+resized as needed; the native turn accepts at most five images, 5 MiB each and
+20 MiB total. Missing, invalid, or excess images become a concise unavailable
+count in the input; the message still arrives. Ordinary Group images appear as
+bounded context facts and never wake the Partner by themselves. Group image
+bytes do not enter model input. The KFA image URL, bearer, and local attachment
+path are never placed in prompt text or browser responses. A duplicate `eventId` is
 acknowledged without another input, including after a Partner restart. CFL
 never sends an automatic Keet response.
 

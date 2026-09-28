@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { once } from 'node:events';
+import { createServer } from 'node:http';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import sharp from 'sharp';
 import { createWebServer, isLoopbackPeer } from '../runtime/server.ts';
 import { keetEvent } from '../runtime/keet.ts';
+import { partnerPaths } from '../runtime/storage-paths.ts';
 import { fixture, eventually } from './fixture.ts';
 
 function message(sequence: number, text: string, kind: 'group' | 'dm' | 'broadcast' = 'group', trigger?: 'mention' | 'dm') {
@@ -122,7 +126,7 @@ test('webhook rejects unsupported bodies and acknowledges only successful admiss
   try {
     const partner = await f.createPartner(); app = await host(partner, f.directory);
     const valid = message(1, 'accepted');
-    for (const bad of [{ ...valid, images: [] }, { ...valid, text: '' }, { ...valid, trigger: 'dm' }, { ...valid, destination: { groupName: 'News', kind: 'broadcast' }, trigger: 'mention' }, { ...valid, eventId: 'bad' }, { ...valid, timestamp: 1.5 }]) {
+    for (const bad of [{ ...valid, images: [] }, { ...valid, text: '' }, { ...valid, images: Array(17).fill({ status: 'unavailable', mediaType: 'image/png' }) }, { ...valid, images: [{ status: 'available', mediaType: 'image/png', ref: '../escape.png' }] }, { ...valid, images: [{ status: 'unavailable', mediaType: 'image/png', ref: `${randomUUID()}.png` }] }, { ...valid, trigger: 'dm' }, { ...valid, destination: { groupName: 'News', kind: 'broadcast' }, trigger: 'mention' }, { ...valid, eventId: 'bad' }, { ...valid, timestamp: 1.5 }]) {
       assert.equal((await app.post(bad)).status, 422);
     }
     const fact = { targetMessageId: { deviceId: 'self', seq: 1 }, targetText: 'prior', emoji: '👍', externalCount: 1 };
@@ -194,4 +198,143 @@ test('webhook is unavailable when Keet is disabled and peer guard uses socket ad
     assert.equal(isLoopbackPeer('::1'), true);
     assert.equal(keetEvent.safeParse({ ...message(2, 'x'), images: [{ filename: 'image.png' }] }).success, false);
   } finally { await app?.app.close(); await f.close(); }
+});
+
+test('pure-image and captioned DMs fetch via bearer, persist attachments, and deduplicate across restart', async () => {
+  const f = await fixture();
+  const image = await sharp({ create: { width: 32, height: 32, channels: 3, background: '#cc8844' } }).png().toBuffer();
+  const requests: string[] = [];
+  const kfa = createServer((request, response) => {
+    requests.push(`${request.url} ${request.headers.authorization ?? ''}`);
+    response.writeHead(200, { 'content-type': 'image/png' }).end(image);
+  });
+  kfa.listen(0, '127.0.0.1'); await once(kfa, 'listening');
+  f.config.keet = { endpoint: `http://127.0.0.1:${(kfa.address() as { port: number }).port}` };
+  f.credentials.keet = 'test-kfa-bearer';
+  let app: Awaited<ReturnType<typeof host>> | undefined;
+  try {
+    let partner = await f.createPartner(); app = await host(partner, f.directory);
+    const entry = { status: 'available', mediaType: 'image/png', ref: `${randomUUID()}.png` };
+    const pure = { ...message(1, '', 'dm', 'dm'), images: [entry] };
+    assert.equal((await app.post(pure)).status, 202);
+    await eventually(async () => (await starts(f)).length === 1);
+    const first = (await starts(f))[0]!.params as { input: Array<{ type: string; text?: string; path?: string }> };
+    assert.equal(first.input.filter(item => item.type === 'localImage').length, 1);
+    assert.deepEqual(await readFile(first.input.find(item => item.type === 'localImage')!.path!), image);
+    assert.match(first.input[0]!.text!, /1 attached; 0 unavailable/);
+    assert.doesNotMatch(first.input[0]!.text!, /test-kfa-bearer|\/images\/|\.lamplit\/attachments/);
+    assert.deepEqual(requests, [`/images/${entry.ref} Bearer test-kfa-bearer`]);
+    await app.app.close(); app = undefined;
+    partner = await f.createPartner(); app = await host(partner, f.directory);
+    assert.deepEqual(await readFile(first.input.find(item => item.type === 'localImage')!.path!), image);
+    assert.equal((await app.post(pure)).status, 202);
+    assert.equal(requests.length, 1);
+    const caption = { ...message(2, 'What is this?', 'dm', 'dm'), images: [entry] };
+    assert.equal((await app.post(caption)).status, 202);
+    await eventually(async () => (await starts(f)).length === 2);
+    const second = (await starts(f))[1]!.params as { input: Array<{ type: string; text?: string }> };
+    assert.match(second.input[0]!.text!, /What is this\?/);
+    assert.equal(second.input.filter(item => item.type === 'localImage').length, 1);
+    assert.equal(requests.length, 2);
+  } finally { await app?.app.close(); kfa.closeAllConnections(); await new Promise<void>(resolve => kfa.close(() => resolve())); await f.close(); }
+});
+
+test('unavailable images preserve DM input while Group and Broadcast images do not wake', async () => {
+  const f = await fixture();
+  const kfa = createServer((_request, response) => response.writeHead(404).end());
+  kfa.listen(0, '127.0.0.1'); await once(kfa, 'listening');
+  f.config.keet = { endpoint: `http://127.0.0.1:${(kfa.address() as { port: number }).port}` };
+  f.credentials.keet = 'test-kfa-bearer';
+  let app: Awaited<ReturnType<typeof host>> | undefined;
+  try {
+    const partner = await f.createPartner(); app = await host(partner, f.directory);
+    const unavailable = { status: 'unavailable', mediaType: 'image/png' };
+    const missing = { status: 'available', mediaType: 'image/png', ref: `${randomUUID()}.png` };
+    assert.equal((await app.post({ ...message(1, '', 'group'), images: [unavailable] })).status, 202);
+    assert.equal((await app.post({ ...message(2, '', 'broadcast'), images: [unavailable] })).status, 202);
+    assert.equal((await starts(f)).length, 0);
+    assert.equal((await app.post({ ...message(3, 'group trigger', 'group', 'mention'), images: [unavailable] })).status, 202);
+    await eventually(async () => (await starts(f)).length === 1);
+    assert.match(JSON.stringify((await starts(f))[0]!.params), /Keet images: 1 present; 1 unavailable/);
+    assert.equal((await app.post({ ...message(4, '', 'dm', 'dm'), images: [missing, unavailable, ...Array(5).fill(unavailable)] })).status, 202);
+    await eventually(async () => (await starts(f)).length === 2);
+    const second = (await starts(f))[1]!.params as { input: Array<{ type: string; text?: string }> };
+    assert.match(second.input[0]!.text!, /0 attached; 7 unavailable/);
+    assert.equal(second.input.filter(item => item.type === 'localImage').length, 0);
+    assert.doesNotMatch(second.input[0]!.text!, /test-kfa-bearer|\/images\//);
+  } finally { await app?.app.close(); kfa.closeAllConnections(); await new Promise<void>(resolve => kfa.close(() => resolve())); await f.close(); }
+});
+
+test('oversized KFA original is resized into native image limits', async () => {
+  const f = await fixture();
+  const original = await sharp(randomBytes(2400 * 2400 * 3), { raw: { width: 2400, height: 2400, channels: 3 } }).jpeg({ quality: 100 }).toBuffer();
+  assert(original.byteLength > 5 * 1024 * 1024 && original.byteLength < 16 * 1024 * 1024);
+  const kfa = createServer((_request, response) => response.writeHead(200, { 'content-type': 'image/jpeg' }).end(original));
+  kfa.listen(0, '127.0.0.1'); await once(kfa, 'listening');
+  f.config.keet = { endpoint: `http://127.0.0.1:${(kfa.address() as { port: number }).port}` };
+  f.credentials.keet = 'test-kfa-bearer';
+  let app: Awaited<ReturnType<typeof host>> | undefined;
+  try {
+    const partner = await f.createPartner(); app = await host(partner, f.directory);
+    assert.equal((await app.post({ ...message(1, '', 'dm', 'dm'), images: [{ status: 'available', mediaType: 'image/jpeg', ref: `${randomUUID()}.jpg` }] })).status, 202);
+    await eventually(async () => (await starts(f)).length === 1);
+    const items = ((await starts(f))[0]!.params as { input: Array<{ type: string; path?: string; text?: string }> }).input;
+    const bytes = await readFile(items.find(item => item.type === 'localImage')!.path!);
+    assert(bytes.byteLength <= 5 * 1024 * 1024);
+    assert.equal((await sharp(bytes).metadata()).format, 'webp');
+    assert.match(items[0]!.text!, /1 attached; 0 unavailable/);
+  } finally { await app?.app.close(); kfa.closeAllConnections(); await new Promise<void>(resolve => kfa.close(() => resolve())); await f.close(); }
+});
+
+test('attachment storage failure returns 503 and the same KFA event succeeds once on retry', async () => {
+  const f = await fixture();
+  const image = await sharp({ create: { width: 24, height: 24, channels: 3, background: '#446688' } }).png().toBuffer();
+  let fetches = 0;
+  const kfa = createServer((_request, response) => { fetches++; response.writeHead(200, { 'content-type': 'image/png' }).end(image); });
+  kfa.listen(0, '127.0.0.1'); await once(kfa, 'listening');
+  f.config.keet = { endpoint: `http://127.0.0.1:${(kfa.address() as { port: number }).port}` };
+  f.credentials.keet = 'test-kfa-bearer';
+  let app: Awaited<ReturnType<typeof host>> | undefined;
+  try {
+    const partner = await f.createPartner(); app = await host(partner, f.directory);
+    const attachments = partnerPaths(f.workspace).attachments;
+    await rm(attachments, { recursive: true });
+    await writeFile(attachments, 'test-owned storage obstruction');
+    const event = { ...message(1, '', 'dm', 'dm'), images: [{ status: 'available', mediaType: 'image/png', ref: `${randomUUID()}.png` }] };
+    assert.equal((await app.post(event)).status, 503);
+    assert.equal((await starts(f)).length, 0);
+    await rm(attachments);
+    await mkdir(attachments);
+    assert.equal((await app.post(event)).status, 202);
+    await eventually(async () => (await starts(f)).length === 1);
+    const items = ((await starts(f))[0]!.params as { input: Array<{ type: string; path?: string }> }).input;
+    assert.deepEqual(await readFile(items.find(item => item.type === 'localImage')!.path!), image);
+    assert.equal((await app.post(event)).status, 202);
+    assert.equal((await starts(f)).length, 1);
+    assert.equal(fetches, 2);
+  } finally { await app?.app.close(); kfa.closeAllConnections(); await new Promise<void>(resolve => kfa.close(() => resolve())); await f.close(); }
+});
+
+test('KFA image redirects are unavailable without following the location', async () => {
+  const f = await fixture();
+  const requests: string[] = [];
+  const kfa = createServer((request, response) => {
+    requests.push(request.url ?? '');
+    if (request.url?.startsWith('/images/')) response.writeHead(302, { location: '/redirect-target' }).end();
+    else response.writeHead(200, { 'content-type': 'image/png' }).end('unexpected');
+  });
+  kfa.listen(0, '127.0.0.1'); await once(kfa, 'listening');
+  f.config.keet = { endpoint: `http://127.0.0.1:${(kfa.address() as { port: number }).port}` };
+  f.credentials.keet = 'test-kfa-bearer';
+  let app: Awaited<ReturnType<typeof host>> | undefined;
+  try {
+    const partner = await f.createPartner(); app = await host(partner, f.directory);
+    const ref = `${randomUUID()}.png`;
+    assert.equal((await app.post({ ...message(1, '', 'dm', 'dm'), images: [{ status: 'available', mediaType: 'image/png', ref }] })).status, 202);
+    await eventually(async () => (await starts(f)).length === 1);
+    const items = ((await starts(f))[0]!.params as { input: Array<{ type: string; text?: string }> }).input;
+    assert.match(items[0]!.text!, /0 attached; 1 unavailable/);
+    assert.equal(items.filter(item => item.type === 'localImage').length, 0);
+    assert.deepEqual(requests, [`/images/${ref}`]);
+  } finally { await app?.app.close(); kfa.closeAllConnections(); await new Promise<void>(resolve => kfa.close(() => resolve())); await f.close(); }
 });

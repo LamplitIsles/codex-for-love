@@ -129,14 +129,16 @@ For Android, install the latest [Lamplit Mobile release](https://github.com/Lamp
 
 ### Optional Keet ingress
 
-A Partner may receive KFA text events at `POST /api/keet/events`. Configure its
+A Partner may receive KFA message events at `POST /api/keet/events`. Configure its
 loopback KFA MCP endpoint and the existing stdin-managed `keet` credential, then
 point KFA's `KEET_WEBHOOK_URL` at `http://127.0.0.1:<CFL port>/api/keet/events`
 without a webhook Bearer token. The ingress accepts direct loopback peers only;
 do not publish this unauthenticated route through a reverse proxy. Ordinary
-Group text is bounded context until a trigger, each DM starts a turn, and
-Broadcast text starts none. Caption text arrives without image bytes; image-only
-messages are omitted. Qualifying Group and DM text may include a bounded
+Group messages are bounded context until a trigger, each DM starts a turn, and
+Broadcast messages start none. Pure-image and captioned DM images are fetched
+from KFA with the existing bearer and attached to native input. Unavailable
+images are reported in the input without dropping the message. Group images
+remain context only. Qualifying Group and DM messages may include a bounded
 snapshot of aggregate external reactions to the Partner's recent Keet messages.
 CFL supplies each new destination, target, emoji, and count fact in a durable
 turn input at most once; a changed count can appear again. Reaction changes

@@ -108,8 +108,12 @@ The Partner's own peer-to-peer identity for participating in Keet conversations.
 _Avoid_: shared Keet account, Keet mailbox
 
 **Keet ingress（Keet 入站）**:
-The optional local webhook delivery of external Keet text to a Partner. Ordinary Group text is retained as bounded context; a qualifying Group message or DM starts a turn, while Broadcast text does not. When it is not configured or unavailable, the Partner's ordinary local conversation remains available and receives no Keet-derived input.
+The optional local webhook delivery of external Keet messages to a Partner. Ordinary Group messages are retained as bounded context; a qualifying Group message or DM starts a turn, while Broadcast messages do not. When it is not configured or unavailable, the Partner's ordinary local conversation remains available and receives no Keet-derived input.
 _Avoid_: required Partner dependency, Keet read state, automatic reply
+
+**Inbound Keet Image（入站 Keet 图片）**:
+An image accompanying an admitted external Keet message, including an image-only message. The Keet gateway owns the retained original and its reference. For a triggered DM, the Partner fetches usable images into its own attachments for native Agent input; unavailable images remain visible as a fact. Group images remain bounded context, and Broadcast images do not start a turn.
+_Avoid_: webhook image bytes, local shared media path
 
 **Keet Trigger（Keet 触发）**:
 An external Keet message classified by the Keet gateway as one that may start a Partner turn. An ordinary Group Trigger is a verified native mention, literal current identity-label, or reply to an identity-authored Keet message; every external DM message is a separate trigger. Broadcasts have no Keet Trigger.

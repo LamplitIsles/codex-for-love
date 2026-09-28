@@ -30,7 +30,7 @@ export type KeetEvent = {
   eventId: string; sequence: number; destination: KeetDestination; senderLabel: string; text: string;
   trigger?: 'mention' | 'label' | 'reply' | 'dm'; replyTo?: { deviceId: string; seq: number };
   reactionContext?: readonly KeetReactionContext[];
-  input?: { id: string; text: string };
+  input?: { id: string; text: string; images?: readonly StoredImage[] };
 };
 
 function identityConflict(): Error & { code: 'MESSAGE_IDENTITY_CONFLICT' } {
@@ -184,6 +184,10 @@ export class Store {
   }
 
   /** Atomically make one gateway event durable and, when qualified, create its native input. */
+  async hasKeetEvent(eventId: string): Promise<boolean> {
+    return this.transaction(() => Boolean(this.db.prepare('SELECT 1 FROM keet_webhook_events WHERE event_id=?').get(eventId)));
+  }
+
   async recordKeetEvent(event: KeetEvent): Promise<boolean> {
     return this.transaction(() => {
       if (this.db.prepare('SELECT 1 FROM keet_webhook_events WHERE event_id=?').get(event.eventId)) return false;
@@ -217,9 +221,11 @@ export class Store {
       }
       const existing = this.db.prepare('SELECT 1 FROM message_meta WHERE id=?').get(event.input.id);
       if (!existing) {
-        const fingerprint = createHash('sha256').update(JSON.stringify([input, []])).digest('hex');
+        const images = event.input.images ?? [];
+        const fingerprint = createHash('sha256').update(JSON.stringify([input, images.map(image => image.id).sort()])).digest('hex');
         this.db.prepare('INSERT INTO message_meta(id,created,fingerprint) VALUES(?,?,?)').run(event.input.id, Date.now(), fingerprint);
         this.db.prepare('INSERT INTO pending_inputs(message_id,input) VALUES(?,?)').run(event.input.id, input);
+        for (const image of images) this.db.prepare('INSERT INTO input_images(id,operation_id,name,media_type,path) VALUES(?,?,?,?,?)').run(image.id, event.input.id, image.name, image.media_type, image.path);
         this.addRevision(event.input.id);
       }
       if (event.destination.kind === 'group') this.db.prepare('DELETE FROM keet_group_buffers WHERE group_name=?').run(event.destination.groupName);
