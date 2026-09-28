@@ -15,6 +15,9 @@ markdown rendering, themes, locale, image drafts, voice input,
 relationship-history view and pure continuity/media/domain definitions. The
 DSH controller and view-registry integration were removed; the page now binds
 the projection to this repository's HTTP/SSE host.
+The Keet message header and accent-edge styling in the Companion component
+adapt `LamplitIsles/lamplit-cloudflare`'s `frontend/src/lib/companion/client/`
+presentation at revision `2381cfc3e916130beb14c95c1078bd6c2479b1f3`.
 
 The application-owned relationship validation/domain behavior is retained and
 the runtime persistence is implemented in `apps/partner/runtime/store.ts`.
