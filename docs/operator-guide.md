@@ -147,6 +147,26 @@ image bytes; image-only messages do not reach CFL. A duplicate `eventId` is
 acknowledged without another input, including after a Partner restart. CFL
 never sends an automatic Keet response.
 
+On a qualifying Group or DM text trigger, KFA may include up to 16 aggregate
+external reaction facts for recent messages authored by its identity. CFL
+quotes the target excerpt as untrusted context in a bounded input and records
+each supplied destination, canonical target, emoji, and count fact in SQLite.
+Webhook retries, restarts, and later triggers do not repeat that unchanged
+fact. A changed external count is eligible again. Broadcast and ordinary
+Group events have no reaction context; reactions alone do not wake the Agent.
+The snapshot contains no reactor identity, so the Agent must not attribute a
+reaction to a person.
+
+The Keet MCP `send_message` call requires nonblank `text` and may include
+`reaction: { targetMessageId: { deviceId, seq }, emoji }` for one Unicode emoji.
+For a DM, CFL places that turn's triggering message ID in trusted routing
+metadata; a later queued DM has its own ID. For a Group, the Agent may use a
+known historical canonical message ID, including one found with
+`read_recent_messages`. The Agent chooses whether to react and must send text
+explicitly. `{ sent: true, reacted: false, reactionError: ... }` confirms text
+delivery; do not resend that text after a reaction failure. Broadcast and
+reaction-only sends are unsupported.
+
 This feature does not deploy KFA or CFL, run an official Keet runtime, or send
 external messages.
 

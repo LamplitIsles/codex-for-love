@@ -136,7 +136,14 @@ without a webhook Bearer token. The ingress accepts direct loopback peers only;
 do not publish this unauthenticated route through a reverse proxy. Ordinary
 Group text is bounded context until a trigger, each DM starts a turn, and
 Broadcast text starts none. Caption text arrives without image bytes; image-only
-messages are omitted. CFL never automatically replies. See the
+messages are omitted. Qualifying Group and DM text may include a bounded
+snapshot of aggregate external reactions to the Partner's recent Keet messages.
+CFL supplies each new destination, target, emoji, and count fact in a durable
+turn input at most once; a changed count can appear again. Reaction changes
+alone do not start a turn, and CFL never automatically replies or reacts.
+For a chosen response, Keet MCP `send_message` requires text and can also
+request one emoji reaction to a known Group message or this DM turn's trigger.
+Its result reports text delivery separately from reaction success. See the
 [operator guide](docs/operator-guide.md#optional-keet-ingress).
 
 ## Roadmap

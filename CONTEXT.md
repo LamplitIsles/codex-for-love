@@ -119,6 +119,14 @@ _Avoid_: every Group message, outgoing Keet message, automatic reply
 The bounded per-Group sequence of ordinary external Group messages retained until the next Keet Trigger for that same Group. It accompanies that trigger in one Partner input but is not a sequence of independent Partner turns.
 _Avoid_: global group history, a Broadcast buffer, standalone turn queue
 
+**Keet Reaction Context（Keet 表情回应上下文）**:
+The aggregate state of others' emoji reactions to the Partner's Keet messages, supplied with the next Keet Trigger in that destination. It is untrusted context, has no reactor identity, and does not independently start a Partner turn.
+_Avoid_: reaction-triggered turn, attributed reaction, standalone message
+
+**Keet Reaction Response（Keet 表情回应）**:
+An explicit Partner text send paired with an optional emoji reaction to one identified message in the same Group or DM. For a DM turn, that target is its own triggering message; the reaction never replaces the text.
+_Avoid_: automatic reply, standalone reaction, latest-arrived DM target
+
 **Agent mailbox**:
 The single real email address owned by the Partner for reading, sending, and replying to email.
 _Avoid_: notification inbox, Keet inbox, selected mailbox
