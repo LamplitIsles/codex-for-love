@@ -8,6 +8,9 @@
     "codex-for-love": "bin/codex-for-love.mjs"
   },
   "files": ["bin", "vendor", "LICENSE", "NOTICE", "README.md"],
+  "dependencies": {
+    "sharp": "0.34.5"
+  },
   "optionalDependencies": {
     "@lamplitisles/codex-for-love-linux-x64": "0.5.0",
     "@lamplitisles/codex-for-love-darwin-arm64": "0.5.0"

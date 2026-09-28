@@ -18,6 +18,7 @@ try {
   if (manifest.repository?.type !== 'git' || manifest.repository?.url !== 'git+https://github.com/LamplitIsles/codex-for-love.git') throw new Error(`${name} repository must match the case-sensitive GitHub provenance identity LamplitIsles/codex-for-love.`);
   if (manifest.name !== name || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/u.test(manifest.version)) throw new Error(`${name} has an unexpected identity.`);
   if (['install', 'preinstall', 'postinstall'].some((key) => key in (manifest.scripts ?? {}))) throw new Error(`${name} ships an install hook.`);
+  if (manifest.dependencies?.sharp !== partnerRequire('sharp/package.json').version) throw new Error(`${name} must depend on the same installed sharp version as the Partner build.`);
   if ([...files].some((file) => file.includes('.git') || file.endsWith('.tgz'))) throw new Error(`${name} contains a source-control or nested archive file.`);
   for (const file of ['bin/codex-for-love.mjs', 'vendor/runtime/cli.mjs', 'vendor/runtime/companion-mcp.mjs', 'vendor/runtime/session-start-hook.mjs', 'vendor/build/index.html', 'vendor/ecosystem-mcp.example.toml', 'vendor/licenses/NotoSansSC-OFL-1.1.txt', 'vendor/licenses/jaminzhou-codex-app-server-client-MIT.txt', 'vendor/licenses/openai-codex-generated-Apache-2.0.txt']) if (!files.has(file)) throw new Error(`${name} omits ${file}.`);
   const ecosystemServers = parse(await readFile(join(path, 'vendor', 'ecosystem-mcp.example.toml'), 'utf8')).mcp_servers;
