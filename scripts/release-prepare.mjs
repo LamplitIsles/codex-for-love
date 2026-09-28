@@ -28,7 +28,7 @@ await Promise.all([
 const rolldown = execFileSync('find', [join(root, 'node_modules', '.pnpm'), '-path', '*/node_modules/rolldown/bin/cli.mjs', '-print', '-quit'], { encoding: 'utf8' }).trim();
 if (!rolldown) throw new Error('The pinned Vite/Rolldown bundler is unavailable; run pnpm install before release preparation.');
 for (const [entry, output] of [['cli.ts', 'cli.mjs'], ['companion-mcp.ts', 'companion-mcp.mjs']]) {
-  execFileSync(process.execPath, [rolldown, join(root, 'apps', 'partner', 'runtime', entry), '--platform=node', '--format=esm', '--file', join(vendor, 'runtime', output)], { cwd: root, stdio: 'inherit' });
+  execFileSync(process.execPath, [rolldown, join(root, 'apps', 'partner', 'runtime', entry), '--platform=node', '--format=esm', '--external', 'sharp', '--file', join(vendor, 'runtime', output)], { cwd: root, stdio: 'inherit' });
 }
 await cp(join(root, 'apps', 'partner', 'runtime', 'session-start-hook.mjs'), join(vendor, 'runtime', 'session-start-hook.mjs'));
 await writeFile(join(vendor, 'package.json'), '{"type":"module"}\n');
