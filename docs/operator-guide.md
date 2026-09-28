@@ -139,6 +139,15 @@ loopback peer. Do not publish `/api/keet/events` through a reverse proxy:
 a local proxy could make remote requests appear to come from loopback.
 The MCP endpoint remains separately bearer-protected.
 
+Optional `[keet]` lists `trusted_groups = ["Our little home"]` and
+`trigger_aliases = ["shio", "汐"]` accept up to 32 unique, nonempty names each,
+at most 512 characters per name. Group trust uses the exact destination name
+in KFA's admitted snapshot; it does not add members or verify sender labels.
+Configured trusted Groups are ordinary shared conversations, while other Groups
+may include people who joined by link. Keet messages never have the web Human's
+administrative authority. Changes to these lists apply after Partner restart
+and only to newly admitted events.
+
 KFA sends admitted text and image messages, including ordinary Group and
 Broadcast events. CFL buffers ordinary Group messages per Group until a mention,
 identity-label, or reply trigger drains that Group into one turn. Every DM,
@@ -155,15 +164,29 @@ path are never placed in prompt text or browser responses. A duplicate `eventId`
 acknowledged without another input, including after a Partner restart. CFL
 never sends an automatic Keet response.
 
+Each qualifying trigger appears in the single Companion timeline as a Keet DM
+or Group bubble with its original text, sender label and destination, including
+after page reload, pagination or Partner restart. Ordinary Group lines remain
+bounded context and do not appear as separate bubbles. CFL submits trigger text
+and DM images as native input; routing facts are application context and preceding
+Group lines are untrusted context. No repeated Keet tool tutorial is included.
+`trigger_aliases` adds case-sensitive literal substring matches to otherwise
+ordinary admitted Group text. It does not alter DM, Broadcast, native mention,
+identity-label or reply handling, and it does not make a trusted Group respond to
+every line. An image-only Group message cannot match an alias.
+
 On a qualifying Group or DM text trigger, KFA may include up to 16 aggregate
 external reaction facts for recent messages authored by its identity. CFL
-quotes the target excerpt as untrusted context in a bounded input and records
+quotes the target excerpt as bounded untrusted context and records
 each supplied destination, canonical target, emoji, and count fact in SQLite.
 Webhook retries, restarts, and later triggers do not repeat that unchanged
 fact. A changed external count is eligible again. Broadcast and ordinary
 Group events have no reaction context; reactions alone do not wake the Agent.
 The snapshot contains no reactor identity, so the Agent must not attribute a
 reaction to a person.
+KFA supplies this snapshot only for triggers it classified itself; a turn
+triggered solely by a CFL alias may have no reaction snapshot. CFL does not
+re-fetch or infer one.
 
 The Keet MCP `send_message` call requires nonblank `text` and may include
 `reaction: { targetMessageId: { deviceId, seq }, emoji }` for one Unicode emoji.

@@ -11,6 +11,7 @@ export const DEFAULT_CONTEXT_ROUND_LIMIT = 10;
 const ttsSchema = z.object({ provider: z.enum(['minimax', 'alibaba', 'bytedance']), voice: z.string().min(1), speed: z.number().finite().min(0.5).max(2).optional() }).strict().superRefine((tts, context) => {
   if (tts.provider === 'alibaba' && tts.speed !== undefined) context.addIssue({ code: 'custom', path: ['speed'], message: 'Alibaba TTS speed is unavailable on the configured non-realtime API' });
 });
+const keetNames = z.array(z.string().min(1).refine(value => Array.from(value).length <= 512 && value.trim() === value && !/[\r\n\u2028\u2029]/u.test(value), 'Name must be nonempty, trimmed, at most 512 characters and on one line')).max(32).refine(values => new Set(values).size === values.length, 'Names must be unique');
 
 const schema = z.object({
   name: z.string().min(1),
@@ -37,6 +38,8 @@ const schema = z.object({
   }).strict().optional(),
   keet: z.object({
     endpoint: z.string().min(1).optional(),
+    trusted_groups: keetNames.optional(),
+    trigger_aliases: keetNames.optional(),
   }).strict().optional(),
   pet: z.object({ enabled: z.boolean().default(false) }).strict().default({ enabled: false }),
 }).strict();
@@ -62,6 +65,8 @@ export async function loadConfig(path: string): Promise<Config> {
     },
     keet: config.keet ? {
       ...(config.keet.endpoint ? { endpoint: keetEndpoint(config.keet.endpoint) } : {}),
+      trusted_groups: config.keet.trusted_groups ?? [],
+      trigger_aliases: config.keet.trigger_aliases ?? [],
     } : undefined,
   };
 }

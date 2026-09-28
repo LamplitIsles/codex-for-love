@@ -11,3 +11,6 @@ button, textarea, input { font: inherit; }
 #dsh-companion .companion-row-pending .companion-bubble,
 #dsh-companion .companion-row-pending .companion-image-group { opacity: 0.6; }
 #dsh-companion .companion-row-pending .companion-bubble { outline: 1px dashed color-mix(in oklch, var(--color-base-content) 30%, transparent); }
+#dsh-companion .companion-row-keet .companion-bubble { background: var(--color-base-200); border: 1px solid var(--color-base-300); }
+#dsh-companion .companion-keet-source { display:flex; flex-wrap:wrap; justify-content:flex-end; align-items:center; gap:.3rem .5rem; max-width:100%; overflow-wrap:anywhere; font-size:.75rem; color:var(--color-base-content); }
+#dsh-companion .companion-keet-source strong,#dsh-companion .companion-keet-source span { min-width:0; overflow-wrap:anywhere; }

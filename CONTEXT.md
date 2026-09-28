@@ -111,16 +111,28 @@ _Avoid_: shared Keet account, Keet mailbox
 The optional local webhook delivery of external Keet messages to a Partner. Ordinary Group messages are retained as bounded context; a qualifying Group message or DM starts a turn, while Broadcast messages do not. When it is not configured or unavailable, the Partner's ordinary local conversation remains available and receives no Keet-derived input.
 _Avoid_: required Partner dependency, Keet read state, automatic reply
 
+**Keet-sourced message（Keet 来源消息）**:
+An admitted Keet message in the Partner's single conversation: a DM is ordinary one-to-one speech, while a Group sender label does not establish identity because people can join through invite links. Neither source inherits the Human's administrative authority.
+_Avoid_: Human message, anonymous user bubble, separate Keet session
+
+**Trusted Keet Group（可信 Keet 群组）**:
+An admitted Keet Group explicitly designated by the Owner whose members' messages the Partner treats as ordinary conversation, including from members who join later. This conversational trust does not verify a sender's identity or grant the Human's administrative authority.
+_Avoid_: verified sender, Human-owned channel, privileged instructions
+
 **Inbound Keet Image（入站 Keet 图片）**:
 An image accompanying an admitted external Keet message, including an image-only message. The Keet gateway owns the retained original and its reference. For a triggered DM, the Partner fetches usable images into its own attachments for native Agent input; unavailable images remain visible as a fact. Group images remain bounded context, and Broadcast images do not start a turn.
 _Avoid_: webhook image bytes, local shared media path
 
 **Keet Trigger（Keet 触发）**:
-An external Keet message classified by the Keet gateway as one that may start a Partner turn. An ordinary Group Trigger is a verified native mention, literal current identity-label, or reply to an identity-authored Keet message; every external DM message is a separate trigger. Broadcasts have no Keet Trigger.
+An external Keet message classified as one that may start a Partner turn. A Group Trigger is a verified native mention, a current identity-label or configured trigger-alias match, or a reply to an identity-authored Keet message; every external DM message is a separate trigger. Broadcasts have no Keet Trigger.
 _Avoid_: every Group message, outgoing Keet message, automatic reply
 
+**Keet trigger alias（Keet 触发别名）**:
+An optional name that the Owner configures for the Partner in addition to its current Keet identity label. Its appearance in an admitted Group message may start a Partner turn without changing that Group's conversational trust.
+_Avoid_: trusted Group name, sender identity, Keet profile name
+
 **Keet Group Context Buffer（Keet 群组上下文缓冲）**:
-The bounded per-Group sequence of ordinary external Group messages retained until the next Keet Trigger for that same Group. It accompanies that trigger in one Partner input but is not a sequence of independent Partner turns.
+The bounded per-Group sequence of ordinary external Group messages retained until the next Keet Trigger for that same Group. It accompanies that trigger as context, without appearing as separate messages in the Human's chat timeline or starting independent Partner turns.
 _Avoid_: global group history, a Broadcast buffer, standalone turn queue
 
 **Keet Reaction Context（Keet 表情回应上下文）**:

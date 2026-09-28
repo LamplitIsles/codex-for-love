@@ -140,9 +140,19 @@ from KFA with the existing bearer and attached to native input. Unavailable
 images are reported in the input without dropping the message. Group images
 remain context only. Qualifying Group and DM messages may include a bounded
 snapshot of aggregate external reactions to the Partner's recent Keet messages.
-CFL supplies each new destination, target, emoji, and count fact in a durable
-turn input at most once; a changed count can appear again. Reaction changes
-alone do not start a turn, and CFL never automatically replies or reacts.
+CFL displays qualifying Keet messages in the Companion timeline with their
+original text, DM or Group kind, sender label, and destination, including after
+reload and restart. Optional `[keet]` `trusted_groups` names designate ordinary
+shared conversations; `trigger_aliases` such as `shio` and `汐` add case-sensitive
+literal Group text triggers. Both lists use exact configured strings and take
+effect after restart. Trusted Groups still wait for a trigger, and Keet sources
+never inherit the web Human's administrative authority.
+
+CFL supplies each new destination, target, emoji, and count fact as bounded
+untrusted context at most once; a changed count can appear again. Alias-only
+triggers may have no reaction snapshot because KFA sends it only for triggers
+it classified itself. Reaction changes alone do not start a turn, and CFL never
+automatically replies or reacts.
 For a chosen response, Keet MCP `send_message` requires text and can also
 request one emoji reaction to a known Group message or this DM turn's trigger.
 Its result reports text delivery separately from reaction success. See the

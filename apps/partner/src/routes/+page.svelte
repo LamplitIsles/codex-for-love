@@ -9,7 +9,7 @@
   import { companionTranslate, type CompanionTranslate } from '$lib/companion/client/locale.js';
   import { APPEARANCE_STORAGE_KEY, LANGUAGE_STORAGE_KEY, initialPreferences, readPreference, resolveScheme, writePreference, type CompanionAppearance, type CompanionLanguage, type CompanionScheme } from '$lib/companion/client/preferences.js';
   import type { CompanionActions, CompanionRecoveredDraft } from '$lib/companion/client/companion-bridge.js';
-  import type { CompanionProjection, TimelineItem, TimelineMessageUnit } from '$lib/companion/projection.js';
+  import type { CompanionProjection, KeetProvenance, TimelineItem, TimelineMessageUnit } from '$lib/companion/projection.js';
   import type { CompanionStateRecord } from '$lib/companion/domain.js';
   import { CompanionPreControllerError } from '$lib/companion/client/admission.js';
   import { CompanionRecovery } from '$lib/companion/client/recovery.js';
@@ -18,7 +18,7 @@
   import { affinityStage } from '$lib/companion/domain.ts';
   import PetDock from '$lib/pet/PetDock.svelte';
   type Message = { sequence: number; revision: number; id: string; turnId?: string | null; input: string; delivery: MessageDelivery; inputError: string | null; created: number;
-    inputImages: { id: string; name: string; url: string }[] };
+    inputImages: { id: string; name: string; url: string }[]; keet?: KeetProvenance };
   type TurnResult = { id: string; turnId: string; sourceIds: string[]; sequence: number; revision: number; answers: string[]; error: string | null; status: string; completedAt?: number;
     images: { id: string; name: string; url: string }[]; voices: { id: string; url: string }[] };
   type Snapshot = { cursor: number; before: number | null; hasMore: boolean; hasChangesMore: boolean; pendingCount: number; cancellable: string[]; imageLimits?: ImageAttachmentLimits; name: string; speech?: boolean; typing: boolean; messages: Message[]; storageError: boolean;
@@ -112,8 +112,8 @@
       const delivery = outgoingDeliveryPresentation(message.delivery);
       const order = message.sequence > 0 ? message.sequence * 2 : Number.MAX_SAFE_INTEGER - (visibleMessages.length - index) * 2;
       const user: TimelineItem = { id: `${message.id}:user`, messageKey: `${message.id}:user`, kind: 'text', side: 'outgoing',
-        text: message.input, time: message.created, pending: ['sending', 'pending', 'unresolved'].includes(message.delivery), waitsForCurrentReply: message.delivery === 'pending' };
-      ordered.push({ order, unit: { id: user.id, side: 'outgoing', items: [...(message.input ? [user] : []), ...(message.inputImages ?? []).map((image): TimelineItem => ({ id: image.id, messageKey: user.messageKey, kind: 'image', side: 'outgoing', state: 'ready', previewUrl: image.url, alt: image.name }))], time: message.created, pending: delivery.pending, pendingLabel: delivery.labelKey ? t(delivery.labelKey) : undefined } });
+        text: message.keet ? `${message.keet.text}${message.keet.imageNote ?? ''}` : message.input, time: message.created, pending: ['sending', 'pending', 'unresolved'].includes(message.delivery), waitsForCurrentReply: message.delivery === 'pending' };
+      ordered.push({ order, unit: { id: user.id, side: 'outgoing', items: [...(user.text ? [user] : []), ...(message.inputImages ?? []).map((image): TimelineItem => ({ id: image.id, messageKey: user.messageKey, kind: 'image', side: 'outgoing', state: 'ready', previewUrl: image.url, alt: image.name }))], time: message.created, pending: delivery.pending, pendingLabel: delivery.labelKey ? t(delivery.labelKey) : undefined, ...(message.keet ? { keet: message.keet } : {}) } });
       const result = resultBySource.get(message.id);
       // A turn result is rendered once, after the last source input. This
       // keeps multi-input turns readable without copying the same answer to

@@ -45,6 +45,13 @@ test('Keet configuration is optional but rejects non-loopback or path endpoints'
     await writeFile(path, `${base}[keet]\nmedia_root = "/tmp/media"\n`); await assert.rejects(loadConfig(path));
     await writeFile(path, `${base}[keet]\nendpoint = "http://example.test:1"\n`); await assert.rejects(loadConfig(path), /bare/);
     await writeFile(path, `${base}[keet]\nendpoint = "http://127.0.0.1:18769/cfl"\n`); await assert.rejects(loadConfig(path), /bare/);
+    await writeFile(path, `${base}[keet]\ntrusted_groups = ["Our little home"]\ntrigger_aliases = ["shio", "汐"]\n`);
+    assert.deepEqual((await loadConfig(path)).keet?.trusted_groups, ['Our little home']);
+    assert.deepEqual((await loadConfig(path)).keet?.trigger_aliases, ['shio', '汐']);
+    for (const entry of ['trusted_groups = ["", "Friends"]', 'trusted_groups = ["Friends", "Friends"]', 'trigger_aliases = ["shio", "shio"]', 'trigger_aliases = [" shio"]', `trigger_aliases = [${Array(33).fill('"x"').join(', ')}]`]) {
+      await writeFile(path, `${base}[keet]\n${entry}\n`);
+      await assert.rejects(loadConfig(path));
+    }
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 

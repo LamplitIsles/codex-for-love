@@ -1864,6 +1864,7 @@
                     class:cmp-chat-end={unit.side === "outgoing"}
                     class:outgoing={unit.side === "outgoing"}
                     class:incoming={unit.side === "incoming"}
+                    class:companion-row-keet={!!unit.keet}
                     class:companion-row-pending={unit.pending}
                     data-pending={unit.pending || undefined}
                     data-testid={unitTestId(unit)}
@@ -1874,7 +1875,7 @@
                       <div
                         class="companion-avatar-crop cmp-mask cmp-mask-circle"
                       >
-                        {#if unit.side === "incoming" && identity.companionAvatar}<img
+                        {#if unit.keet}<span aria-label="Keet" role="img">K</span>{:else if unit.side === "incoming" && identity.companionAvatar}<img
                             src={identity.companionAvatar}
                             alt=""
                           />{:else if unit.side === "outgoing" && identity.userAvatar}<img
@@ -1886,6 +1887,14 @@
                       </div>
                     </div>
                     <div class="companion-message-stack">
+                      {#if unit.keet}
+                        <div class="companion-keet-source" data-testid={`keet-source-${unit.id}`}>
+                          <span class="cmp-badge cmp-badge-outline">Keet {unit.keet.kind === 'dm' ? 'DM' : 'Group'}</span>
+                          <strong>{unit.keet.senderLabel}</strong>
+                          <span aria-hidden="true">→</span>
+                          <span>{unit.keet.destination}</span>
+                        </div>
+                      {/if}
                       {#each parts as part}
                         {#if part.kind === "images"}
                           <div
