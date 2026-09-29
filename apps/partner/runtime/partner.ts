@@ -551,7 +551,9 @@ export async function createPartner(config: Config, credentials: Credentials, de
     if (!parsed) return undefined;
     const previous = turns.get(parsed.id);
     const turn: OfficialTurn = { ...previous, ...parsed };
-    if (parsed.items === undefined && previous?.items !== undefined) turn.items = previous.items;
+    // An in-progress RPC snapshot can arrive after a newer item notification.
+    // Keep items already observed for this turn when that snapshot is shorter.
+    if (previous?.items && (parsed.items === undefined || (parsed.status === 'inProgress' && parsed.items.length < previous.items.length))) turn.items = previous.items;
     turns.set(turn.id, turn);
     const officialIds = officialInputIds(turn);
     const pending = submittingOperationId
