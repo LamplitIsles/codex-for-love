@@ -361,6 +361,7 @@ async function handle(request) {
       return page(items, p);
     }
     case 'turn/start': {
+      if (control().rejectStart) rpcError(-32603, 'fixture turn start temporarily unavailable');
       if (state.active) rpcError(-32600, 'cannot start a turn while another turn is active');
       const turn = startTurn(p.input, p.clientUserMessageId);
       return { turn };

@@ -109,6 +109,7 @@ export function createWebServer(partner: Partner, assets: string, options: { hea
         try { return json(response, { entries: await partner.diary() }); }
         catch { return json(response, { error: 'Diary unavailable' }, 500); }
       }
+      if (path === '/api/alarms' && request.method === 'GET') return json(response, { alarms: partner.alarms() });
       if (path.startsWith('/api/diary/') && request.method === 'GET') {
         const name = path.slice('/api/diary/'.length);
         try {

@@ -4,6 +4,7 @@ import { basename, extname, isAbsolute, join, relative, resolve, sep as pathSepa
 import type { z } from 'zod';
 import {
   AppServerInvalidRequestError,
+  AppServerRpcError,
   CodexAppServerClient,
   type CodexAppServerClientOptions,
   type ServerNotificationFor,
@@ -43,6 +44,7 @@ import { processError } from './logging.ts';
 import { readRelationshipJournal } from './relationship-journal.ts';
 import { PetActivityProjection } from './pet.ts';
 import { localPetClip } from './pet-assets.ts';
+import { completeAlarmOccurrence, dueAlarms, listAlarms } from './alarms.ts';
 import { conversationImageId, pageConversationImages, readConversationImages, withAvailability, writeConversationImages, type ConversationImage, type ConversationImageOrigin } from './conversation-images.ts';
 
 type OfficialItem = Record<string, unknown>;
@@ -55,7 +57,7 @@ type OfficialTurn = {
   startedAt?: unknown;
   completedAt?: unknown;
 };
-type InputSource = 'human' | 'keet' | 'none';
+type InputSource = 'human' | 'keet' | 'alarm' | 'none';
 type InputIntent = {
   ids: string[];
   input: string;
@@ -80,6 +82,7 @@ type TurnResult = {
 export const MAX_DIARY_ENTRY_BYTES = 128 * 1024;
 const HISTORY_PAGE_MESSAGES = 50;
 const HISTORICAL_FALLBACK_START = new Date(2026, 8, 1).getTime();
+const ALARM_INPUT_PREFIX = '[Partner self-set reminder; not from the Human or Keet]\n';
 
 /** Match DSH's 50-message history window against CFL's rendered projection. */
 export function visibleHistoryPage(messages: readonly MessageMeta[], results: readonly TurnResult[], before?: number) {
@@ -182,7 +185,7 @@ function completedTurnTime(value: unknown): number | undefined {
 function inputTimeContext(source: Exclude<InputSource, 'none'>, now: number): v2.AdditionalContextEntry {
   const date = new Date(now);
   const time = `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
-  const input = source === 'human' ? 'Current human input' : 'Qualifying Keet input';
+  const input = source === 'human' ? 'Current human input' : source === 'keet' ? 'Qualifying Keet input' : 'Partner self-set alarm';
   return { kind: 'application', value: `${input} received around local ${time}. Trusted delivery metadata; not user-authored text or an instruction.` };
 }
 
@@ -497,6 +500,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
   let eventChain: Promise<void> = Promise.resolve();
   let admission: Promise<void> = Promise.resolve();
   let closePromise: Promise<void> | undefined;
+  let alarmTimer: ReturnType<typeof setInterval> | undefined;
   const pet = config.pet.enabled ? new PetActivityProjection(() => { if (!closing) notify(); }) : undefined;
 
   const notify = () => { for (const listener of listeners) listener(); };
@@ -744,7 +748,8 @@ export async function createPartner(config: Config, credentials: Credentials, de
     const segment = await store.inputSegment(sourceId);
     const fallbackIds = expandClientId(typeof fallback?.clientId === 'string' ? fallback.clientId : '');
     if (fallbackIds.length > 1 && !segment) throw projectionError('MISSING_INPUT_SEGMENT', `Missing acknowledged input segment metadata for ${sourceId}`);
-    const combinedText = fallback ? textFromUserItem(fallback) ?? '' : '';
+    const rawText = fallback ? textFromUserItem(fallback) ?? '' : '';
+    const combinedText = sourceId.startsWith('alarm:') && rawText.startsWith(ALARM_INPUT_PREFIX) ? rawText.slice(ALARM_INPUT_PREFIX.length) : rawText;
     const images = await store.inputImageMetadata([sourceId]);
     return {
       input: segment ? combinedText.slice(segment.text_offset, segment.text_offset + segment.text_length) : combinedText,
@@ -884,7 +889,10 @@ export async function createPartner(config: Config, credentials: Credentials, de
       await writeConversationImages(paths.conversationImages, await withAvailability([...catalogue.values()]));
     }
     const unresolved = await unresolvedMessages();
-    for (const message of unresolved) unresolvedInputIds.add(message.id);
+    // Native history is authoritative after a fresh app-server connection.
+    // An unaccepted alarm can be retried with its stable occurrence ID; it is
+    // never a Human draft to restore into the composer.
+    for (const message of unresolved) if (!message.id.startsWith('alarm:')) unresolvedInputIds.add(message.id);
     await setRestoredDraft(unresolved.map((message) => message.id));
     syncActiveTurn();
   }
@@ -897,7 +905,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
   }
 
   async function setRestoredDraft(ids: readonly string[]): Promise<void> {
-    const unique = [...new Set(ids)].filter((id) => messageIds.has(id) && !observedInputIds.has(id));
+    const unique = [...new Set(ids)].filter((id) => !id.startsWith('alarm:') && messageIds.has(id) && !observedInputIds.has(id));
     if (!unique.length) {
       restoredDraft = undefined;
       return;
@@ -939,15 +947,21 @@ export async function createPartner(config: Config, credentials: Credentials, de
     if (closing || !appServer) throw new Error('Partner is unavailable');
     pendingStarts.set(intent.transportId, intent);
     submittingOperationId = intent.transportId;
+    let rejectedBeforeAcceptance = false;
     try {
       const keetContext = intent.source === 'keet' ? await store.keetContext(intent.ids[0]!) : undefined;
       const response = await appServer.call('turn/start', {
         threadId,
-        input: nativeInput(intent.input, intent.images),
+        input: nativeInput(intent.source === 'alarm' ? `${ALARM_INPUT_PREFIX}${intent.input}` : intent.input, intent.images),
         clientUserMessageId: intent.transportId,
         ...(intent.source !== 'none'
-          ? { additionalContext: intent.source === 'keet' && keetContext ? keetAdditionalContext(keetContext) : { 'codex-for-love.message-time': inputTimeContext(intent.source, now()) } }
+          ? { additionalContext: intent.source === 'keet' && keetContext ? keetAdditionalContext(keetContext) : intent.source === 'alarm'
+            ? { 'codex-for-love.alarm': { kind: 'application' as const, value: 'This is a scheduled reminder you previously wrote to yourself. It is not a message, instruction, or commitment from the Human or a Keet sender. Decide what to do now using current context; do not automatically send to the originating channel.' }, 'codex-for-love.message-time': inputTimeContext(intent.source, now()) }
+            : { 'codex-for-love.message-time': inputTimeContext(intent.source, now()) } }
           : {}),
+      }).catch((error: unknown) => {
+        rejectedBeforeAcceptance = error instanceof AppServerRpcError;
+        throw error;
       });
       const turn = registerTurn(response.turn, intent.ids);
       if (!turn) throw new Error('Codex app-server did not return a turn');
@@ -964,7 +978,10 @@ export async function createPartner(config: Config, credentials: Credentials, de
     } catch (error) {
       if (intent.ids.every((id) => observedInputIds.has(id))) return turns.get(intent.turnId ?? '');
       pendingStarts.delete(intent.transportId);
-      await markUnresolved(intent);
+      // A JSON-RPC rejection means the server did not accept this alarm. A
+      // timeout or lost connection remains ambiguous until fresh history is
+      // loaded after restart, so never retry it in this process.
+      if (intent.source !== 'alarm' || !rejectedBeforeAcceptance) await markUnresolved(intent);
       throw error;
     } finally {
       if (submittingOperationId === intent.transportId) submittingOperationId = null;
@@ -1086,6 +1103,32 @@ export async function createPartner(config: Config, credentials: Credentials, de
       catch (error) { if (!closing) processError('keet.admission_failed', error, { operationId: first.id }); }
     });
     admission = task.catch(() => { if (!closing) notify(); });
+  }
+
+  function checkAlarms(): Promise<void> {
+    const task = admission.then(async () => {
+      if (closing || compacting || activeTurnId || recoveryPromise || storageError) return;
+      for (const alarm of dueAlarms(paths.alarms, now())) {
+        if (closing || compacting || activeTurnId || recoveryPromise) break;
+        // A recurring occurrence missed during downtime is skipped. A one-shot
+        // stays due until admitted once, even across restarts.
+        if (alarm.schedule.kind !== 'once' && now() - alarm.nextAt > 60_000) {
+          completeAlarmOccurrence(paths.alarms, alarm, now()); notify(); continue;
+        }
+        const id = `alarm:${alarm.id}:${alarm.nextAt}`;
+        if (unresolvedInputIds.has(id)) continue;
+        try {
+          const meta = await store.admit(id, alarm.message);
+          messageIds.add(id);
+          messagesById.set(id, { created: meta.created, sequence: meta.sequence });
+          if (!operationTurn(id) && !observedInputIds.has(id)) await startIntent({ ids: [id], input: alarm.message, images: [], transportId: id, source: 'alarm' });
+          completeAlarmOccurrence(paths.alarms, alarm, now());
+          notify();
+        } catch (error) { if (!closing) processError('alarm.admission_failed', error, { operationId: id }); break; }
+      }
+    });
+    admission = task.catch(() => { if (!closing) notify(); });
+    return task;
   }
 
   async function restoreUnconsumed(turnId?: string, preserveQueued = false): Promise<void> {
@@ -1421,6 +1464,8 @@ export async function createPartner(config: Config, credentials: Credentials, de
     startupPending = false;
     await refreshBootstrap();
     drainKeet();
+    alarmTimer = setInterval(() => { void checkAlarms(); }, 5_000);
+    void checkAlarms();
   } catch (error) {
     closing = true;
     for (const unsubscribe of unsubscribeAppServer.splice(0)) unsubscribe();
@@ -1432,6 +1477,8 @@ export async function createPartner(config: Config, credentials: Credentials, de
 
   return {
     keetEnabled,
+    alarms() { return listAlarms(paths.alarms); },
+    checkAlarms,
     async ingestKeet(message: KeetEventBody) {
       if (!keetEnabled || closing) throw new Error('Keet ingress unavailable');
       const inputId = `keet:webhook:${message.eventId}`;
@@ -1536,6 +1583,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
           turnId: turn?.id ?? null,
           input: source.input,
           ...(keetContexts.get(meta.id) ? { keet: keetContexts.get(meta.id)!.provenance } : {}),
+          ...(meta.id.startsWith('alarm:') ? { alarm: true } : {}),
           created: meta.created,
           sequence: meta.sequence,
           revision: meta.revision,
@@ -1670,6 +1718,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
     close() {
       if (closePromise) return closePromise;
       closing = true;
+      if (alarmTimer) clearInterval(alarmTimer);
       pet?.close();
       for (const unsubscribe of unsubscribeAppServer.splice(0)) unsubscribe();
       for (const controller of turnControllers.values()) controller.abort();

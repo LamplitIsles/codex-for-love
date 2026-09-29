@@ -12,6 +12,14 @@ _Avoid_: Partner execution state, task cancellation
 A privacy-preserving notice that identifies the Partner and that something new arrived after a Partner turn completes successfully, without revealing message content.
 _Avoid_: message preview, Partner turn status
 
+**Partner alarm（伴侣闹钟）**:
+A Partner-authored schedule for delivering a stored message to the Partner's single conversation at a chosen time. It may be one-time or recurring, and does not designate an external recipient.
+_Avoid_: Companion notification, separate conversation, Human reminder
+
+**Alarm occurrence（闹钟触发）**:
+One due delivery from a Partner alarm that starts an Agent turn. It appears in conversation history as the Partner's own reminder, distinct from a Human or Keet message; a recurring alarm can have many occurrences.
+_Avoid_: alarm definition, Human message, automatic Keet reply
+
 **Human（人类参与者）**:
 The person in the one-to-one conversation. Human identifies the conversation role and media source; it does not mean a resource owner or operator.
 _Avoid_: owner when referring to a conversation participant

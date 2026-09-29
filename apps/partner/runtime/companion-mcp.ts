@@ -10,12 +10,14 @@ import { loadConfig, loadCredentials } from './config.ts';
 import { synthesizeSpeech } from './speech.ts';
 import { pageConversationImages, readConversationImages, withAvailability } from './conversation-images.ts';
 import { createConversationSearch } from './conversation-search.ts';
+import { alarmMessageSchema, alarmScheduleSchema, createAlarm, deleteAlarm, listAlarms } from './alarms.ts';
 
 const workspace = process.argv[2];
 if (!workspace) throw new Error('Companion MCP requires a workspace path');
 const configPath = process.argv[3];
 const journal = partnerPaths(workspace).relationshipJournal;
 const conversationImages = partnerPaths(workspace).conversationImages;
+const alarms = partnerPaths(workspace).alarms;
 const conversationSearch = createConversationSearch({ workspace, codexHome: configPath ? (await loadConfig(configPath)).codex.home : undefined });
 const server = new McpServer({ name: 'companion', version: '0.1.0' });
 const reaction = { mood: z.object({ value: z.enum(MOODS), note: z.string().optional(), reason: z.string() }).strict().optional(), affinity: z.object({ delta: z.number().int().min(-10).max(10), reason: z.string() }).strict().optional() };
@@ -35,6 +37,12 @@ server.registerTool('read_conversation_record', { description: 'Read one selecte
   catch { return { content: [{ type: 'text' as const, text: 'Conversation record is unavailable' }], isError: true }; }
 });
 server.registerTool('roll_dice', { description: 'Roll dice with an optional modifier and label.', inputSchema: { count: z.number().int().min(1).max(100).optional(), sides: z.number().int().min(2).max(1_000_000), modifier: z.number().int().min(-1_000_000).max(1_000_000).optional(), label: z.string().max(200).optional() } }, async (input) => ({ content: [{ type: 'text', text: JSON.stringify(rollDice(input)) }] }));
+server.registerTool('create_alarm', { description: 'Schedule a message to yourself. At the due time it wakes this same conversation as your own reminder, not as a Human message. Choose once (ISO datetime with offset), interval (everyMinutes, minimum 5), daily (hour, minute, IANA timeZone), or weekly (same plus weekday 0=Sunday). It does not automatically send to Keet.', inputSchema: { message: alarmMessageSchema, schedule: alarmScheduleSchema } }, async ({ message, schedule }) => {
+  try { return { content: [{ type: 'text' as const, text: JSON.stringify(createAlarm(alarms, message, schedule)) }] }; }
+  catch (error) { return { content: [{ type: 'text' as const, text: error instanceof Error ? error.message : 'Could not create alarm' }], isError: true }; }
+});
+server.registerTool('list_alarms', { description: 'List your current alarms and their next due times.', inputSchema: {} }, async () => ({ content: [{ type: 'text', text: JSON.stringify(listAlarms(alarms)) }] }));
+server.registerTool('delete_alarm', { description: 'Cancel one of your alarms by ID. To change one, cancel it and create a replacement.', inputSchema: { id: z.uuid() } }, async ({ id }) => ({ content: [{ type: 'text', text: JSON.stringify({ deleted: deleteAlarm(alarms, id) }) }] }));
 server.registerTool('send_voice', { description: 'Send one standalone Voice message. Use only for a short deliberate spoken message; it never adds a transcript.', inputSchema: { text: z.string().trim().min(1).max(240) } }, async ({ text }) => {
   try {
     if (!configPath) throw new Error('Voice dispatch is unavailable');

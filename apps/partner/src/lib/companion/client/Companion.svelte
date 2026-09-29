@@ -23,6 +23,7 @@
   import Images from "lucide-svelte/icons/images";
   import Heart from "lucide-svelte/icons/heart";
   import BookOpen from "lucide-svelte/icons/book-open";
+  import AlarmClock from "lucide-svelte/icons/alarm-clock";
   import { createVirtualizer } from "@tanstack/svelte-virtual";
   import { galleryRows, type GalleryGrouping, type GalleryImage } from "./gallery.js";
   import {
@@ -191,7 +192,11 @@
   let detailOpen = false;
   let preferencesOpen = false;
   let preferencesButton: HTMLButtonElement;
-  let drawerTab: "history" | "diary" | "images" = "history";
+  let drawerTab: "history" | "diary" | "images" | "alarms" = "history";
+  type AlarmView = { id: string; message: string; nextAt: number; schedule: { kind: 'once'; at: string } | { kind: 'interval'; everyMinutes: number } | { kind: 'daily' | 'weekly'; hour: number; minute: number; timeZone: string; weekday?: number } };
+  let alarms: AlarmView[] = [];
+  let alarmsLoading = false;
+  let alarmsError = false;
   let galleryImages: GalleryImage[] = [];
   let galleryGrouping: GalleryGrouping = "week";
   let galleryCursor: string | undefined;
@@ -1426,6 +1431,7 @@
   function openDetail(): void {
     detailReturnFocus = document.activeElement as HTMLElement;
     detailOpen = true;
+    if (drawerTab === 'alarms') void openAlarms();
     onHistoryOpenChange?.(true);
     void tick().then(() => {
       focusFirst(() => relationshipDrawer);
@@ -1559,6 +1565,26 @@
     } finally {
       if (diaryRequest === request) diaryLoading = false;
     }
+  }
+  async function openAlarms(): Promise<void> {
+    drawerTab = 'alarms';
+    alarmsLoading = true; alarmsError = false;
+    try {
+      const response = await fetch('/api/alarms');
+      if (!response.ok) throw new Error();
+      alarms = (await response.json() as { alarms: AlarmView[] }).alarms;
+    } catch { alarmsError = true; }
+    finally { alarmsLoading = false; }
+  }
+  function alarmTime(value: number): string { return new Intl.DateTimeFormat(locale === 'zh' ? 'zh-CN' : 'en', { dateStyle: 'medium', timeStyle: 'short' }).format(value); }
+  function alarmSchedule(alarm: AlarmView): string {
+    const schedule = alarm.schedule;
+    if (schedule.kind === 'once') return t('alarm.once');
+    if (schedule.kind === 'interval') return t('alarm.interval', { minutes: schedule.everyMinutes });
+    const time = `${String(schedule.hour).padStart(2, '0')}:${String(schedule.minute).padStart(2, '0')}`;
+    if (schedule.kind === 'daily') return t('alarm.daily', { time, zone: schedule.timeZone });
+    const weekday = new Intl.DateTimeFormat(locale === 'zh' ? 'zh-CN' : 'en', { weekday: 'long', timeZone: 'UTC' }).format(Date.UTC(2024, 0, 7 + (schedule.weekday ?? 0)));
+    return t('alarm.weekly', { weekday, time, zone: schedule.timeZone });
   }
   async function openGallery(force = false): Promise<void> {
     drawerTab = "images";
@@ -1865,6 +1891,7 @@
                     class:outgoing={unit.side === "outgoing"}
                     class:incoming={unit.side === "incoming"}
                     class:companion-row-keet={!!unit.keet}
+                    class:companion-row-alarm={!!unit.alarm}
                     class:companion-row-pending={unit.pending}
                     data-pending={unit.pending || undefined}
                     data-testid={unitTestId(unit)}
@@ -1875,7 +1902,7 @@
                       <div
                         class="companion-avatar-crop cmp-mask cmp-mask-circle"
                       >
-                        {#if unit.keet}<span aria-hidden="true">K</span>{:else if unit.side === "incoming" && identity.companionAvatar}<img
+                        {#if unit.keet}<span aria-hidden="true">K</span>{:else if unit.alarm}<AlarmClock size={16} aria-hidden="true" />{:else if unit.side === "incoming" && identity.companionAvatar}<img
                             src={identity.companionAvatar}
                             alt=""
                           />{:else if unit.side === "outgoing" && identity.userAvatar}<img
@@ -1892,6 +1919,8 @@
                           <span class="cmp-badge cmp-badge-soft cmp-badge-sm">Keet {unit.keet.kind === 'dm' ? 'DM' : 'Group'}</span>
                           <span>{unit.keet.senderLabel} · {unit.keet.destination}</span>
                         </div>
+                      {:else if unit.alarm}
+                        <div class="cmp-chat-header companion-alarm-source"><span class="cmp-badge cmp-badge-soft cmp-badge-sm">{t('alarm.source')}</span></div>
                       {/if}
                       {#each parts as part}
                         {#if part.kind === "images"}
@@ -2498,14 +2527,23 @@
           on:click={() => void openDiary()}><BookOpen size={16} aria-hidden="true" /></button
         >
         <button type="button" role="tab" id="companion-images-tab" aria-controls="companion-drawer-panel" aria-selected={drawerTab === "images"} aria-label={t("drawer.images")} class="cmp-btn cmp-btn-ghost cmp-btn-sm cmp-btn-circle" class:cmp-btn-active={drawerTab === "images"} on:click={() => void openGallery()}><Images size={16} aria-hidden="true" /></button>
+        <button type="button" role="tab" id="companion-alarms-tab" aria-controls="companion-drawer-panel" aria-selected={drawerTab === "alarms"} aria-label={t('drawer.alarms')} class="cmp-btn cmp-btn-ghost cmp-btn-sm cmp-btn-circle" class:cmp-btn-active={drawerTab === "alarms"} on:click={() => void openAlarms()}><AlarmClock size={16} aria-hidden="true" /></button>
       </div>
       <div
         id="companion-drawer-panel"
         class="companion-history-scroll"
         role="tabpanel"
-        aria-labelledby={drawerTab === "history" ? "companion-history-tab" : drawerTab === "diary" ? "companion-diary-tab" : "companion-images-tab"}
+        aria-labelledby={drawerTab === "history" ? "companion-history-tab" : drawerTab === "diary" ? "companion-diary-tab" : drawerTab === "images" ? "companion-images-tab" : "companion-alarms-tab"}
       >
-        {#if drawerTab === "images"}
+        {#if drawerTab === 'alarms'}
+          <section class="companion-alarms" aria-label={t('drawer.alarms')}>
+            <div class="companion-alarms-heading"><h3>{t('drawer.alarms')}</h3><button type="button" class="cmp-btn cmp-btn-ghost cmp-btn-sm" on:click={() => void openAlarms()}>{t('alarm.refresh')}</button></div>
+            {#if alarmsLoading}<p class="companion-history-state" role="status">{t('loading')}</p>
+            {:else if alarmsError}<p class="companion-history-state" role="alert">{t('alarm.failed')}</p>
+            {:else if !alarms.length}<p class="companion-history-state">{t('alarm.empty')}</p>
+            {:else}<ul class="cmp-list companion-alarm-list">{#each alarms as alarm (alarm.id)}<li class="cmp-list-row companion-alarm-item"><time datetime={new Date(alarm.nextAt).toISOString()}>{alarmTime(alarm.nextAt)}</time><span class="companion-alarm-repeat">{alarmSchedule(alarm)}</span><p>{alarm.message}</p></li>{/each}</ul>{/if}
+          </section>
+        {:else if drawerTab === "images"}
           <section class="companion-gallery" aria-label={t("drawer.images")}>
             {#if galleryError}<div class="companion-history-state" role="alert"><p>{t("gallery.failed")}</p><button type="button" class="cmp-btn cmp-btn-ghost cmp-btn-sm" on:click={() => void openGallery(true)}>{t("retry")}</button></div>
             {:else if galleryLoading && !galleryImages.length}<p class="companion-history-state" role="status">{t("loading")}</p>

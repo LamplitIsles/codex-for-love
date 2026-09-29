@@ -84,6 +84,7 @@ export interface TimelineMessageUnit {
   origin?: "user" | "steering";
   time?: number;
   keet?: KeetProvenance;
+  alarm?: boolean;
 }
 
 export interface CompanionProjection {

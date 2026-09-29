@@ -21,6 +21,7 @@ It began when Neil moved his own companion, Shio, from DeepSeek Harness to Codex
 | Chat history search | Search past conversations from the chat header and read a complete matched message with nearby conversation context |
 | Diaries and memory | Read and write ordinary workspace files, including human-readable daily memories |
 | Tools, skills, and MCP | Give each companion the capabilities that belong in their own life and workspace |
+| Self-set alarms | Let the Partner schedule a future message to herself and continue in the same conversation when it is due |
 | Desktop and mobile | Use the complete companion experience from a computer or through the released [Lamplit Mobile](https://github.com/LamplitIsles/lamplit-mobile) Android app |
 | Appearance and language | Use the header settings control to choose 中文 or English and light, dark, or system appearance; choices stay in that browser |
 | Browser notifications | After you opt in, an open background Companion page announces a successfully completed reply using only the Partner name and a generic new-message notice |
@@ -55,6 +56,7 @@ A companion's life should not disappear into an opaque service. CFL keeps its ap
 - `.lamplit/relationship.jsonl` for append-only relationship history
 - `.lamplit/attachments/` for stable image attachments
 - `.lamplit/audio/` for generated speech cache
+- `.lamplit/alarms.sqlite` for the Partner's current alarms
 - `memory/YYYY-MM-DD.md` for optional, human-readable diary entries
 
 The official Codex thread remains the conversation authority. CFL does not duplicate model transcripts, reasoning, or tool payloads into its own database. The workspace can be read, backed up, searched, corrected, and moved with ordinary local tools.
@@ -104,6 +106,24 @@ For a keyed external Meilisearch instance, provide `FLICKLOG_MEILI_URL` and
 either `FLICKLOG_MEILI_KEY` or a systemd credential named `flicklog-meili-key`
 to the Partner service. If its executable is not on the Partner process's
 `PATH`, set `FLICKLOG_BIN` to its absolute path.
+
+### Partner alarms
+
+The bundled Companion MCP exposes `create_alarm`, `list_alarms`, and
+`delete_alarm`. A Partner can write a message to herself for one future ISO
+date and time, every 5 minutes or longer, or a daily or weekly time in an IANA
+time zone. An alarm wakes the existing Codex conversation; it does not create a
+second session or automatically send to the Keet conversation where it was
+discussed. Its trigger appears on the left of the Companion timeline with a
+distinct self-set alarm label, followed by the Partner's ordinary reply.
+
+The top-left drawer has a read-only Alarms tab showing each current alarm and
+its next due time. Ask the Partner in chat to cancel or replace an alarm. On
+restart, an overdue one-time alarm is delivered once. Recurring alarms skip
+missed occurrences and continue from their next due time. The Partner service
+must be running to deliver an alarm on time. Browser notifications continue to
+use the existing generic completion notice when an open background Companion
+page has permission.
 
 ### Optional local pet
 
