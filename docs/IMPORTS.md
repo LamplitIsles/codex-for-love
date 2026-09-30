@@ -84,7 +84,7 @@ provenance with the chunks; logical v3 keeps its separate final-message contract
 
 ## External official runtime
 
-The runtime targets Codex app-server `0.156.1` over SDK-managed JSONL stdio
+The runtime targets Codex app-server `0.159.1` over SDK-managed JSONL stdio
 through `@jaminzhou/codex-app-server-client` pinned to immutable source revision
 `56ab11736036d6a5c3dd6e150498dec2d95b2bf5` of
 `lamplitisles/codex-app-server-client`. The SDK supplies typed protocol
@@ -129,15 +129,15 @@ removed with that runtime.
 ## Native release artifact
 
 The Linux x64 native npm package
-`@lamplitisles/codex-for-love-linux-x64@0.5.0` contains the Codex 0.156.1
+`@lamplitisles/codex-for-love-linux-x64@0.6.0` contains the Codex 0.159.1
 app-server from LamplitIsles Codex fork revision
-`7b9e86ff857c321d49372f8ecee02f0c3f6e863c` and the matching official
+`880185c212186edc3211c02eb36c7dd7584917f7` and the matching official
 Linux x64 code-mode host.
 The main package's exact optional-dependency version is the only native-package
 selection contract.
 
 The macOS ARM64 package
-`@lamplitisles/codex-for-love-darwin-arm64@0.5.0` contains the Codex 0.156.1
+`@lamplitisles/codex-for-love-darwin-arm64@0.6.0` contains the Codex 0.159.1
 app-server from the same fork revision and the matching official macOS ARM64
 code-mode host. The package retains the same Codex Apache-2.0
 license and upstream notice.

@@ -57,7 +57,7 @@ try {
   await writeFile(join(codexHome, 'config.toml'), `model = "gpt-5.2"\nmodel_provider = "openai"\nopenai_base_url = "http://127.0.0.1:${port}/v1"\n[features]\nplugins = false\n[projects.${JSON.stringify(workspace)}]\ntrust_level = "trusted"\n`);
   const executable = process.env.CODEX_PATCHED_CODEX;
   if (!executable) throw new Error('CODEX_PATCHED_CODEX is required');
-  const config = { name: 'Mica', persona, state: stateRoot, workspace, port: 3082, codex: { command: executable, model: 'gpt-5.2', version: '0.156.1', home: codexHome, local_compaction: false } };
+  const config = { name: 'Mica', persona, state: stateRoot, workspace, port: 3082, codex: { command: executable, model: 'gpt-5.2', version: '0.159.1', home: codexHome, local_compaction: false } };
   const env = { HOME: root, CODEX_HOME: codexHome, OPENAI_API_KEY: 'test-loopback', CODEX_DISABLE_UPDATE_CHECK: '1', CODEX_DISABLE_FEEDBACK: '1' };
   const result = await convertDshSession(config, source, relationship, attachments, workspace, { appServer: { env } });
   assert.ok(result.destination.threadId);

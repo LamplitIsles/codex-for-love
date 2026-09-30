@@ -68,8 +68,8 @@ test('one-shot alarm catches up into the one Codex thread with self provenance',
     const reminder = snapshot.messages.find(message => message.id === `alarm:${alarm.id}:${alarm.nextAt}`);
     assert.equal(reminder?.alarm, true);
     assert.equal(reminder?.input, 'Bring tea to the picnic');
-    assert.equal(listAlarms(partnerPaths(f.workspace).alarms).length, 0);
     await partner.checkAlarms();
+    assert.equal(listAlarms(partnerPaths(f.workspace).alarms).length, 0);
     assert.equal((await f.requests()).filter(request => request.method === 'turn/start').length, 1);
     await partner.close();
     const resumed = await f.createPartner({ now: () => clock });

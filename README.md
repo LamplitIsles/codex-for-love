@@ -37,7 +37,7 @@ Long conversations eventually have to be compacted. A coding agent can compress 
 
 Feelings, ordinary life events, shared experiences, and changes in a relationship are not decorative context. They are part of what makes the next conversation continuous with the last one.
 
-The only Codex behavior we changed is compaction (a ~160-line diff). CFL keeps the native compaction path, but gives it a companion-oriented policy and refreshes current relationship context at the compaction boundary.
+The only Codex behavior we changed is compaction (a ~60-line native patch). CFL keeps the native compaction path, but gives it a companion-oriented policy and refreshes current relationship context at the compaction boundary.
 
 After compaction, CFL also supplies the newest completed text rounds for immediate
 continuity. Set `codex.context_round_limit` in the Partner TOML to choose that
@@ -63,7 +63,7 @@ The official Codex thread remains the conversation authority. CFL does not dupli
 
 ## Quick start
 
-The CLI supports **Linux x64 and macOS Apple Silicon** and includes the matching standalone Codex app-server and code-mode host. It requires Node 24 and an existing official Codex login. This checkout's launcher checks that the installed native package matches the main package's exact pin before starting. The current public main package pins Codex 0.156.1 native packages for both platforms.
+The CLI supports **Linux x64 and macOS Apple Silicon** and includes the matching standalone Codex app-server and code-mode host. It requires Node 24 and an existing official Codex login. This checkout's launcher checks that the installed native package matches the main package's exact pin before starting. This checkout pins Codex 0.159.1 native packages for both platforms.
 
 ### 1. Check the Codex login
 
