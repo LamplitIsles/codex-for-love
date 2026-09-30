@@ -27,11 +27,10 @@ const schema = z.object({
   codex: z.object({
     command: z.string().min(1).default('codex-app-server'),
     model: z.string().min(1).default(DEFAULT_CODEX_MODEL),
-    version: z.literal(SUPPORTED_CODEX_VERSION).default(SUPPORTED_CODEX_VERSION),
     home: z.string().min(1).optional(),
     local_compaction: z.boolean().default(false),
     context_round_limit: z.number().int().min(0).default(DEFAULT_CONTEXT_ROUND_LIMIT),
-  }).strict().default({ command: 'codex-app-server', model: DEFAULT_CODEX_MODEL, version: SUPPORTED_CODEX_VERSION, local_compaction: false, context_round_limit: DEFAULT_CONTEXT_ROUND_LIMIT }),
+  }).strict().default({ command: 'codex-app-server', model: DEFAULT_CODEX_MODEL, local_compaction: false, context_round_limit: DEFAULT_CONTEXT_ROUND_LIMIT }),
   speech: z.object({
     endpoint: z.url().default('https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation'),
     tts: ttsSchema.optional(),

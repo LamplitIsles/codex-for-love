@@ -63,7 +63,7 @@ The official Codex thread remains the conversation authority. CFL does not dupli
 
 ## Quick start
 
-The CLI supports **Linux x64 and macOS Apple Silicon** and includes the matching standalone Codex app-server and code-mode host. It requires Node 24 and an existing official Codex login. This checkout's launcher checks that the installed native package matches the main package's exact pin before starting. This checkout pins Codex 0.159.1 native packages for both platforms.
+The CLI supports **Linux x64 and macOS Apple Silicon** and includes the matching standalone Codex app-server and code-mode host. It requires Node 24 and an existing official Codex login. This checkout's launcher checks that the installed native package matches the main package's exact pin before starting. CFL owns the app-server version contract; TOML configures the model and runtime options. This checkout pins Codex 0.159.1 native packages for both platforms.
 
 ### 1. Check the Codex login
 

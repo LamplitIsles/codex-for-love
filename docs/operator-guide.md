@@ -76,7 +76,8 @@ workflow is described below.
 ## Install, check and run
 
 The published CLI supplies its main-package-pinned native app-server, so an
-installed configuration omits `codex.command` and `codex.version`:
+installed configuration omits `codex.command`. CFL owns the app-server version
+contract; `codex.version` is not a supported TOML field:
 
 ```sh
 npm install -g @lamplitisles/codex-for-love

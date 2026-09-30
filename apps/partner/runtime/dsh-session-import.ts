@@ -980,8 +980,8 @@ export async function convertDshSession(
     });
     const initialized = await client.connect();
     const actualVersion = versionFromUserAgent(initialized.userAgent);
-    if (actualVersion !== config.codex.version) {
-      throw new Error(`Unsupported Codex app-server version: expected ${config.codex.version}, received ${actualVersion ?? 'unknown'}`);
+    if (actualVersion !== SUPPORTED_CODEX_VERSION) {
+      throw new Error(`Unsupported Codex app-server version: expected ${SUPPORTED_CODEX_VERSION}, received ${actualVersion ?? 'unknown'}`);
     }
     const capabilities = await client.call('modelProvider/capabilities/read', {});
     if (capabilities.imageGeneration !== true) {

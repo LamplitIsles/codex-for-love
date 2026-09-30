@@ -37,7 +37,7 @@ import type { CompanionState } from '../src/lib/companion/domain.ts';
 import { MOOD_LABELS, affinityStage } from '../src/lib/companion/domain.ts';
 import { createCompactBoundary, projectContinuity, type CompactionPhase } from '../src/lib/continuity.ts';
 import type { CompactionLifecycleState } from '../src/lib/companion/continuity.ts';
-import type { Config, Credentials } from './config.ts';
+import { SUPPORTED_CODEX_VERSION, type Config, type Credentials } from './config.ts';
 import { compactionPrompt, companionPrompt } from './prompts.ts';
 import { partnerPaths } from './storage-paths.ts';
 import { processError } from './logging.ts';
@@ -1391,8 +1391,8 @@ export async function createPartner(config: Config, credentials: Credentials, de
     ];
     const initialized = await appServer.connect();
     const actualVersion = versionFromUserAgent(initialized.userAgent);
-    if (actualVersion !== config.codex.version) {
-      throw new Error(`Unsupported Codex app-server version: expected ${config.codex.version}, received ${actualVersion ?? 'unknown'}`);
+    if (actualVersion !== SUPPORTED_CODEX_VERSION) {
+      throw new Error(`Unsupported Codex app-server version: expected ${SUPPORTED_CODEX_VERSION}, received ${actualVersion ?? 'unknown'}`);
     }
     const capabilities = await appServer.call('modelProvider/capabilities/read', {});
     if (capabilities.imageGeneration !== true) {
