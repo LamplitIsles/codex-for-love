@@ -25,8 +25,10 @@ materialization errors remain durable application facts. The Companion does not
 call the app-server durable queue APIs. Official history is read through
 paginated thread APIs on startup, refresh and resume.
 
-The configured app-server is pinned to `0.159.1` and defaults to
-`gpt-5.6-luna`. A project-local Codex config overlay declares the bundled
+CFL owns the app-server version contract, currently `0.159.1`; the published
+main package pins its matching native packages. TOML does not support
+`codex.version`. The configured model defaults to `gpt-5.6-luna`.
+A project-local Codex config overlay declares the bundled
 Companion MCP and relationship-context hook. FlickNote and Web are optional
 operator-provided MCPs described by a static template; CFL neither injects them
 nor requires them to connect. Native tools, skills and code mode remain

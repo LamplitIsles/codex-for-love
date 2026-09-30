@@ -44,7 +44,9 @@ ExecStart=/run/current-system/sw/bin/node /absolute/path/to/codex-for-love/apps/
 CFL always invokes `codex.command` as a direct `codex-app-server`; CFL
 configurations do not select an executable type. The published launcher selects
 the app-server from its main-package native dependency pin; a checkout may set
-its direct app-server command.
+its direct app-server command. CFL owns the supported app-server version in
+both paths. `codex.version` is not a supported TOML field; remove it from an
+existing configuration before starting the updated runtime.
 
 Reload, restart only dev, then verify the fixed endpoint:
 

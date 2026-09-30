@@ -77,7 +77,10 @@ workflow is described below.
 
 The published CLI supplies its main-package-pinned native app-server, so an
 installed configuration omits `codex.command`. CFL owns the app-server version
-contract; `codex.version` is not a supported TOML field:
+contract; `codex.version` is not a supported TOML field.
+
+Remove `codex.version` from an existing configuration before upgrading; the
+strict configuration schema rejects it.
 
 ```sh
 npm install -g @lamplitisles/codex-for-love
