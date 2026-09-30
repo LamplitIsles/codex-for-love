@@ -27,12 +27,15 @@ test('Companion MCP serves bounded journal tools over stdio', async () => {
   await client.connect(new StdioClientTransport({ command: process.execPath, args: [script, workspace], stderr: 'ignore' }));
   try {
     const tools = await client.listTools();
-    assert.deepEqual(tools.tools.map((tool) => tool.name).sort(), ['create_alarm', 'delete_alarm', 'list_alarms', 'list_photos', 'read_conversation_record', 'read_relationship_history', 'roll_dice', 'search_conversation', 'send_voice', 'set_signature', 'update_relationship']);
+    assert.deepEqual(tools.tools.map((tool) => tool.name).sort(), ['create_alarm', 'delete_alarm', 'edit_alarm', 'list_alarms', 'list_photos', 'read_conversation_record', 'read_relationship_history', 'roll_dice', 'search_conversation', 'send_voice', 'set_signature', 'update_relationship']);
     const created = await client.callTool({ name: 'create_alarm', arguments: { message: 'Check the tea', schedule: { kind: 'once', at: new Date(Date.now() + 3_600_000).toISOString() } } }) as { content: Array<{ text: string }> };
-    const alarm = JSON.parse(created.content[0]!.text) as { id: string; message: string };
+    const alarm = JSON.parse(created.content[0]!.text) as { id: string; message: string; schedule: unknown; nextAt: number; createdAt: number };
     assert.equal(alarm.message, 'Check the tea');
+    const edited = await client.callTool({ name: 'edit_alarm', arguments: { id: alarm.id, message: 'Check the kettle' } }) as { content: Array<{ text: string }> };
+    const editedAlarm = JSON.parse(edited.content[0]!.text) as typeof alarm;
+    assert.deepEqual(editedAlarm, { ...alarm, message: 'Check the kettle' });
     const listed = await client.callTool({ name: 'list_alarms', arguments: {} }) as { content: Array<{ text: string }> };
-    assert.equal((JSON.parse(listed.content[0]!.text) as Array<{ id: string }>)[0]?.id, alarm.id);
+    assert.equal((JSON.parse(listed.content[0]!.text) as Array<{ id: string; message: string }>)[0]?.message, 'Check the kettle');
     const deleted = await client.callTool({ name: 'delete_alarm', arguments: { id: alarm.id } }) as { content: Array<{ text: string }> };
     assert.deepEqual(JSON.parse(deleted.content[0]!.text), { deleted: true });
     assert.match(tools.tools.find((tool) => tool.name === 'list_photos')?.description ?? '', /our shared photo library: human-sent, Agent-generated, and restored historical conversation images/u);

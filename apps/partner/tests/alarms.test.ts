@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { completeAlarmOccurrence, createAlarm, deleteAlarm, listAlarms, nextAlarmAt } from '../runtime/alarms.ts';
+import { completeAlarmOccurrence, createAlarm, deleteAlarm, editAlarm, listAlarms, nextAlarmAt } from '../runtime/alarms.ts';
 import { partnerPaths } from '../runtime/storage-paths.ts';
 import { fixture, eventually } from './fixture.ts';
 
@@ -18,6 +18,11 @@ test('alarm definitions persist with private storage and explicit recurrence', a
     assert.equal(daily.nextAt, Date.parse('2026-09-30T01:00:00Z'));
     assert.equal((await stat(path)).mode & 0o777, 0o600);
     assert.deepEqual(listAlarms(path).map(alarm => alarm.id), [daily.id, once.id]);
+    const edited = editAlarm(path, daily.id, '  make tea instead  ');
+    assert.deepEqual(edited, { ...daily, message: 'make tea instead' });
+    assert.deepEqual(listAlarms(path)[0], edited);
+    assert.equal(editAlarm(path, 'missing', 'no alarm'), undefined);
+    assert.throws(() => editAlarm(path, daily.id, '  '));
     assert.equal(deleteAlarm(path, daily.id), true);
     assert.deepEqual(listAlarms(path).map(alarm => alarm.id), [once.id]);
     assert.throws(() => createAlarm(path, 'past', { kind: 'once', at: '2026-09-29T09:00:00Z' }, now), /future/);
@@ -49,9 +54,10 @@ test('one-shot alarm catches up into the one Codex thread with self provenance',
   let clock = Date.parse('2026-09-30T00:00:00Z');
   try {
     const alarm = createAlarm(partnerPaths(f.workspace).alarms, 'Remember the picnic', { kind: 'once', at: '2026-09-30T09:00:00+08:00' }, clock);
+    editAlarm(partnerPaths(f.workspace).alarms, alarm.id, 'Bring tea to the picnic');
     clock += 2 * 60 * 60_000;
     const partner = await f.createPartner({ now: () => clock });
-    await eventually(async () => (await f.requests()).some(request => request.method === 'turn/start' && JSON.stringify(request.params).includes('Remember the picnic')));
+    await eventually(async () => (await f.requests()).some(request => request.method === 'turn/start' && JSON.stringify(request.params).includes('Bring tea to the picnic')));
     const starts = (await f.requests()).filter(request => request.method === 'turn/start');
     assert.equal(starts.length, 1);
     const params = starts[0]!.params as { additionalContext: Record<string, { kind: string; value: string }> };
@@ -61,7 +67,7 @@ test('one-shot alarm catches up into the one Codex thread with self provenance',
     const snapshot = await partner.snapshot();
     const reminder = snapshot.messages.find(message => message.id === `alarm:${alarm.id}:${alarm.nextAt}`);
     assert.equal(reminder?.alarm, true);
-    assert.equal(reminder?.input, 'Remember the picnic');
+    assert.equal(reminder?.input, 'Bring tea to the picnic');
     assert.equal(listAlarms(partnerPaths(f.workspace).alarms).length, 0);
     await partner.checkAlarms();
     assert.equal((await f.requests()).filter(request => request.method === 'turn/start').length, 1);
@@ -69,7 +75,7 @@ test('one-shot alarm catches up into the one Codex thread with self provenance',
     const resumed = await f.createPartner({ now: () => clock });
     const afterRestart = (await resumed.snapshot()).messages.find(message => message.id === `alarm:${alarm.id}:${alarm.nextAt}`);
     assert.equal(afterRestart?.alarm, true);
-    assert.equal(afterRestart?.input, 'Remember the picnic');
+    assert.equal(afterRestart?.input, 'Bring tea to the picnic');
     assert.equal((await f.requests()).filter(request => request.method === 'turn/start').length, 1);
   } finally { await f.close(); }
 });

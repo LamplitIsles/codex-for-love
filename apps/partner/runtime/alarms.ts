@@ -63,6 +63,14 @@ export function listAlarms(path: string): Alarm[] {
   try { return (db.prepare('SELECT * FROM alarms ORDER BY next_at,id').all() as Row[]).map(mapRow); }
   finally { db.close(); }
 }
+export function editAlarm(path: string, id: string, messageValue: unknown): Alarm | undefined {
+  const message = alarmMessageSchema.parse(messageValue);
+  const db = database(path);
+  try {
+    const row = db.prepare('UPDATE alarms SET message=? WHERE id=? RETURNING *').get(message, id) as Row | undefined;
+    return row ? mapRow(row) : undefined;
+  } finally { db.close(); }
+}
 export function deleteAlarm(path: string, id: string): boolean {
   const db = database(path);
   try { return db.prepare('DELETE FROM alarms WHERE id=?').run(id).changes > 0; }

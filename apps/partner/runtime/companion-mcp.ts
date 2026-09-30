@@ -10,7 +10,7 @@ import { loadConfig, loadCredentials } from './config.ts';
 import { synthesizeSpeech } from './speech.ts';
 import { pageConversationImages, readConversationImages, withAvailability } from './conversation-images.ts';
 import { createConversationSearch } from './conversation-search.ts';
-import { alarmMessageSchema, alarmScheduleSchema, createAlarm, deleteAlarm, listAlarms } from './alarms.ts';
+import { alarmMessageSchema, alarmScheduleSchema, createAlarm, deleteAlarm, editAlarm, listAlarms } from './alarms.ts';
 
 const workspace = process.argv[2];
 if (!workspace) throw new Error('Companion MCP requires a workspace path');
@@ -42,7 +42,11 @@ server.registerTool('create_alarm', { description: 'Schedule a message to yourse
   catch (error) { return { content: [{ type: 'text' as const, text: error instanceof Error ? error.message : 'Could not create alarm' }], isError: true }; }
 });
 server.registerTool('list_alarms', { description: 'List your current alarms and their next due times.', inputSchema: {} }, async () => ({ content: [{ type: 'text', text: JSON.stringify(listAlarms(alarms)) }] }));
-server.registerTool('delete_alarm', { description: 'Cancel one of your alarms by ID. To change one, cancel it and create a replacement.', inputSchema: { id: z.uuid() } }, async ({ id }) => ({ content: [{ type: 'text', text: JSON.stringify({ deleted: deleteAlarm(alarms, id) }) }] }));
+server.registerTool('edit_alarm', { description: 'Change the message of an existing alarm without changing its schedule or next due time. An already admitted reminder keeps its original message.', inputSchema: { id: z.uuid(), message: alarmMessageSchema } }, async ({ id, message }) => {
+  const alarm = editAlarm(alarms, id, message);
+  return alarm ? { content: [{ type: 'text' as const, text: JSON.stringify(alarm) }] } : { content: [{ type: 'text' as const, text: 'Alarm not found' }], isError: true };
+});
+server.registerTool('delete_alarm', { description: 'Cancel one of your alarms by ID.', inputSchema: { id: z.uuid() } }, async ({ id }) => ({ content: [{ type: 'text', text: JSON.stringify({ deleted: deleteAlarm(alarms, id) }) }] }));
 server.registerTool('send_voice', { description: 'Send one standalone Voice message. Use only for a short deliberate spoken message; it never adds a transcript.', inputSchema: { text: z.string().trim().min(1).max(240) } }, async ({ text }) => {
   try {
     if (!configPath) throw new Error('Voice dispatch is unavailable');

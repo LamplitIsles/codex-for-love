@@ -109,8 +109,8 @@ to the Partner service. If its executable is not on the Partner process's
 
 ### Partner alarms
 
-The bundled Companion MCP exposes `create_alarm`, `list_alarms`, and
-`delete_alarm`. A Partner can write a message to herself for one future ISO
+The bundled Companion MCP exposes `create_alarm`, `list_alarms`, `edit_alarm`,
+and `delete_alarm`. A Partner can write a message to herself for one future ISO
 date and time, every 5 minutes or longer, or a daily or weekly time in an IANA
 time zone. An alarm wakes the existing Codex conversation; it does not create a
 second session or automatically send to the Keet conversation where it was
@@ -118,12 +118,13 @@ discussed. Its trigger appears on the left of the Companion timeline with a
 distinct self-set alarm label, followed by the Partner's ordinary reply.
 
 The top-left drawer has a read-only Alarms tab showing each current alarm and
-its next due time. Ask the Partner in chat to cancel or replace an alarm. On
-restart, an overdue one-time alarm is delivered once. Recurring alarms skip
-missed occurrences and continue from their next due time. The Partner service
-must be running to deliver an alarm on time. Browser notifications continue to
-use the existing generic completion notice when an open background Companion
-page has permission.
+its next due time. Ask the Partner in chat to edit an alarm's message or cancel
+it. Editing preserves its schedule and next due time; already admitted
+reminders keep their original message. On restart, an overdue one-time alarm is
+delivered once. Recurring alarms skip missed occurrences and continue from
+their next due time. The Partner service must be running to deliver an alarm on
+time. Browser notifications use the existing generic completion notice when an
+open background Companion page has permission.
 
 ### Optional local pet
 
