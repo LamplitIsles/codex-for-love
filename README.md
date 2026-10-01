@@ -95,8 +95,11 @@ On the first message send, Companion asks the browser directly for notification 
 
 Companion fits the visible space above the keyboard, keeping the name bar where
 browser behavior allows and the composer above the keyboard. Closing the
-keyboard restores the available height. When you are at the latest messages,
-keyboard changes and multiline drafts keep the timeline following; when you
+keyboard restores the available height. The composer reserves the maximum
+bottom safe-area space when the browser
+provides it, including above an open keyboard, to avoid an extra height jump.
+When you are at the latest messages, keyboard changes and multiline drafts
+keep the timeline following; when you
 are reading history, resizing and incoming messages leave your place intact.
 
 The floating **Back to latest messages ↓** button appears when you move away

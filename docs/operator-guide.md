@@ -23,6 +23,12 @@ uses measured visible space directly, without a guessed keyboard height or a
 second subtraction. Pinch zoom uses the native layout. No operator setting,
 service change or persisted read state is required.
 
+The composer reserves `safe-area-max-inset-bottom` throughout keyboard changes,
+so a dynamic bottom inset dropping to zero does not change its padding. This
+leaves the reserved space above an open keyboard. Browsers without the maximum
+inset use their dynamic safe-area inset; devices without an inset keep the
+existing minimum spacing.
+
 Validate the rendered Companion with a test-owned workspace and fake app-server:
 390×844, 320px wide and desktop; shrink and restore the viewport, grow a multiline
 draft, follow latest and read older messages while new content arrives. Check
