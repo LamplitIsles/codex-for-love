@@ -12,6 +12,10 @@ _Avoid_: Partner execution state, task cancellation
 A privacy-preserving notice that identifies the Partner and that something new arrived after a Partner turn completes successfully, without revealing message content.
 _Avoid_: message preview, Partner turn status
 
+**Chat background（聊天背景）**:
+An optional decorative image behind the Human and Partner's conversation in Companion. It is separate from message content and does not belong to the Chat Image Library.
+_Avoid_: chat image, shared conversation media
+
 **Partner alarm（伴侣闹钟）**:
 A Partner-authored schedule for delivering a stored message to the Partner's single conversation at a chosen time. It may be one-time or recurring, and does not designate an external recipient.
 _Avoid_: Companion notification, separate conversation, Human reminder

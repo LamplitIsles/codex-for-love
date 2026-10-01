@@ -22,6 +22,10 @@ const schema = z.object({
     companion: z.string().min(1),
     user: z.string().min(1),
   }).strict().optional(),
+  backgrounds: z.object({
+    landscape: z.string().min(1),
+    portrait: z.string().min(1),
+  }).strict().optional(),
   port: z.number().int().min(1024).max(65535).default(3082),
   listen_host: z.string().refine((value) => isIP(value) === 4, 'Listen host must be an IPv4 address').default('127.0.0.1'),
   codex: z.object({
@@ -57,6 +61,10 @@ export async function loadConfig(path: string): Promise<Config> {
     avatars: config.avatars ? {
       companion: resolve(base, config.avatars.companion),
       user: resolve(base, config.avatars.user),
+    } : undefined,
+    backgrounds: config.backgrounds ? {
+      landscape: resolve(base, config.backgrounds.landscape),
+      portrait: resolve(base, config.backgrounds.portrait),
     } : undefined,
     codex: {
       ...config.codex,

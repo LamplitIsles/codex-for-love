@@ -55,7 +55,7 @@
 #dsh-companion .companion-full-dsh{flex:none;color:inherit;opacity:.64;text-decoration:none}
 #dsh-companion .companion-full-dsh-label{display:inline}
 #dsh-companion .companion-full-dsh:hover{opacity:1}
-#dsh-companion .companion-timeline-region{position:relative;min-width:0;min-height:0;overflow:hidden}
+#dsh-companion .companion-timeline-region{position:relative;isolation:isolate;min-width:0;min-height:0;overflow:hidden}
 #dsh-companion .companion-return-latest{position:absolute;z-index:2;bottom:10px;left:50%;transform:translateX(-50%);min-height:44px;min-width:44px;border-radius:999px;white-space:nowrap;box-shadow:0 4px 14px color-mix(in srgb,var(--color-base-content) 18%,transparent)}
 #dsh-companion .companion-timeline{height:100%;min-width:0;min-height:0;overflow-x:clip;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable;padding:28px clamp(16px,4vw,48px) 16px}
 #dsh-companion .companion-timeline:not(.timeline-ready){visibility:hidden}
@@ -290,3 +290,11 @@
 
 #dsh-companion .companion-copy-toast{position:absolute;top:auto;bottom:calc(100% + 10px);left:50%;right:auto;translate:none;transform:translateX(-50%);width:max-content;max-width:calc(100vw - 24px);padding:0;z-index:5;pointer-events:none}
 #dsh-companion .companion-copy-toast-message{padding:10px 16px;border-radius:999px;background:var(--color-base-content);color:var(--color-base-100);font-size:.82rem;box-shadow:0 4px 14px rgb(0 0 0 / .15)}
+
+/* Decorative layers stay behind the scrolling log and never filter messages. */
+#dsh-companion .companion-chat-background{position:absolute;z-index:-1;inset:0;overflow:hidden;pointer-events:none}
+#dsh-companion .companion-chat-background img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center}
+#dsh-companion .companion-chat-background::after{content:"";position:absolute;inset:0;background:color-mix(in srgb,var(--color-base-100) 36%,transparent)}
+#dsh-companion .companion-background-landscape{display:none}
+#dsh-companion[data-chat-orientation="landscape"] .companion-background-landscape{display:block}
+#dsh-companion[data-chat-orientation="landscape"] .companion-background-portrait{display:none}

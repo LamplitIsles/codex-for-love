@@ -10,6 +10,7 @@
   } from "./locale.js";
   export let t: CompanionTranslate = english;
   export let locale = "en";
+  export let backgrounds: { landscape: string; portrait: string } | undefined = undefined;
   import { createEventDispatcher, onDestroy, onMount, tick } from "svelte";
   import { captureNativePhoto, hasNativeCamera, dismissNativeKeyboardOnTimelineTap } from "./native-mobile.js";
   import ImagePlus from "lucide-svelte/icons/image-plus";
@@ -1829,6 +1830,12 @@
           </section>
         {:else}
           <div class="companion-timeline-region">
+          {#if backgrounds}
+            <div class="companion-chat-background" aria-hidden="true">
+              <img class="companion-background-landscape" src={backgrounds.landscape} alt="" />
+              <img class="companion-background-portrait" src={backgrounds.portrait} alt="" />
+            </div>
+          {/if}
           <div
             bind:this={timeline}
             use:dismissNativeKeyboardOnTimelineTap={() => composerInput}

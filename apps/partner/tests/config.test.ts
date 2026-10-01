@@ -64,3 +64,20 @@ test('TTS speed is a bounded provider capability', async () => {
     await writeFile(path, `${base}provider = "bytedance"\nvoice = "voice"\nspeed = 2.1\n`); await assert.rejects(loadConfig(path), /<=2/);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
+
+
+test('background configuration is optional and requires both relative compositions', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'lamplit-background-config-'));
+  try {
+    const path = join(directory, 'partner.toml');
+    const base = 'name = "Mica"\npersona = "persona.md"\n';
+    await writeFile(path, base);
+    assert.equal((await loadConfig(path)).backgrounds, undefined);
+    await writeFile(path, `${base}[backgrounds]\nlandscape = "workspace/wide.jpg"\nportrait = "workspace/tall.webp"\n`);
+    assert.deepEqual((await loadConfig(path)).backgrounds, { landscape: join(directory, 'workspace/wide.jpg'), portrait: join(directory, 'workspace/tall.webp') });
+    await writeFile(path, `${base}[backgrounds]\nlandscape = "workspace/wide.jpg"\n`);
+    await assert.rejects(loadConfig(path), /portrait/);
+    await writeFile(path, `${base}[backgrounds]\nlandscape = ""\nportrait = "workspace/tall.webp"\n`);
+    await assert.rejects(loadConfig(path));
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});

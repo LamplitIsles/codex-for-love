@@ -22,6 +22,7 @@
   type TurnResult = { id: string; turnId: string; sourceIds: string[]; sequence: number; revision: number; answers: string[]; error: string | null; status: string; completedAt?: number;
     images: { id: string; name: string; url: string }[]; voices: { id: string; url: string }[] };
   type Snapshot = { cursor: number; before: number | null; hasMore: boolean; hasChangesMore: boolean; pendingCount: number; cancellable: string[]; imageLimits?: ImageAttachmentLimits; name: string; speech?: boolean; typing: boolean; messages: Message[]; storageError: boolean;
+    backgrounds?: { landscape: string; portrait: string };
     avatars?: { companion?: string; user?: string };
     context?: { activeTokens: number | null; windowTokens: number | null } | null;
     compactions?: CompactBoundary[]; lifecycle?: CompanionContinuitySnapshot;
@@ -240,7 +241,7 @@
   });
 </script>
 <svelte:head><title>{session.name} · Her</title></svelte:head>
-<Companion {projection} {actions} {t} locale={language} {appearance} onLanguageChange={selectLanguage} onAppearanceChange={selectAppearance} {notificationPermission} onEnableNotifications={enableNotifications} onFirstMessageSend={requestNotificationsOnFirstSend} sessionId="partner" voiceCapability={session.speech ? "available" : "unavailable"} imageLimits={session.imageLimits} onHistoryOpenChange={undefined}
+<Companion backgrounds={session.backgrounds} {projection} {actions} {t} locale={language} {appearance} onLanguageChange={selectLanguage} onAppearanceChange={selectAppearance} {notificationPermission} onEnableNotifications={enableNotifications} onFirstMessageSend={requestNotificationsOnFirstSend} sessionId="partner" voiceCapability={session.speech ? "available" : "unavailable"} imageLimits={session.imageLimits} onHistoryOpenChange={undefined}
   identity={{ companionName: session.name, userName: '你', preferredAddress: '你', companionAvatar: session.avatars?.companion, userAvatar: session.avatars?.user, signature: session.relationship?.signature ?? '',
     mood: session.relationship?.mood ?? 'neutral', moodLabel: moodText(session.relationship?.mood ?? 'neutral'), moodNote: session.relationship?.note,
     affinity: session.relationship?.affinity, affinityStage: affinityText(session.relationship?.affinity ?? 50) }}

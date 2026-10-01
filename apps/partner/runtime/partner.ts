@@ -429,20 +429,24 @@ export async function createPartner(config: Config, credentials: Credentials, de
   const persona = await readFile(config.persona, 'utf8');
   if (!persona.trim()) throw new Error('Persona must not be empty');
   const paths = partnerPaths(config.workspace!);
-  const avatarMediaType = (path: string) => ({ '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif' })[extname(path).toLowerCase()];
-  const loadAvatar = async (path: string | undefined) => {
+  const profileMediaType = (path: string) => ({ '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif' })[extname(path).toLowerCase()];
+  const loadProfileImage = async (path: string | undefined, label: string, maxBytes: number) => {
     if (!path) return undefined;
     const withinWorkspace = relative(resolve(config.workspace!), resolve(path));
-    if (withinWorkspace === '..' || withinWorkspace.startsWith(`..${pathSeparator}`) || isAbsolute(withinWorkspace)) throw new Error('Avatar files must be inside the workspace');
-    const mediaType = avatarMediaType(path);
-    if (!mediaType) throw new Error(`Unsupported avatar file type: ${extname(path) || '(none)'}`);
+    if (withinWorkspace === '..' || withinWorkspace.startsWith(`..${pathSeparator}`) || isAbsolute(withinWorkspace)) throw new Error(`${label} files must be inside the workspace`);
+    const mediaType = profileMediaType(path);
+    if (!mediaType) throw new Error(`Unsupported ${label.toLowerCase()} file type: ${extname(path) || '(none)'}`);
     const data = await readFile(path);
-    if (!data.length || data.byteLength > 5 * 1024 * 1024) throw new Error('Avatar file size is invalid');
+    if (!data.length || data.byteLength > maxBytes) throw new Error(`${label} file size is invalid`);
     return { data, mediaType };
   };
   const avatars = {
-    companion: await loadAvatar(config.avatars?.companion),
-    user: await loadAvatar(config.avatars?.user),
+    companion: await loadProfileImage(config.avatars?.companion, 'Avatar', 5 * 1024 * 1024),
+    user: await loadProfileImage(config.avatars?.user, 'Avatar', 5 * 1024 * 1024),
+  };
+  const backgrounds = {
+    landscape: await loadProfileImage(config.backgrounds?.landscape, 'Background', 20 * 1024 * 1024),
+    portrait: await loadProfileImage(config.backgrounds?.portrait, 'Background', 20 * 1024 * 1024),
   };
   await mkdir(paths.managedRoot, { recursive: true, mode: 0o700 });
   await mkdir(paths.attachments, { recursive: true, mode: 0o700 });
@@ -1546,6 +1550,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
       try { return { media_type: image.mediaType, data: await readFile(image.path) }; } catch { return undefined; }
     },
     avatar: (kind: 'companion' | 'user') => avatars[kind],
+    background: (kind: 'landscape' | 'portrait') => backgrounds[kind],
     async petAsset(activity: import('./pet.ts').PetActivity) { return pet ? localPetClip(config.state, activity) : undefined; },
     async snapshot(options: MessagePageOptions = {}) {
       await eventChain;
@@ -1622,6 +1627,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
           ...(avatars.companion ? { companion: '/api/avatars/companion' } : {}),
           ...(avatars.user ? { user: '/api/avatars/user' } : {}),
         },
+        ...(config.backgrounds ? { backgrounds: { landscape: '/api/backgrounds/landscape', portrait: '/api/backgrounds/portrait' } } : {}),
         imageLimits,
         speech: Boolean(config.speech && credentials.speech),
         storageError,

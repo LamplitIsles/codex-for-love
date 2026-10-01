@@ -19,6 +19,10 @@ The Keet message header and accent-edge styling in the Companion component
 adapt `LamplitIsles/lamplit-cloudflare`'s `frontend/src/lib/companion/client/`
 presentation at revision `2381cfc3e916130beb14c95c1078bd6c2479b1f3`.
 
+The optional TOML-configured portrait/landscape chat background, its theme-aware
+overlay and keyboard-stable composition selection are original CFL additions
+to the imported Companion surface. No background artwork is bundled.
+
 The application-owned relationship validation/domain behavior is retained and
 the runtime persistence is implemented in `apps/partner/runtime/store.ts`.
 The store contains UI/domain metadata only. It is not an imported model

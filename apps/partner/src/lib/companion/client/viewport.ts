@@ -24,6 +24,14 @@ export function visibleViewport(node: HTMLElement, host: Window = window): { des
     node.removeAttribute('data-keyboard-overlay');
     // Preserve browser zoom/panning; zoom is never evidence of a keyboard.
     if (viewport && viewport.scale !== 1) return;
+    const focused = editing();
+    if (!focused || host.innerWidth !== restingWidth) {
+      restingHeight = host.innerHeight;
+      restingWidth = host.innerWidth;
+    }
+    // Use the resting window shape so a keyboard-only height change cannot
+    // select the other composition. A rotation changes width as well.
+    node.setAttribute('data-chat-orientation', restingWidth > restingHeight ? 'landscape' : 'portrait');
     if (keyboard) {
       node.setAttribute('data-keyboard-overlay', '');
       const rect = keyboard.boundingRect;
@@ -39,11 +47,6 @@ export function visibleViewport(node: HTMLElement, host: Window = window): { des
         node.style.setProperty('--companion-keyboard-space', `${space}px`);
       }
       return;
-    }
-    const focused = editing();
-    if (!focused || host.innerWidth !== restingWidth) {
-      restingHeight = host.innerHeight;
-      restingWidth = host.innerWidth;
     }
     const height = viewport?.height ?? host.innerHeight;
     // Native resizes-content already shrinks innerHeight; visualViewport is
@@ -74,6 +77,7 @@ export function visibleViewport(node: HTMLElement, host: Window = window): { des
       if (frame) host.cancelAnimationFrame(frame);
       if (keyboard) keyboard.overlaysContent = previousOverlay!;
       node.removeAttribute('data-keyboard-overlay');
+      node.removeAttribute('data-chat-orientation');
       clear();
     },
   };

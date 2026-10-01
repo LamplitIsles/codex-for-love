@@ -147,6 +147,13 @@ export function createWebServer(partner: Partner, assets: string, options: { hea
         response.writeHead(200, { 'content-type': avatar.mediaType, 'cache-control': 'no-store' });
         response.end(avatar.data); return;
       }
+      if (path.startsWith('/api/backgrounds/') && request.method === 'GET') {
+        const kind = z.enum(['landscape', 'portrait']).parse(path.slice('/api/backgrounds/'.length));
+        const background = partner.background(kind);
+        if (!background) return json(response, { error: 'Background not found' }, 404);
+        response.writeHead(200, { 'content-type': background.mediaType, 'cache-control': 'no-store' });
+        response.end(background.data); return;
+      }
       if (path.startsWith('/api/pet-assets/') && request.method === 'GET') {
         const activity = path.slice('/api/pet-assets/'.length);
         if (!PET_ACTIVITIES.includes(activity as typeof PET_ACTIVITIES[number])) return json(response, { error: 'Pet asset not found' }, 404);

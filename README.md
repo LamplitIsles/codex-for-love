@@ -87,6 +87,16 @@ codex-for-love serve /path/to/partner.toml
 
 CFL binds to `127.0.0.1` and prints the local URL. Use a fresh workspace for a new conversation.
 
+Optional chat backgrounds are configured in the Partner TOML, separately from browser appearance preferences:
+
+```toml
+[backgrounds]
+landscape = "./workspace/.lamplit/profile/background-landscape.jpg"
+portrait = "./workspace/.lamplit/profile/background-portrait.jpg"
+```
+
+Supply both images or omit `[backgrounds]` to keep the default appearance. Paths resolve relative to the TOML file and must stay inside the workspace. Supported formats are PNG, JPEG, WebP and GIF, up to 20 MiB per file; invalid or missing configured files prevent startup. Restart Partner after changing paths or replacing images. Companion selects the composition from the window shape before the keyboard opens (square windows use portrait), scales it to fill the chat area and crops centrally. The background stays stationary as messages scroll, with a theme-colored soft overlay; message bubbles, attachments, header, composer and drawers retain their own surfaces. Background images do not enter conversation history or the Chat Image Library.
+
 The Companion header’s settings button changes language and appearance immediately without changing the conversation. These choices are browser-local preferences, not settings stored in the Partner configuration or workspace.
 
 On the first message send, Companion asks the browser directly for notification permission. This requires HTTPS, `http://localhost`, or a `http://*.localhost` address such as `http://prod-lamplit.localhost:17480`; a plain HTTP LAN address cannot show a browser permission request. Chrome may show a permission chip near the address bar rather than a dialog. When permission is granted, an open page that is hidden or unfocused announces each newly completed Partner turn once, including when a PWA window loses focus to another app. Notifications contain the Partner name and a generic new-message notice, never reply content. This is page-local browser notification rather than Web Push: closing or suspending the page, losing its connection, or denying browser permission prevents delivery, and devices do not synchronize notification or read state.

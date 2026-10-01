@@ -4,11 +4,12 @@ import { visibleViewport, followTimelineResize } from '../src/lib/companion/clie
 
 function viewportFixture(available = true, overlay = false) {
   const attributes = new Set<string>();
+  const attributeValues = new Map<string, string>();
   let focused = false;
   const properties = new Map<string, string>();
   const node = {
-    setAttribute: (key: string) => attributes.add(key),
-    removeAttribute: (key: string) => attributes.delete(key),
+    setAttribute: (key: string, value: string) => { attributes.add(key); attributeValues.set(key, value); },
+    removeAttribute: (key: string) => { attributes.delete(key); attributeValues.delete(key); },
     contains: () => true,
     getBoundingClientRect: () => ({ left: 0, right: 390 }),
     querySelector: (selector: string) => ({ getBoundingClientRect: () => selector === '.companion-header' ? { bottom: 78 } : { left: 0, right: 390 } }),
@@ -38,7 +39,7 @@ function viewportFixture(available = true, overlay = false) {
     cancelAnimationFrame: (id: number) => frames.delete(id),
   });
   const action = visibleViewport(node, host as unknown as Window);
-  return { properties, attributes, keyboard, document, viewport, frames, host, action, focus(value = true) { focused = value; document.dispatchEvent(new Event('focusin')); }, flush() {
+  return { properties, attributes, attributeValues, keyboard, document, viewport, frames, host, action, focus(value = true) { focused = value; document.dispatchEvent(new Event('focusin')); }, flush() {
     const pending = [...frames.values()]; frames.clear(); pending.forEach(callback => callback(0));
   } };
 }
@@ -155,7 +156,9 @@ test('CSS owns closed and docked geometry without JS height or safe-area overrid
   f.keyboard.dispatchEvent(new Event('geometrychange')); f.flush();
   assert.equal(f.properties.size, 0);
   f.viewport.scale = 2; f.viewport.dispatchEvent(new Event('resize')); f.flush();
-  assert.equal(f.attributes.size, 0); assert.equal(f.properties.size, 0);
+  assert.equal(f.attributes.has('data-keyboard-overlay'), false);
+  assert.equal(f.attributeValues.get('data-chat-orientation'), 'portrait');
+  assert.equal(f.properties.size, 0);
   f.action.destroy();
 });
 
@@ -188,5 +191,24 @@ test('native and visual resize reduce safe area by covered distance without doub
       assert.equal(f.properties.get('--companion-bottom-safe-area'), `max(0px, calc(var(--companion-system-safe-area) - ${covered}px))`);
     }
     f.action.destroy();
+  }
+});
+
+
+test('chat composition follows rotation and window resizing without switching for the keyboard', () => {
+  for (const overlay of [false, true]) {
+    const f = viewportFixture(true, overlay);
+    assert.equal(f.attributeValues.get('data-chat-orientation'), 'portrait');
+    f.focus(); f.host.innerHeight = 300; f.viewport.height = 300;
+    f.host.dispatchEvent(new Event('resize')); f.flush();
+    assert.equal(f.attributeValues.get('data-chat-orientation'), 'portrait');
+    f.host.innerWidth = 844; f.host.innerHeight = 390;
+    f.host.dispatchEvent(new Event('resize')); f.flush();
+    assert.equal(f.attributeValues.get('data-chat-orientation'), 'landscape');
+    f.focus(false); f.host.innerWidth = 400; f.host.innerHeight = 600;
+    f.host.dispatchEvent(new Event('resize')); f.flush();
+    assert.equal(f.attributeValues.get('data-chat-orientation'), 'portrait');
+    f.action.destroy();
+    assert.equal(f.attributeValues.has('data-chat-orientation'), false);
   }
 });
