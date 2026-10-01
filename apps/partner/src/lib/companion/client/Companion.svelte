@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { visibleViewport, followTimelineResize } from "./viewport.js";
   import { MAX_MESSAGE_LENGTH } from "../../message-input.ts";
   import { formatVoiceTurn } from "./voice-input.js";
   import {
@@ -1017,12 +1018,16 @@
   }
 
   function keepBottomOnResize(node: HTMLElement): { destroy(): void } {
-    const observer = new ResizeObserver(() => {
-      if (timelineReady && wasNearBottom && timeline)
-        timeline.scrollTop = timeline.scrollHeight;
-    });
-    observer.observe(node);
-    return { destroy: () => observer.disconnect() };
+    return followTimelineResize(node, node.parentElement!, () => timelineReady && wasNearBottom);
+  }
+
+  function returnToLatest(): void {
+    wasNearBottom = true;
+    timeline.scrollTop = timeline.scrollHeight;
+  }
+
+  function keepComposerFocus(event: PointerEvent): void {
+    if (document.activeElement === composerInput) event.preventDefault();
   }
 
   function submit(): void {
@@ -1651,6 +1656,7 @@
 <div
   id="dsh-companion"
   class="companion-shell"
+  use:visibleViewport
   data-testid="companion-root"
 >
   <div class="companion-app">
@@ -1825,6 +1831,7 @@
             >
           </section>
         {:else}
+          <div class="companion-timeline-region">
           <div
             bind:this={timeline}
             class="companion-timeline"
@@ -2157,13 +2164,16 @@
                   </div>
                 </article>
               {/if}
-              {#if !wasNearBottom && displayedProjection.items.length > 0}<button
-                  class="cmp-btn cmp-btn-primary cmp-btn-sm companion-new-message"
-                  style="position:sticky;bottom:10px;left:50%;transform:translateX(-50%)"
-                  on:click={() => (timeline.scrollTop = timeline.scrollHeight)}
-                  >{t("messages.new")}</button
-                >{/if}
             </div>
+          </div>
+          {#if !wasNearBottom && displayedProjection.items.length > 0}
+            <button
+              type="button"
+              class="cmp-btn cmp-btn-primary cmp-btn-sm companion-return-latest"
+              on:pointerdown={keepComposerFocus}
+              on:click={returnToLatest}
+            >{t("messages.latest")} <span aria-hidden="true">↓</span></button>
+          {/if}
           </div>
           <div class="companion-composer">
             {#if commandSuggestion}

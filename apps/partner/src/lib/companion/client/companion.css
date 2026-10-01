@@ -13,8 +13,8 @@
 #dsh-companion *,#dsh-companion *::before,#dsh-companion *::after{box-sizing:border-box}
 #dsh-companion button,#dsh-companion textarea,#dsh-companion input{font:inherit}
 #dsh-companion + .companion-sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
-#dsh-companion.companion-shell{height:100dvh;padding:0;overflow:hidden}
-#dsh-companion .companion-app{position:relative;display:grid;grid-template-columns:minmax(0,1fr);width:100%;height:100dvh;margin:0;overflow:hidden;border:0;border-radius:0;background:var(--cmp-panel);box-shadow:none;transition:grid-template-columns .24s ease}
+#dsh-companion.companion-shell{position:fixed;inset-inline:0;top:var(--companion-visible-top,0px);height:var(--companion-visible-height,100dvh);padding:0;overflow:hidden}
+#dsh-companion .companion-app{position:relative;display:grid;grid-template-columns:minmax(0,1fr);width:100%;height:100%;margin:0;overflow:hidden;border:0;border-radius:0;background:var(--cmp-panel);box-shadow:none;transition:grid-template-columns .24s ease}
 #dsh-companion .companion-content{min-width:0;min-height:0;grid-column:1}
 #dsh-companion .companion-main{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr) auto;height:100%;min-width:0;min-height:0}
 #dsh-companion .companion-header{position:relative;z-index:8;display:flex;align-items:center;gap:12px;padding:13px 20px;border-bottom:1px solid var(--cmp-line);background:color-mix(in srgb,var(--color-base-100) 83%,transparent);backdrop-filter:blur(20px)}
@@ -45,7 +45,9 @@
 #dsh-companion .companion-full-dsh{flex:none;color:inherit;opacity:.64;text-decoration:none}
 #dsh-companion .companion-full-dsh-label{display:inline}
 #dsh-companion .companion-full-dsh:hover{opacity:1}
-#dsh-companion .companion-timeline{min-width:0;min-height:0;overflow-x:clip;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable;padding:28px clamp(16px,4vw,48px) 16px}
+#dsh-companion .companion-timeline-region{position:relative;min-width:0;min-height:0;overflow:hidden}
+#dsh-companion .companion-return-latest{position:absolute;z-index:2;bottom:10px;left:50%;transform:translateX(-50%);min-height:44px;min-width:44px;border-radius:999px;white-space:nowrap;box-shadow:0 4px 14px color-mix(in srgb,var(--color-base-content) 18%,transparent)}
+#dsh-companion .companion-timeline{height:100%;min-width:0;min-height:0;overflow-x:clip;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable;padding:28px clamp(16px,4vw,48px) 16px}
 #dsh-companion .companion-timeline:not(.timeline-ready){visibility:hidden}
 #dsh-companion .companion-timeline-content,#dsh-companion .companion-row,#dsh-companion .companion-message-stack{min-width:0;max-width:100%}
 #dsh-companion .companion-row{display:grid;grid-template-columns:34px minmax(0,auto);align-items:start;justify-content:start;gap:9px;width:100%;margin:9px 0}

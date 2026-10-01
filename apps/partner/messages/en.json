@@ -144,7 +144,7 @@
   "voice.preparing": "Preparing audio",
   "voice.retry": "Retry audio",
   "voice.transcript": "Transcript",
-  "messages.new": "New messages ↓",
+  "messages.latest": "Back to latest messages",
   "command.label": "Command suggestions",
   "compact.running": "Organizing memory…",
   "compact.failed": "Memory wasn’t organized. You can keep chatting.",

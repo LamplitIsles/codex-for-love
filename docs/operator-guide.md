@@ -15,6 +15,28 @@ they do not add TOML fields, service configuration, workspace state, or
 operator recovery steps. If browser storage is unavailable, the selection still
 applies for the open page but is not retained after reload.
 
+## Mobile keyboard validation
+
+Companion requests native `interactive-widget=resizes-content` behavior and
+locally uses VisualViewport height/offset when available at normal zoom. It
+uses measured visible space directly, without a guessed keyboard height or a
+second subtraction. Pinch zoom uses the native layout. No operator setting,
+service change or persisted read state is required.
+
+Validate the rendered Companion with a test-owned workspace and fake app-server:
+390×844, 320px wide and desktop; shrink and restore the viewport, grow a multiline
+draft, follow latest and read older messages while new content arrives. Check
+header/composer geometry, reading position, a floating return target of at least
+44px, pointer focus and text/attachment preservation, keyboard activation,
+theme contrast and horizontal overflow. Runtime tests cover local viewport
+listeners, animation-frame cleanup and timeline resize observation.
+
+Viewport and VisualViewport simulations provide layout evidence only. They do
+not establish software-keyboard behavior on Android, iOS or an installed PWA.
+Those device checks remain unverified until an authorized fixture device is
+available; check keyboard opening/closing, browser panning, focus and rotation
+there without using real conversations or paid providers.
+
 ## Optional local pet
 
 `[pet]` is opt-in and takes effect on Partner restart:

@@ -140,7 +140,7 @@
   "voice.preparing": "正在准备语音",
   "voice.retry": "重试语音",
   "voice.transcript": "转文字",
-  "messages.new": "有新消息 ↓",
+  "messages.latest": "回到最新消息",
   "command.label": "命令补全",
   "compact.running": "正在整理记忆…",
   "compact.failed": "本次整理未完成，仍可继续对话",

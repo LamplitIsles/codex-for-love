@@ -91,6 +91,20 @@ The Companion header’s settings button changes language and appearance immedia
 
 On the first message send, Companion asks the browser directly for notification permission. This requires HTTPS, `http://localhost`, or a `http://*.localhost` address such as `http://prod-lamplit.localhost:17480`; a plain HTTP LAN address cannot show a browser permission request. Chrome may show a permission chip near the address bar rather than a dialog. When permission is granted, an open page that is hidden or unfocused announces each newly completed Partner turn once, including when a PWA window loses focus to another app. Notifications contain the Partner name and a generic new-message notice, never reply content. This is page-local browser notification rather than Web Push: closing or suspending the page, losing its connection, or denying browser permission prevents delivery, and devices do not synchronize notification or read state.
 
+### Typing and reading on mobile
+
+Companion fits the visible space above the keyboard, keeping the name bar where
+browser behavior allows and the composer above the keyboard. Closing the
+keyboard restores the available height. When you are at the latest messages,
+keyboard changes and multiline drafts keep the timeline following; when you
+are reading history, resizing and incoming messages leave your place intact.
+
+The floating **Back to latest messages ↓** button appears when you move away
+from the bottom. It is a return action, not an unread-message indicator. Tapping
+it keeps your text, attachments and existing composer focus. Browser zoom
+remains available. Actual Android, iOS and installed-PWA keyboard behavior still
+needs device acceptance; see the [validation boundary](docs/operator-guide.md#mobile-keyboard-validation).
+
 ### Optional chat history search
 
 Install and set up `flicklog` on the Partner host to enable the search button in
