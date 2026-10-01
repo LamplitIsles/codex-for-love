@@ -11,7 +11,9 @@
   export let t: CompanionTranslate = english;
   export let locale = "en";
   import { createEventDispatcher, onDestroy, onMount, tick } from "svelte";
+  import { captureNativePhoto, hasNativeCamera, dismissNativeKeyboardOnTimelineTap } from "./native-mobile.js";
   import ImagePlus from "lucide-svelte/icons/image-plus";
+  import Copy from "lucide-svelte/icons/copy";
   import Menu from "lucide-svelte/icons/menu";
   import Settings from "lucide-svelte/icons/settings";
   import Search from "lucide-svelte/icons/search";
@@ -249,6 +251,8 @@
   let imageLoads: Record<string, string> = {};
   let imageDimensions: Record<string, { width: number; height: number }> = {};
   let wasNearBottom = true;
+  let copyToast: CompanionLocaleKey | undefined;
+  let copyToastTimer: ReturnType<typeof setTimeout> | undefined;
   let liveAnnouncement: string | CompanionMessage = "";
   let detailReturnFocus: HTMLElement | undefined;
   let lightboxReturnFocus: HTMLElement | undefined;
@@ -1025,6 +1029,17 @@
     timeline.scrollTop = timeline.scrollHeight;
   }
 
+  async function copyMessage(item: TimelineText): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(item.text);
+      copyToast = "messages.copied";
+    } catch {
+      copyToast = "messages.copyFailed";
+    }
+    if (copyToastTimer) clearTimeout(copyToastTimer);
+    copyToastTimer = setTimeout(() => { copyToast = undefined; copyToastTimer = undefined; }, 2000);
+  }
+
   function keepComposerFocus(event: PointerEvent): void {
     if (document.activeElement === composerInput) event.preventDefault();
   }
@@ -1276,6 +1291,15 @@
     addImages(images);
   }
 
+  async function capturePhoto(): Promise<void> {
+    try {
+      const file = await captureNativePhoto();
+      if (file) addImages([file]);
+    } catch {
+      liveAnnouncement = { key: "camera.failed" };
+    }
+  }
+
   function removeImage(draft: CompanionImageDraft): void {
     releaseSubmissionImages([draft]);
     imageDrafts = imageDrafts.filter((candidate) => candidate !== draft);
@@ -1293,7 +1317,8 @@
     if (!held) return;
     suppressImagePickerClick = true;
     event.preventDefault();
-    photoCaptureInput?.click();
+    if (hasNativeCamera()) void capturePhoto();
+    else photoCaptureInput?.click();
   }
   function clearImagePickerPointer(): void {
     imagePickerPointer = undefined;
@@ -1599,6 +1624,7 @@
   });
 
   onDestroy(() => {
+    if (copyToastTimer) clearTimeout(copyToastTimer);
     if (timelineRevealFrame) cancelAnimationFrame(timelineRevealFrame);
     releaseDeferredPreviewReleases();
     releaseSubmissionImages(imageDrafts);
@@ -1805,6 +1831,7 @@
           <div class="companion-timeline-region">
           <div
             bind:this={timeline}
+            use:dismissNativeKeyboardOnTimelineTap={() => composerInput}
             class="companion-timeline"
             class:timeline-ready={timelineReady}
             role="log"
@@ -1992,7 +2019,7 @@
                           </div>
                         {:else if part.item.kind === "text"}
                           <div
-                            class="cmp-chat-bubble companion-bubble"
+                            class="cmp-chat-bubble companion-bubble companion-text-bubble"
                             class:cmp-skeleton={part.item.pending &&
                               !part.item.text}
                             class:companion-bubble-inline-time={timeInline}
@@ -2012,6 +2039,18 @@
                                 >{formatMessageTime(unit.time!)}</time
                               >{/if}
                           </div>
+                          {#if unit.side === "incoming" && !unit.keet && !unit.alarm && part.item.text && !part.item.pending}
+                            <button
+                              type="button"
+                              class="cmp-btn cmp-btn-ghost companion-message-copy"
+                              aria-label={t("messages.copy")}
+                              title={t("messages.copy")}
+                              on:pointerdown={keepComposerFocus}
+                              on:click={() => copyMessage(part.item as TimelineText)}
+                            >
+                              <Copy size={16} aria-hidden="true" />
+                            </button>
+                          {/if}
 
                         {:else if part.item.kind === "voice"}
                           {@const item = part.item}
@@ -2147,6 +2186,11 @@
           {/if}
           </div>
           <div class="companion-composer">
+            {#if copyToast}
+              <div class="cmp-toast cmp-toast-center companion-copy-toast" role="status">
+                <div class="companion-copy-toast-message">{t(copyToast)}</div>
+              </div>
+            {/if}
             {#if commandSuggestion}
               <div
                 id="companion-command-suggestions"

@@ -91,18 +91,20 @@ The Companion header’s settings button changes language and appearance immedia
 
 On the first message send, Companion asks the browser directly for notification permission. This requires HTTPS, `http://localhost`, or a `http://*.localhost` address such as `http://prod-lamplit.localhost:17480`; a plain HTTP LAN address cannot show a browser permission request. Chrome may show a permission chip near the address bar rather than a dialog. When permission is granted, an open page that is hidden or unfocused announces each newly completed Partner turn once, including when a PWA window loses focus to another app. Notifications contain the Partner name and a generic new-message notice, never reply content. This is page-local browser notification rather than Web Push: closing or suspending the page, losing its connection, or denying browser permission prevents delivery, and devices do not synchronize notification or read state.
 
-### Install Companion as a PWA
+### Install Companion on desktop
 
-Open your Companion URL in a supporting browser and choose its **Install app**
-or **Add to Home Screen** action. CFL opens in a standalone window. Installation
+Desktop users can open the Companion URL in a supporting browser and choose
+**Install app** to open CFL in a standalone window. Mobile uses the Capacitor app.
+Installation
 and microphone access require a trusted secure context: HTTPS or local loopback;
 plain HTTP on a phone's LAN address is not sufficient. Use a URL already
-accessible and trusted on the phone; installing CFL does not configure networking
+accessible and trusted on the device; installing CFL does not configure networking
 or TLS. Browser and OS installation options vary.
 
 Tap the image button to select images, or long-press it on a touch screen to
-request a camera capture. Capture is a browser preference; some browsers offer
-a file picker instead. Cancel leaves the draft intact and sends nothing. Captured
+request a camera capture. In Capacitor with the Camera plugin installed, this
+opens the native camera. Browsers use a capture file input and may offer a picker
+instead. Cancel leaves the draft intact and sends nothing. Captured
 files use the same image limits and preview as selected files. Recording uses
 the existing browser microphone permission and speech configuration.
 
@@ -112,23 +114,16 @@ window uses the same online API and notification limits as a browser tab.
 
 ### Typing and reading on mobile
 
-Companion keeps the name bar at the top. On Chromium with VirtualKeyboard,
-the browser supplies keyboard space to the layout; the composer keeps its normal
-design spacing once a bottom keyboard covers the gesture area. During opening
-and closing, gesture protection decreases and returns with the covered distance,
-without reversing input controls. It is restored when the keyboard closes, even
-if the input stays focused. Other browsers use their native resize and visible
-viewport. Focus alone does not mean a keyboard
-is open, and browser zoom remains available.
-When you are at the latest messages, keyboard changes and multiline drafts
-keep the timeline following; when you
-are reading history, resizing and incoming messages leave your place intact.
+Mobile uses the Capacitor app. With its Keyboard plugin installed, tapping
+chat whitespace, message text or copy controls dismisses the keyboard while
+keeping composer focus. Swipes, links and other controls keep their own behavior.
+Completed agent text messages have a copy button below their left edge; it copies
+the original text, including Markdown, and shows brief toast feedback.
 
-The floating **Back to latest messages ↓** button appears when you move away
-from the bottom. It is a return action, not an unread-message indicator. Tapping
-it keeps your text, attachments and existing composer focus. Browser zoom
-remains available. Actual Android, iOS and installed-PWA keyboard behavior still
-needs device acceptance; see the [validation boundary](docs/operator-guide.md#mobile-keyboard-validation).
+The timeline follows when you are at the latest messages and preserves your
+place when reading history. The floating **Latest messages ↓** button returns
+to the bottom without changing drafts. Device acceptance limits are recorded in
+the [operator guide](docs/operator-guide.md#mobile-keyboard-validation).
 
 ### Optional chat history search
 

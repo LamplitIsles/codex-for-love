@@ -49,6 +49,28 @@ try {
   await browser('set', 'viewport', '390', '844');
   await browser('reload');
   await browser('wait', '.companion-textarea');
+  // Copy a test-owned message through the real UI, without touching the OS clipboard.
+  await evaluate(`(() => {
+    window.fixtureCopies=[];
+    Object.defineProperty(navigator, 'clipboard', { configurable:true, value:{
+      writeText:async text=>window.fixtureCopies.push(text)
+    }});
+  })()`);
+  await browser('click', '.companion-message-copy'); await settle();
+  const copied = await evaluate(`({text:fixtureCopies[0],label:document.querySelector('.companion-copy-toast').textContent.trim(),rect:(()=>{const r=document.querySelector('.companion-message-copy').getBoundingClientRect();return {width:r.width,height:r.height}})()})`);
+  assert.match(copied.text, /^fixture reply /);
+  assert.equal(await evaluate(`document.querySelectorAll('.companion-row.outgoing .companion-message-copy').length`), 0);
+  assert.ok(await evaluate(`document.querySelectorAll('.companion-row.incoming .companion-message-copy').length`) > 0);
+  assert.equal(copied.label, 'Copied');
+  assert.equal(await evaluate(`document.querySelector('.companion-copy-toast').getBoundingClientRect().bottom < document.querySelector('.companion-composer').getBoundingClientRect().top`), true);
+  assert.equal(await evaluate(`document.querySelector('.companion-message-copy').textContent.trim()`), '');
+  assert.ok(copied.rect.width >= 44 && copied.rect.height >= 44);
+  await evaluate(`navigator.clipboard.writeText=async()=>{throw new Error('denied')}`);
+  await browser('click', '.companion-message-copy'); await settle();
+  assert.equal(await evaluate(`document.querySelector('.companion-copy-toast').textContent.trim()`), 'Copy failed. Try again.');
+  await evaluate(`new Promise(resolve=>setTimeout(resolve,2100))`);
+  assert.equal(await evaluate(`document.querySelector('.companion-copy-toast')===null`), true);
+  await evaluate(`(() => {const timeline=document.querySelector('.companion-timeline');timeline.scrollTop=timeline.scrollHeight;timeline.dispatchEvent(new Event('scroll'));})()`); await settle();
   // Inject browser env equivalents into CSSOM: a JS keyboard mock cannot set
   // the actual browser/OS environment variables. This is explicitly synthetic.
   await evaluate(`(() => {

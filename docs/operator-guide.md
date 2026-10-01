@@ -15,23 +15,37 @@ they do not add TOML fields, service configuration, workspace state, or
 operator recovery steps. If browser storage is unavailable, the selection still
 applies for the open page but is not retained after reload.
 
-## PWA installation and browser media
+## Desktop installation and Capacitor mobile media
 
 Serve the existing static build and API at the same trusted origin. The root
 manifest has stable identity `/`, scope/start URL `/`, standalone display,
 192/512 PNG icons and an Apple touch icon. No new build or deployment command
-is needed. Open the URL on the phone and use the browser's Install app or Add to
-Home Screen action; browser/OS support varies. HTTPS must be trusted by that
+is needed. On desktop, use the browser's Install app action; browser/OS support varies. HTTPS must be trusted by that
 device. Loopback is secure only on the device itself; an HTTP LAN host is not
 made secure by installation. Network routing, certificates and proxy setup are
 outside this feature.
 
-The image button selects files; touch long-press opens a file input with
+The image button selects files; touch long-press uses native Camera in Capacitor
+when the plugin is installed. Elsewhere it opens a file input with
 `capture="environment"`. Capture is a preference and may open a picker. The
 browser/OS owns camera permissions and cancellation. Files follow existing
 image limits, preview and submission; cancel does not submit. Microphone
 recording still uses getUserMedia and configured STT, requiring a secure context
-and microphone permission. No Capacitor plugin is required by CFL.
+and microphone permission.
+
+Mobile uses Capacitor. The shell must install and sync `@capacitor/camera` 8.x
+and `@capacitor/keyboard` 8.x, then ship a rebuilt app. Web dependencies alone
+cannot install native plugins. Camera cancellation leaves drafts intact; other
+camera errors use the existing camera-failed notice. Android Camera starts a
+separate Activity; shell recovery must handle `App.appRestoredResult` if the OS
+terminates the app during capture.
+
+With native Keyboard available, tapping timeline whitespace, message text or
+copy controls dismisses the keyboard while preserving composer focus. Links and
+other controls keep their own behavior; swipes do not dismiss. Only completed
+agent text messages have a copy button, with short toast feedback. Without the
+plugin, ordinary browser focus handling applies. Keep the shell's existing
+system-bar colors and resize settings.
 
 There is no service worker, offline cache or Web Push. Documents revalidate on
 refresh; versioned UI assets retain their existing immutable caching. Chat,
@@ -42,41 +56,15 @@ notifications after closing/suspension.
 
 ## Mobile keyboard validation
 
-When available, Companion owns VirtualKeyboard `overlaysContent` for its
-lifetime and restores the previous value on destruction. CSS keyboard height
-reserves a final layout row. Effective safe area is the system inset minus
-the covered distance, clamped at zero, in the same layout; normal design
-padding remains the minimum. Tiny opening/closing insets therefore do not
-reverse the textarea or buttons. Real rectangles handle floating or out-of-chat
-keyboards; floating avoidance uses the space below the rectangle's top, rather than subtracting
-its height. The name bar stays at the root's top. Measured rectangles share
-the same CSS safe-area calculation.
-
-Without the API, native `interactive-widget=resizes-content` and measured
-VisualViewport height/offset remain the baseline; there is no second keyboard
-height subtraction. Editing focus plus reduced geometry controls effective
-safe area proportionally to covered distance; focus alone does not. Closing
-while focused restores gesture protection. Zoom retains native browser layout. No fixed maximum inset or
-fixed-duration keyboard animation is used. Following latest, reading history
-and the return-to-latest button retain their existing behavior.
-
 After building, run `node apps/partner/tests/mobile-browser.mjs` with
-`agent-browser` and Chromium installed. It copies the built output into a
-test-owned directory and uses the fake app-server. It checks 390×844, 320×700
-and desktop DOM geometry, tiny insets (0/1/4/12/24/40px) through full opening
-and closing, monotonic textarea/button bottoms, CSS layout before/after geometry
-notification, safe area, follow/read/return behavior, floating geometry, fallback and camera cancellation.
-CSS environment equivalents are injected because a mock keyboard cannot
-change OS environment variables; this does not prove browser IME animation.
-`pnpm test` covers injected Window/viewport lifecycle and built HTTP manifest,
-icon dimensions/types, entry links and existing document/asset caching.
+`agent-browser` and Chromium installed. The test uses isolated state, fake
+services, keyboard geometry and clipboard writes to check layout, scrolling,
+agent-only copying and toast feedback. `pnpm test` also covers native bridge
+and event handling. These checks do not establish real OS animation quality.
 
-Pixel is unavailable: real OS opening/closing animation, installed-PWA launch,
-camera/microphone permissions, specific phone connection paths and iOS animation
-remain unverified. Do not describe synthetic geometry checks as an actual
-flicker fix. Later acceptance should use a test persona and fake provider, record
-keyboard open/close (including close while focused), rotation, floating keyboard,
-external keyboard and zoom, and inspect header/composer/timeline geometry.
+Pixel checks confirmed keyboard dismissal endpoints and retained composer focus.
+Animation quality, text selection, native camera permissions/cancellation/photo
+preview, process-death recovery and iOS behavior remain device acceptance items.
 
 ## Optional local pet
 
