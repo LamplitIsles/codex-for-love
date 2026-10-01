@@ -151,3 +151,13 @@ and provenance publication. CFL deliberately
 uses one tag-authoritative main package rather than DSH's main-push change
 detection and package matrix. It has no DSH runtime dependency, native Rust
 build, GitHub Release, npm token fallback, or automatic native publication.
+
+## PWA and keyboard reference
+
+The mobile PWA manifest, heart/code installation icons and browser file capture
+are original CFL work. The unused Capacitor camera dependency and camera-result
+conversion have been removed. Keyboard layout was informed by Ahmad Shadeed's
+[VirtualKeyboard article](https://ishadeed.com/article/virtual-keyboard-api/)
+(FlickNote #2971), especially the CSS keyboard-height chat grid, and the
+[W3C VirtualKeyboard specification](https://www.w3.org/TR/virtual-keyboard/).
+No article/demo source or artwork was copied; existing upstream licenses remain.

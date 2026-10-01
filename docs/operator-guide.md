@@ -15,33 +15,68 @@ they do not add TOML fields, service configuration, workspace state, or
 operator recovery steps. If browser storage is unavailable, the selection still
 applies for the open page but is not retained after reload.
 
+## PWA installation and browser media
+
+Serve the existing static build and API at the same trusted origin. The root
+manifest has stable identity `/`, scope/start URL `/`, standalone display,
+192/512 PNG icons and an Apple touch icon. No new build or deployment command
+is needed. Open the URL on the phone and use the browser's Install app or Add to
+Home Screen action; browser/OS support varies. HTTPS must be trusted by that
+device. Loopback is secure only on the device itself; an HTTP LAN host is not
+made secure by installation. Network routing, certificates and proxy setup are
+outside this feature.
+
+The image button selects files; touch long-press opens a file input with
+`capture="environment"`. Capture is a preference and may open a picker. The
+browser/OS owns camera permissions and cancellation. Files follow existing
+image limits, preview and submission; cancel does not submit. Microphone
+recording still uses getUserMedia and configured STT, requiring a secure context
+and microphone permission. No Capacitor plugin is required by CFL.
+
+There is no service worker, offline cache or Web Push. Documents revalidate on
+refresh; versioned UI assets retain their existing immutable caching. Chat,
+attachments and API caching contracts are unchanged. Notifications remain
+page-local: the page must stay connected and active enough to receive events,
+with browser permission. Installation does not guarantee background SSE or
+notifications after closing/suspension.
+
 ## Mobile keyboard validation
 
-Companion requests native `interactive-widget=resizes-content` behavior and
-locally uses VisualViewport height/offset when available at normal zoom. It
-uses measured visible space directly, without a guessed keyboard height or a
-second subtraction. Pinch zoom uses the native layout. No operator setting,
-service change or persisted read state is required.
+When available, Companion owns VirtualKeyboard `overlaysContent` for its
+lifetime and restores the previous value on destruction. CSS keyboard height
+reserves a final layout row. Effective safe area is the system inset minus
+the covered distance, clamped at zero, in the same layout; normal design
+padding remains the minimum. Tiny opening/closing insets therefore do not
+reverse the textarea or buttons. Real rectangles handle floating or out-of-chat
+keyboards; floating avoidance uses the space below the rectangle's top, rather than subtracting
+its height. The name bar stays at the root's top. Measured rectangles share
+the same CSS safe-area calculation.
 
-The composer reserves `safe-area-max-inset-bottom` throughout keyboard changes,
-so a dynamic bottom inset dropping to zero does not change its padding. This
-leaves the reserved space above an open keyboard. Browsers without the maximum
-inset use their dynamic safe-area inset; devices without an inset keep the
-existing minimum spacing.
+Without the API, native `interactive-widget=resizes-content` and measured
+VisualViewport height/offset remain the baseline; there is no second keyboard
+height subtraction. Editing focus plus reduced geometry controls effective
+safe area proportionally to covered distance; focus alone does not. Closing
+while focused restores gesture protection. Zoom retains native browser layout. No fixed maximum inset or
+fixed-duration keyboard animation is used. Following latest, reading history
+and the return-to-latest button retain their existing behavior.
 
-Validate the rendered Companion with a test-owned workspace and fake app-server:
-390×844, 320px wide and desktop; shrink and restore the viewport, grow a multiline
-draft, follow latest and read older messages while new content arrives. Check
-header/composer geometry, reading position, a floating return target of at least
-44px, pointer focus and text/attachment preservation, keyboard activation,
-theme contrast and horizontal overflow. Runtime tests cover local viewport
-listeners, animation-frame cleanup and timeline resize observation.
+After building, run `node apps/partner/tests/mobile-browser.mjs` with
+`agent-browser` and Chromium installed. It copies the built output into a
+test-owned directory and uses the fake app-server. It checks 390×844, 320×700
+and desktop DOM geometry, tiny insets (0/1/4/12/24/40px) through full opening
+and closing, monotonic textarea/button bottoms, CSS layout before/after geometry
+notification, safe area, follow/read/return behavior, floating geometry, fallback and camera cancellation.
+CSS environment equivalents are injected because a mock keyboard cannot
+change OS environment variables; this does not prove browser IME animation.
+`pnpm test` covers injected Window/viewport lifecycle and built HTTP manifest,
+icon dimensions/types, entry links and existing document/asset caching.
 
-Viewport and VisualViewport simulations provide layout evidence only. They do
-not establish software-keyboard behavior on Android, iOS or an installed PWA.
-Those device checks remain unverified until an authorized fixture device is
-available; check keyboard opening/closing, browser panning, focus and rotation
-there without using real conversations or paid providers.
+Pixel is unavailable: real OS opening/closing animation, installed-PWA launch,
+camera/microphone permissions, specific phone connection paths and iOS animation
+remain unverified. Do not describe synthetic geometry checks as an actual
+flicker fix. Later acceptance should use a test persona and fake provider, record
+keyboard open/close (including close while focused), rotation, floating keyboard,
+external keyboard and zoom, and inspect header/composer/timeline geometry.
 
 ## Optional local pet
 

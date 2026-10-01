@@ -11,7 +11,6 @@
   export let t: CompanionTranslate = english;
   export let locale = "en";
   import { createEventDispatcher, onDestroy, onMount, tick } from "svelte";
-  import { Camera, CameraErrorCode } from "@capacitor/camera";
   import ImagePlus from "lucide-svelte/icons/image-plus";
   import Menu from "lucide-svelte/icons/menu";
   import Settings from "lucide-svelte/icons/settings";
@@ -61,7 +60,6 @@
   } from "./composer.js";
   import {
     createImageDrafts,
-    imageFileFromCapturedMedia,
     imageFilesFromClipboard,
     imageIntakeError,
     IMAGE_ACCEPT,
@@ -185,6 +183,7 @@
   let composer = createComposerState();
   let composerInput: HTMLTextAreaElement;
   let photoLibraryInput: HTMLInputElement;
+  let photoCaptureInput: HTMLInputElement;
   let commandSuggestion: ComposerCommand | undefined;
   let stopping = false;
   let timeline: HTMLDivElement;
@@ -1277,34 +1276,6 @@
     addImages(images);
   }
 
-  function isCameraCancellation(error: unknown): boolean {
-    if (!error || typeof error !== "object") return false;
-    const code =
-      "code" in error ? (error as { code?: unknown }).code : undefined;
-    if (code !== undefined) return code === CameraErrorCode.TakePhotoCancelled;
-    const message =
-      "message" in error ? (error as { message?: unknown }).message : undefined;
-    return (
-      typeof message === "string" &&
-      /(?:user\s+)?cancel(?:led|ed)\s+photos\s+app|取消(?:了)?拍照/iu.test(
-        message,
-      )
-    );
-  }
-
-  async function capturePhoto(): Promise<void> {
-    try {
-      const result = await Camera.takePhoto({
-        saveToGallery: false,
-        includeMetadata: true,
-      });
-      addImages([await imageFileFromCapturedMedia(result)]);
-    } catch (error) {
-      if (!isCameraCancellation(error))
-        liveAnnouncement = { key: "camera.failed" };
-    }
-  }
-
   function removeImage(draft: CompanionImageDraft): void {
     releaseSubmissionImages([draft]);
     imageDrafts = imageDrafts.filter((candidate) => candidate !== draft);
@@ -1322,7 +1293,7 @@
     if (!held) return;
     suppressImagePickerClick = true;
     event.preventDefault();
-    void capturePhoto();
+    photoCaptureInput?.click();
   }
   function clearImagePickerPointer(): void {
     imagePickerPointer = undefined;
@@ -2261,6 +2232,17 @@
                 type="file"
                 accept={IMAGE_ACCEPT}
                 multiple
+                tabindex="-1"
+                aria-hidden="true"
+                on:change={onImageInput}
+              />
+              <input
+                bind:this={photoCaptureInput}
+                id="companion-image-capture"
+                class="companion-image-input"
+                type="file"
+                accept={IMAGE_ACCEPT}
+                capture="environment"
                 tabindex="-1"
                 aria-hidden="true"
                 on:change={onImageInput}

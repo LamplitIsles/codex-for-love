@@ -22,7 +22,7 @@ It began when Neil moved his own companion, Shio, from DeepSeek Harness to Codex
 | Diaries and memory | Read and write ordinary workspace files, including human-readable daily memories |
 | Tools, skills, and MCP | Give each companion the capabilities that belong in their own life and workspace |
 | Self-set alarms | Let the Partner schedule a future message to herself and continue in the same conversation when it is due |
-| Desktop and mobile | Use the complete companion experience from a computer or through the released [Lamplit Mobile](https://github.com/LamplitIsles/lamplit-mobile) Android app |
+| Desktop and mobile | Use the complete companion experience in a browser or installed PWA, or through the released [Lamplit Mobile](https://github.com/LamplitIsles/lamplit-mobile) Android app |
 | Appearance and language | Use the header settings control to choose 中文 or English and light, dark, or system appearance; choices stay in that browser |
 | Browser notifications | After you opt in, an open background Companion page announces a successfully completed reply using only the Partner name and a generic new-message notice |
 | Connection recovery | A foreground Companion reconnects and re-synchronizes after a transient page connection loss while retaining its in-page draft; this is not offline sending, replay, or draft persistence after restart |
@@ -91,13 +91,35 @@ The Companion header’s settings button changes language and appearance immedia
 
 On the first message send, Companion asks the browser directly for notification permission. This requires HTTPS, `http://localhost`, or a `http://*.localhost` address such as `http://prod-lamplit.localhost:17480`; a plain HTTP LAN address cannot show a browser permission request. Chrome may show a permission chip near the address bar rather than a dialog. When permission is granted, an open page that is hidden or unfocused announces each newly completed Partner turn once, including when a PWA window loses focus to another app. Notifications contain the Partner name and a generic new-message notice, never reply content. This is page-local browser notification rather than Web Push: closing or suspending the page, losing its connection, or denying browser permission prevents delivery, and devices do not synchronize notification or read state.
 
+### Install Companion as a PWA
+
+Open your Companion URL in a supporting browser and choose its **Install app**
+or **Add to Home Screen** action. CFL opens in a standalone window. Installation
+and microphone access require a trusted secure context: HTTPS or local loopback;
+plain HTTP on a phone's LAN address is not sufficient. Use a URL already
+accessible and trusted on the phone; installing CFL does not configure networking
+or TLS. Browser and OS installation options vary.
+
+Tap the image button to select images, or long-press it on a touch screen to
+request a camera capture. Capture is a browser preference; some browsers offer
+a file picker instead. Cancel leaves the draft intact and sends nothing. Captured
+files use the same image limits and preview as selected files. Recording uses
+the existing browser microphone permission and speech configuration.
+
+CFL has no service worker, offline mode or Web Push. Refresh revalidates the
+current deployment's document and loads its versioned UI assets. An installed
+window uses the same online API and notification limits as a browser tab.
+
 ### Typing and reading on mobile
 
-Companion fits the visible space above the keyboard, keeping the name bar where
-browser behavior allows and the composer above the keyboard. Closing the
-keyboard restores the available height. The composer reserves the maximum
-bottom safe-area space when the browser
-provides it, including above an open keyboard, to avoid an extra height jump.
+Companion keeps the name bar at the top. On Chromium with VirtualKeyboard,
+the browser supplies keyboard space to the layout; the composer keeps its normal
+design spacing once a bottom keyboard covers the gesture area. During opening
+and closing, gesture protection decreases and returns with the covered distance,
+without reversing input controls. It is restored when the keyboard closes, even
+if the input stays focused. Other browsers use their native resize and visible
+viewport. Focus alone does not mean a keyboard
+is open, and browser zoom remains available.
 When you are at the latest messages, keyboard changes and multiline drafts
 keep the timeline following; when you
 are reading history, resizing and incoming messages leave your place intact.

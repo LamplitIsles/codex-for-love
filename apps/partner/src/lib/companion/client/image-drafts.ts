@@ -26,11 +26,6 @@ export interface ImagePromptPart {
   name?: string;
 }
 
-export interface CapturedImageMedia {
-  webPath?: string;
-  metadata?: { format?: string };
-}
-
 /** Validate a complete image addition before allocating any preview URLs. */
 export function imageIntakeError(
   current: readonly CompanionImageDraft[],
@@ -99,29 +94,6 @@ export function imageFilesFromClipboard(
   );
 }
 
-/** Fetch a Capacitor camera result into the same File shape used by every image intake path. */
-export async function imageFileFromCapturedMedia(
-  media: CapturedImageMedia,
-  fetchMedia: typeof fetch = fetch,
-): Promise<File> {
-  const url = media.webPath;
-  if (!url) throw new Error("camera-media-missing-url");
-  try {
-    const response = await fetchMedia(url);
-    if (!response.ok) throw new Error("camera-media-fetch-failed");
-    const blob = await response.blob();
-    const type =
-      imageMediaType(blob.type) ??
-      imageMediaType(media.metadata?.format) ??
-      imageMediaType(url);
-    if (!type) throw new Error("camera-media-unsupported-type");
-    const extension = type.slice("image/".length);
-    return new File([blob], `camera-photo.${extension}`, { type });
-  } finally {
-    if (url.startsWith("blob:")) URL.revokeObjectURL(url);
-  }
-}
-
 export async function serializeImageDrafts(
   drafts: readonly CompanionImageDraft[],
 ): Promise<ImagePromptPart[]> {
@@ -151,20 +123,4 @@ function base64Of(file: File): Promise<string> {
       reject(reader.error ?? new Error("image-read-failed"));
     reader.readAsDataURL(file);
   });
-}
-
-function imageMediaType(value: string | undefined): ImageMediaType | undefined {
-  const normalized = value?.trim().toLowerCase().replace(/^\./u, "");
-  if (!normalized) return undefined;
-  if (
-    normalized === "jpg" ||
-    normalized === "jpeg" ||
-    normalized === "image/jpg" ||
-    normalized === "image/jpeg"
-  )
-    return "image/jpeg";
-  if (normalized === "png" || normalized === "image/png") return "image/png";
-  if (normalized === "webp" || normalized === "image/webp") return "image/webp";
-  if (normalized === "gif" || normalized === "image/gif") return "image/gif";
-  return undefined;
 }

@@ -28,8 +28,8 @@ Build and check the checkout that the dev service will run:
 ```sh
 pnpm install --frozen-lockfile
 pnpm check
-pnpm test
 pnpm build
+pnpm test
 ```
 
 The dev override must execute that checkout with the fixed dev configuration:

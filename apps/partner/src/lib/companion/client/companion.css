@@ -2,7 +2,8 @@
 #dsh-companion {
   --cmp-line:color-mix(in srgb,var(--color-base-content) 10%,transparent);
   --cmp-panel:color-mix(in srgb,var(--color-base-100) 94%,transparent);
-  --companion-bottom-safe-area:max(env(safe-area-max-inset-bottom,0px),env(safe-area-inset-bottom,0px));
+  --companion-system-safe-area:env(safe-area-inset-bottom,0px);
+  --companion-bottom-safe-area:var(--companion-system-safe-area);
   box-sizing:border-box;height:100dvh;overflow:hidden;color:var(--color-base-content);-webkit-tap-highlight-color:transparent;
   background:radial-gradient(circle at 8% 3%,color-mix(in srgb,var(--color-secondary) 19%,transparent),transparent 32%),var(--color-base-200);
   font-family:"Noto Sans SC",ui-rounded,"SF Pro Rounded","Segoe UI",system-ui,sans-serif;
@@ -15,6 +16,14 @@
 #dsh-companion button,#dsh-companion textarea,#dsh-companion input{font:inherit}
 #dsh-companion + .companion-sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 #dsh-companion.companion-shell{position:fixed;inset-inline:0;top:var(--companion-visible-top,0px);height:var(--companion-visible-height,100dvh);padding:0;overflow:hidden}
+/* The browser updates keyboard space and effective safe area in one layout.
+   JS overrides keyboard space only for floating/out-of-chat geometry. */
+#dsh-companion[data-keyboard-overlay]{
+  --companion-keyboard-space:env(keyboard-inset-height,0px);
+  --companion-bottom-safe-area:max(0px,calc(var(--companion-system-safe-area) - var(--companion-keyboard-space)));
+  display:grid;grid-template-rows:minmax(0,1fr) var(--companion-keyboard-space);
+  top:0;height:100dvh;
+}
 #dsh-companion .companion-app{position:relative;display:grid;grid-template-columns:minmax(0,1fr);width:100%;height:100%;margin:0;overflow:hidden;border:0;border-radius:0;background:var(--cmp-panel);box-shadow:none;transition:grid-template-columns .24s ease}
 #dsh-companion .companion-content{min-width:0;min-height:0;grid-column:1}
 #dsh-companion .companion-main{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr) auto;height:100%;min-width:0;min-height:0}

@@ -55,10 +55,11 @@ jobs:
           npm install --global npm@11.17.0 corepack@0.35.0
           corepack enable
           corepack pnpm install --frozen-lockfile
-      - name: Typecheck and test CFL
+      - name: Typecheck, build, and test CFL
         working-directory: ${{ runner.temp }}/cfl-release-source
         run: |
           corepack pnpm check
+          corepack pnpm build
           corepack pnpm test
       - name: Build, inspect, and pack the staged main package
         working-directory: ${{ runner.temp }}/cfl-release-source
