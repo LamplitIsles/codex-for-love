@@ -301,6 +301,7 @@ function steerTurn(params) {
 }
 
 async function compact() {
+  log({ fixtureCompactExecution: true });
   const turn = { id: `compact-${state.next++}`, items: [], itemsView: 'full', status: 'inProgress', error: null, startedAt: nowSeconds(), completedAt: null };
   state.turns.push(turn);
   state.active = turn.id;
@@ -312,8 +313,8 @@ async function compact() {
   if (process.env.FAKE_COMPACT_DELAY_MS) await new Promise(resolve => setTimeout(resolve, Number(process.env.FAKE_COMPACT_DELAY_MS)));
   while (control().holdCompact && turn.status === 'inProgress') await new Promise(resolve => setTimeout(resolve, 15));
   if (turn.status !== 'inProgress') return;
-  if (process.env.FAKE_COMPACT_STATUS) {
-    turn.status = process.env.FAKE_COMPACT_STATUS;
+  if (process.env.FAKE_COMPACT_STATUS || control().compactFailed) {
+    turn.status = process.env.FAKE_COMPACT_STATUS ?? 'failed';
     turn.completedAt = nowSeconds();
     turn.error = turn.status === 'failed' ? { message: 'fixture compaction failed', codexErrorInfo: null, additionalDetails: null } : null;
     state.active = null;
@@ -322,7 +323,7 @@ async function compact() {
     return;
   }
   send({ method: 'item/completed', params: { threadId: state.threadId, turnId: turn.id, completedAtMs: Date.now(), item } });
-  send({ method: 'thread/tokenUsage/updated', params: { threadId: state.threadId, turnId: turn.id, tokenUsage: { total: { cachedInputTokens: 0, inputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0, totalTokens: 0 }, last: { cachedInputTokens: 0, inputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0, totalTokens: 0 }, modelContextWindow: 200000 } } });
+  if (process.env.FAKE_QUIET_COMPACT !== 'true') send({ method: 'thread/tokenUsage/updated', params: { threadId: state.threadId, turnId: turn.id, tokenUsage: { total: { cachedInputTokens: 0, inputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0, totalTokens: 0 }, last: { cachedInputTokens: 0, inputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0, totalTokens: 0 }, modelContextWindow: 200000 } } });
   turn.status = 'completed';
   turn.completedAt = nowSeconds();
   state.active = null;
@@ -409,9 +410,31 @@ async function handle(request) {
       active.status = 'interrupted'; active.error = { message: 'interrupted' }; state.active = null; save(); send({ method: 'turn/completed', params: { threadId: state.threadId, turn: active } });
       return {};
     }
-    case 'thread/compact/start': void compact(); return {};
+    case 'thread/compact/start':
+      if (control().refuseCompact) rpcError(-32600, 'fixture native admission refused');
+      void compact();
+      while (control().holdCompactReply) await new Promise(resolve => setTimeout(resolve, 15));
+      return {};
     default: throw new Error(`fixture does not implement ${request.method}`);
   }
+}
+
+if (process.env.FAKE_QUIET_COMPACT === 'true') {
+  let lastCommand;
+  setInterval(() => {
+    const command = control().command;
+    if (!command || command.id === lastCommand) return;
+    lastCommand = command.id;
+    if (command.action === 'usage') send({ method: 'thread/tokenUsage/updated', params: { threadId: command.threadId ?? state.threadId, turnId: state.active ?? 'usage', tokenUsage: {
+      last: { cachedInputTokens: 0, inputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0, totalTokens: command.tokens ?? -1 }, total: { cachedInputTokens: 0, inputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0, totalTokens: 9999999 }, modelContextWindow: command.capacity } } });
+    else if (command.action === 'auto') void compact();
+    else if (command.action === 'busy') {
+      const turn = { id: 'busy-turn', status: command.enabled ? 'inProgress' : 'completed', items: [], itemsView: 'full' };
+      state.active = command.enabled ? turn.id : null; save();
+      send({ method: command.enabled ? 'turn/started' : 'turn/completed', params: { threadId: state.threadId, turn } });
+    }
+    writeFileSync(join(root, 'command-done'), command.id);
+  }, 10).unref();
 }
 
 if (process.env.FAKE_IMAGES_FIXTURE === 'true') {

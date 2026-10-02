@@ -531,7 +531,14 @@ restart the Partner after changing it. An ordinary turn or resume does not
 repeat the bootstrap.
 
 The app calls the official `thread/compact/start` operation and projects its
-lifecycle and engine-reported token observations. The patched Codex build can
+lifecycle and engine-reported token observations. Running and failure remain
+visible; successful manual/automatic compaction produces no completed status,
+toast or timeline marker in either frontend. Official records are retained.
+Current usage uses `last.totalTokens` and `modelContextWindow`; completion
+invalidates old tokens, retaining capacity until fresh native usage. Missing
+usage displays zero quietly. The shared compact command rechecks auth/session
+and native idle/pending/recovery admission; lost replies do not replay it.
+The patched Codex build can
 route manual and automatic compaction through the official local summarizer,
 which consumes the Owner-authored `compactionPrompt`. Enable it explicitly:
 

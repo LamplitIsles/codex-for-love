@@ -15,31 +15,3 @@ export function createCompactBoundary(id: string, activeOperationId: string | nu
 export function projectContinuity(compactions: readonly CompactBoundary[], latest?: CompactionLifecycleState) {
   return { compactions: [...compactions], lifecycle: { lifecycles: latest ? [latest] : [], latest } };
 }
-
-import type { TimelineMessageUnit } from './companion/projection.ts';
-/** Keep boundaries between the same visible contributions, including mid-turn. */
-export function insertCompactBoundaries(units: readonly TimelineMessageUnit[], boundaries: readonly CompactBoundary[]): TimelineMessageUnit[] {
-  const slots = new Map<number, TimelineMessageUnit[]>();
-  for (const boundary of boundaries) {
-    let index = 0;
-    if (boundary.anchorId) {
-      const user = units.findIndex(unit => unit.id === `${boundary.anchorId}:user`);
-      if (user < 0) continue;
-      if (boundary.position === 'before') index = user;
-      else if (boundary.position === 'after-user') index = user + 1;
-      else {
-        // A turn can yield several separate Partner messages. The response
-        // units use their native turn ID, not the user message ID, so place a
-        // completed checkpoint after the whole incoming run and before the
-        // next user contribution.
-        index = user + 1;
-        while (units[index]?.side === 'incoming') index += 1;
-      }
-    }
-    const records = slots.get(index) ?? [];
-    records.push({ id: boundary.id, side: 'incoming', items: [{ id: boundary.id, messageKey: boundary.id, kind: 'continuity',
-      side: 'incoming', tone: 'success', compactionId: boundary.id, text: '', time: boundary.time, anchorSeq: index }] });
-    slots.set(index, records);
-  }
-  return Array.from({ length: units.length + 1 }, (_, index) => [...(slots.get(index) ?? []), ...(units[index] ? [units[index]] : [])]).flat();
-}

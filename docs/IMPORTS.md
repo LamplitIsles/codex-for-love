@@ -52,8 +52,10 @@ The store contains UI/domain metadata only. It is not an imported model
 history journal.
 
 The compact/expanded composer interaction follows the owner-supplied Penpot
-`Composer` design package dated 2026-10-02. Its layout is implemented with
-Framework7 tokens and Lucide controls; no exported design PNGs are bundled.
+`Composer` design package dated 2026-10-02. The full old Composer/attachment mockup, including its 96px mandate, is
+superseded by the native Framework7 baseline at CFL HEAD
+`63616953a28158e2224aca633b639c5b27123d28` for quiet compaction (#3121).
+The retained layout uses Framework7 tokens and Lucide controls; no exported design PNGs are bundled.
 
 The drawer spacing and automatic-wake list presentation follow the owner-supplied
 Penpot “新版 · 自动唤醒” designs and `LamplitIsles/lamplit-chat`
@@ -242,7 +244,7 @@ Apache-2.0 licenses and notices remain unchanged.
 
 ### Reviewed image/recovery contract artifact
 
-`vendor/lamplit-contracts-images.tgz` is the unmodified compiled Apache-2.0
+The earlier image/recovery contract was the unmodified compiled Apache-2.0
 `@lamplit/contracts` package from `LamplitIsles/lamplit-app` HEAD
 `ebde803fb955349c8bd05de259f13ca14b63f668` (spec #3096, reviewed handoff).
 SHA256: `9d2bb7d559f064a35c5ed93a4ac265ecc6ff128b2fa70950cf701d44f5c8c737`.
@@ -254,3 +256,15 @@ projection, recovery binding and native test controls are original integration
 work; existing native materialization and app-server execution remain the owners.
 The Owner-approved review2 acceptance runner is from app source HEAD
 `091c0def66abdb45728906785e6defd55c60d50c`; browser/contracts retain the product HEAD above.
+
+
+### Reviewed quiet-compaction contract artifact
+
+`vendor/lamplit-contracts-compact.tgz` replaces the earlier image contract with
+the unchanged compiled Apache-2.0 `@lamplit/contracts` archive from reviewed
+App #3119 HEAD `95f0f06fc00fd4e7fa3e664ca2b1fe12fe8d10b8`.
+SHA256: `b695d821ce5a86d044be3fbc08c83562dcb5f079d10c226771e2bfa669cc55b5`.
+Upstream LICENSE, TypeBox schemas, Chord host, image and voice protocols remain
+in the archive. The same handoff browser and common compact/images/panels runner
+bytes are extracted only into ignored test-owned scratch. CFL's Node native
+adapter and fake official app-server controls are original integration work.

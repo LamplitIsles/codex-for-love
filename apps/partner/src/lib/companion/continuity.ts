@@ -13,6 +13,7 @@ export type CompactionLifecycleStatus = "running" | "complete" | "failed";
 
 export interface CompactionLifecycleState {
   readonly compactionId: string;
+  readonly nativeId?: string;
   readonly status: CompactionLifecycleStatus;
   readonly startSeq: number;
   readonly startedAt: number;
@@ -31,8 +32,8 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
-function positiveFinite(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value) && value > 0;
+function validCapacity(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= Number.MAX_SAFE_INTEGER;
 }
 
 /**
@@ -45,7 +46,7 @@ export function resolveContextCapacity(
   value: unknown,
 ): ContextCapacity | undefined {
   const record = asRecord(value);
-  if (!record || !positiveFinite(record.contextWindow)) return undefined;
+  if (!record || !validCapacity(record.contextWindow)) return undefined;
   const hasProjection =
     Object.hasOwn(record, "projectedTokens") &&
     record.projectedTokens !== undefined;
@@ -58,7 +59,7 @@ export function resolveContextCapacity(
     contextWindow: record.contextWindow,
     percentage: Math.min(
       100,
-      Math.max(0, Math.round((selected / record.contextWindow) * 100)),
+      Math.max(0, record.contextWindow === 0 ? 0 : Math.round((selected / record.contextWindow) * 100)),
     ),
   };
 }

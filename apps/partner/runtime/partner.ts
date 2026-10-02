@@ -503,6 +503,8 @@ export async function createPartner(config: Config, credentials: Credentials, de
   let unsubscribeAppServer: Array<() => void> = [];
   let startupPending = false;
   let compacting = false;
+  let compactAdmissionPending = false;
+  let pendingHumanAdmissions = 0;
   let eventChain: Promise<void> = Promise.resolve();
   let admission: Promise<void> = Promise.resolve();
   let closePromise: Promise<void> | undefined;
@@ -1219,8 +1221,11 @@ export async function createPartner(config: Config, credentials: Credentials, de
       now(),
     );
     await store.saveCompactBoundary(boundary);
+    const context = await store.observedContext();
+    await store.observeContext({ activeTokens: null, windowTokens: context?.windowTokens ?? null });
     lifecycle = {
       compactionId: boundary.id,
+      nativeId: itemId ?? lifecycle?.nativeId,
       status: 'complete',
       startSeq: lifecycle?.startSeq ?? eventSequence,
       startedAt: lifecycle?.startedAt ?? boundary.time,
@@ -1239,15 +1244,19 @@ export async function createPartner(config: Config, credentials: Credentials, de
 
   async function handleServerEvent(notification: SupportedNotification): Promise<void> {
     if (closing) return;
+    const notificationThread = record(notification.params).threadId;
+    if (typeof notificationThread === 'string' && notificationThread !== threadId) return;
     eventSequence += 1;
     const params = record(notification.params);
     switch (notification.method) {
       case 'thread/tokenUsage/updated': {
         const usage = record(params.tokenUsage);
         const last = record(usage.last);
-        if (Object.hasOwn(last, 'totalTokens')) {
-          await store.observeContext({ activeTokens: numberOrNull(last.totalTokens), windowTokens: numberOrNull(usage.modelContextWindow) });
-        }
+        const count = (value: unknown, positive = false): number | null =>
+          typeof value === 'number' && Number.isFinite(value) && value >= (positive ? 1 : 0) && value <= Number.MAX_SAFE_INTEGER ? value : null;
+        const previous = await store.observedContext();
+        await store.observeContext({ activeTokens: count(last.totalTokens),
+          windowTokens: count(usage.modelContextWindow, true) ?? previous?.windowTokens ?? null });
         if (!closing) notify();
         break;
       }
@@ -1272,7 +1281,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
           mergeItem(turnId, item);
           syncActiveTurn();
         } else if (item.type === 'contextCompaction') {
-          lifecycle = { compactionId: `compact:${typeof item.id === 'string' ? item.id : randomUUID()}`, status: 'running', startSeq: eventSequence, startedAt: now() };
+          lifecycle = { compactionId: `compact:${typeof item.id === 'string' ? item.id : randomUUID()}`, nativeId: typeof item.id === 'string' ? item.id : undefined, status: 'running', startSeq: eventSequence, startedAt: now() };
           if (!closing) notify();
         }
         break;
@@ -1312,7 +1321,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
         // steers belong to the next turn; only unconfirmed inputs need restoring.
         else if (reconciled && !userItems(reconciled).length && completedTurnId) await restoreUnconsumed(completedTurnId, turnStatus(reconciled) === 'completed');
         syncActiveTurn();
-        if (compacting) {
+        if (compacting || lifecycle?.status === 'running') {
           compacting = false;
           if (lifecycle?.status === 'running') {
             if (turnStatus(reconciled) === 'completed') await finishCompaction(reconciled?.id);
@@ -1339,6 +1348,8 @@ export async function createPartner(config: Config, credentials: Credentials, de
 
   function onServerEvent(notification: SupportedNotification): void {
     if (closing) return;
+    const notificationThread = record(notification.params).threadId;
+    if (typeof notificationThread === 'string' && notificationThread !== threadId) return;
     // A server request (for example item/tool/call) can arrive before the
     // response to turn/start or turn/steer. Prime this mapping synchronously
     // from the event payload so the request is associated with its turn while
@@ -1500,6 +1511,8 @@ export async function createPartner(config: Config, credentials: Credentials, de
   }
 
   function submitInput(id: string, input: string, values: readonly z.infer<typeof imageInputSchema>[] = [], replaces: readonly string[] = [], shared?: Submission) {
+    if (input.trim() === '/compact') return Promise.reject(new Error('Use the compact command without images'));
+    pendingHumanAdmissions += 1;
     const task = admission.then(async () => {
       if (closing || storageError) throw new Error('Partner is unavailable');
       await eventChain;
@@ -1553,7 +1566,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
       if (activeTurnId) await steerIntent(intent, activeTurnId);
       else await startIntent(intent);
       notify();
-    });
+    }).finally(() => { pendingHumanAdmissions -= 1; });
     admission = task.catch(() => { if (!closing) notify(); });
     return task;
   }
@@ -1802,11 +1815,14 @@ export async function createPartner(config: Config, credentials: Credentials, de
     },
     submit: submitInput,
     async submitShared(value: Submission) {
-      const input = validateSubmission(value);
-      const normalized: Submission = { operationId: input.operationId, text: input.text, ...(input.images?.length ? { images: input.images.map(({ attachmentId, name, mediaType, availability }) => ({ attachmentId, name, mediaType, availability })) } : {}), ...(input.replacementSourceIds?.length ? { replacementSourceIds: input.replacementSourceIds } : {}) };
-      try { await submitInput(input.operationId, input.text, [], input.replacementSourceIds ?? [], normalized); }
-      catch (error) { const admitted = await store.sharedSubmission(input.operationId, threadId); if (!admitted || admitted !== createHash('sha256').update(JSON.stringify(normalized)).digest('hex') || (!unresolvedInputIds.has(input.operationId) && !await store.rejected(input.operationId))) throw error; }
-      return this.chatReceipt(input.operationId);
+      pendingHumanAdmissions += 1;
+      try {
+        const input = validateSubmission(value);
+        const normalized: Submission = { operationId: input.operationId, text: input.text, ...(input.images?.length ? { images: input.images.map(({ attachmentId, name, mediaType, availability }) => ({ attachmentId, name, mediaType, availability })) } : {}), ...(input.replacementSourceIds?.length ? { replacementSourceIds: input.replacementSourceIds } : {}) };
+        try { await submitInput(input.operationId, input.text, [], input.replacementSourceIds ?? [], normalized); }
+        catch (error) { const admitted = await store.sharedSubmission(input.operationId, threadId); if (!admitted || admitted !== createHash('sha256').update(JSON.stringify(normalized)).digest('hex') || (!unresolvedInputIds.has(input.operationId) && !await store.rejected(input.operationId))) throw error; }
+        return await this.chatReceipt(input.operationId);
+      } finally { pendingHumanAdmissions -= 1; }
     },
     async cancel(id: string) {
       const active = activeTurnId && (activeTurnId === id || activeSourceIds(activeTurnId).includes(id) || operationTurn(id)?.id === activeTurnId);
@@ -1818,13 +1834,24 @@ export async function createPartner(config: Config, credentials: Credentials, de
       admission = task.catch(() => { if (!closing) notify(); });
       return task;
     },
-    async compact() {
+    async compact(input?: { sessionId: string; authorize?: () => Promise<boolean> }) {
+      if (pendingHumanAdmissions || compactAdmissionPending || activeTurnId || pendingStarts.size || pendingSteers.length || rejectedSteers.length || recoveryPromise || compacting || lifecycle?.status === 'running') {
+        if (input) return { sessionId: input.sessionId, accepted: false };
+        throw new Error('Cannot compact while the conversation is working');
+      }
+      compactAdmissionPending = true;
       const task = admission.then(async () => {
         if (closing || storageError) throw new Error('Partner is unavailable');
         await eventChain;
-        if (activeTurnId || pendingStarts.size || pendingSteers.length || rejectedSteers.length || recoveryPromise || compacting) throw new Error('Cannot compact while the conversation is working');
-        startupPending = false;
         await refreshBootstrap();
+        if (input?.authorize && !await input.authorize()) throw new Error('Unauthorized');
+        // Revalidate after every asynchronous prerequisite, inside native admission.
+        if (closing || storageError || (input && input.sessionId !== threadId)) throw new Error('Wrong or unavailable session');
+        if (activeTurnId || pendingStarts.size || pendingSteers.length || rejectedSteers.length || recoveryPromise || compacting || lifecycle?.status === 'running') {
+          if (input) return { sessionId: input.sessionId, accepted: false };
+          throw new Error('Cannot compact while the conversation is working');
+        }
+        startupPending = false;
         lifecycle = { compactionId: `compact:${randomUUID()}`, status: 'running', startSeq: eventSequence + 1, startedAt: now() };
         compacting = true;
         notify();
@@ -1835,12 +1862,14 @@ export async function createPartner(config: Config, credentials: Credentials, de
           failCompaction();
           processError('compaction.failed', error);
           notify();
+          if (input && error instanceof AppServerInvalidRequestError) return { sessionId: threadId, accepted: false };
           throw error;
         }
         notify();
+        return { sessionId: threadId, accepted: true };
       });
-      admission = task.catch(() => { if (!closing) notify(); });
-      return task;
+      admission = task.then(() => undefined, () => { if (!closing) notify(); });
+      try { return await task; } finally { compactAdmissionPending = false; }
     },
     subscribe(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
     close() {

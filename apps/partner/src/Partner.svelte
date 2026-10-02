@@ -2,7 +2,7 @@
   import { mergeMessages, mergeResults } from './lib/message-pages.ts';
   import { serializeImageDrafts } from './lib/companion/client/image-drafts.ts';
   import type { ImageAttachmentLimits } from './lib/companion/client/contracts.ts';
-  import { insertCompactBoundaries, type CompactBoundary } from './lib/continuity.ts';
+  import { type CompactBoundary } from './lib/continuity.ts';
   import type { CompanionContinuitySnapshot } from './lib/companion/continuity.ts';
   import { onMount } from 'svelte';
   import { f7 as framework7, f7ready } from 'framework7-svelte';
@@ -124,7 +124,7 @@
     }
     ordered.sort((a, b) => a.order - b.order);
     const units = ordered.map(({ unit }) => unit);
-    const timeline = insertCompactBoundaries(units, session.compactions ?? []);
+    const timeline = units;
     return { items: timeline.flatMap((unit) => unit.items), messageUnits: timeline,
       pendingCount: session.pendingCount, canSubmit: connected && loaded,
       running: session.typing, status: !connected && loaded ? 'offline' : session.typing ? 'working' : 'ready',
@@ -235,8 +235,7 @@
   workspaceReadiness={loaded ? 'ready' : 'loading'} sessionReadiness={loaded ? 'ready' : 'loading'}
   relationshipReadiness={session.relationship ? 'ready' : 'loading'}
   continuity={{ lifecycle: session.lifecycle,
-    contextPressure: session.context && session.context.activeTokens !== null && session.context.windowTokens !== null
-      ? { contextWindow: session.context.windowTokens, projectedTokens: session.context.activeTokens } : undefined }}
+    contextPressure: { contextWindow: session.context?.windowTokens ?? 0, projectedTokens: session.context?.activeTokens ?? 0 } }}
   history={{ status: loaded ? 'ready' : 'loading', records: session.history ?? [], hasEarlier: false }}
   recoveredDraft={session.draft} />
 {#if session.pet}<PetDock activity={session.pet.activity} label={t('pet.dockLabel')} />{/if}

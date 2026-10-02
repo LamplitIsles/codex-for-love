@@ -631,7 +631,7 @@
     clearContinuityStatusTimer();
     continuityStatusKey = key;
     continuityStatus = undefined;
-    if (!lifecycle) return;
+    if (!lifecycle || lifecycle.status === "complete") return;
     if (lifecycle.status === "running") {
       continuityStatus = lifecycle;
       return;
@@ -1720,7 +1720,7 @@
                     "compact.running",
                   )}{:else if continuityStatus.status === "failed"}{t(
                     "compact.failed",
-                  )}{:else}{t("compact.done")}{/if}
+                  )}{/if}
               </div>
             {/if}
 
@@ -2001,15 +2001,7 @@
               {/if}
               {#each displayedProjection.messageUnits as unit (unit.id)}
                 {@const first = unit.items[0]}
-                {#if first?.kind === "continuity"}
-                  <div
-                    class="companion-continuity-record"
-                    data-testid={`continuity-record-${first.compactionId}`}
-                    aria-live="off"
-                  >
-                    {t("compact.record")}
-                  </div>
-                {:else if first?.kind === "notice"}
+                {#if first?.kind === "notice"}
                   <div
                     class="companion-recovery"
                     role={first.tone === "error" ? "alert" : "status"}

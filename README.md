@@ -331,7 +331,7 @@ Development and tests must use fresh, test-owned workspaces. Do not point them a
 The optional shared frontend is served at `/slice/` when `LAMPLIT_APP_ASSETS`
 points to an extracted, reviewed Lamplit browser archive. The existing frontend
 remains at `/`. The common `/api/chat/socket` protocol uses the exact compiled
-`@lamplit/contracts` archive pinned in `vendor/lamplit-contracts-images.tgz`.
+`@lamplit/contracts` archive pinned in `vendor/lamplit-contracts-compact.tgz`.
 Use `pnpm install --frozen-lockfile`; no adjacent source build is required.
 This is a development slice, not a production cutover or published-package release workflow.
 
@@ -475,3 +475,53 @@ originals leave text editable and require explicit removal or a new selection.
 The native frontend and its private routes remain available at `/`.
 
 See [the shared image protocol and isolated acceptance recipe](docs/image-send-recovery.md).
+
+
+### Quiet native compaction
+
+Both `/` and the reviewed shared `/slice/` UI keep manual and automatic successful
+compaction silent: no completed status, toast or timeline boundary. Running and
+failure feedback remain visible. Official compact records remain available for
+continuation and conversation search. The native Framework7 composer and its
+72px attachments/44px removal targets remain the layout baseline; the earlier
+full Composer/96px attachment mockup is superseded.
+
+The shared view carries session-owned `contextUsage: { tokens, capacity }`, with
+nullable values, and `compaction: null | { id, status }`. Current usage comes only
+from native `thread/tokenUsage/updated` `last.totalTokens` and
+`modelContextWindow`, never cumulative billing. Missing/invalid usage displays
+zero quietly. Completion clears old tokens and retains known capacity until
+fresh native usage arrives; fresh usage in a complete snapshot stays visible.
+
+`compact({ sessionId })` returns `{ sessionId, accepted }`; a true result means
+native admission. The adapter rechecks authorization, session and native
+idle/pending/recovery guards after asynchronous prerequisites. Busy work is
+refused without a compact queue. Exact bare `/compact` uses this operation and
+cannot enter ordinary submit; images refuse and retain the editable selection.
+Lost replies and reconnects reconcile observations without automatic replay.
+
+For isolated acceptance, use the Owner-reviewed App #3119 frozen handoff at
+HEAD `95f0f06fc00fd4e7fa3e664ca2b1fe12fe8d10b8`. Verify all archive and extracted
+manifest hashes, install its compiled contract archive with pnpm, and serve its
+unchanged browser. Do not rebuild the shared App or alter common runners.
+After the normal install/check/build/test sequence:
+
+```sh
+COMPACT_FIXTURE_EVIDENCE="$PWD/.scratch/quiet-compaction/evidence/compact-native" \
+node apps/partner/tests/quiet-compaction-fixture.ts <extracted-web> apps/partner/build
+# Use the printed URLs; the facade owns temporary SQLite, fake Codex home and auth.
+APP_ACCEPTANCE_URL=<printed-origin>/slice/ \
+APP_ACCEPTANCE_CONTROL_URL=<printed-control-url> \
+APP_ACCEPTANCE_EVIDENCE=<test-owned-evidence> bun <acceptance>/compact-browser.mjs
+node apps/partner/tests/quiet-compaction-browser.mjs <acceptance> <native-evidence>
+IMAGE_FIXTURE_EVIDENCE=<native-evidence> \
+node apps/partner/tests/image-send-recovery-fixture.ts <extracted-web>
+node apps/partner/tests/panels-acceptance-host.ts <extracted-web> <native-evidence>
+```
+
+Run the unchanged images runner using its printed control URL. For panels,
+set `APP_ACCEPTANCE_INTERVAL_SECONDS=300` for the native five-minute schedule;
+its actual host also streams voice through a local fake provider. All controls
+are test-only entry points, absent from production routing. Acceptance uses no
+live services, real credentials, paid providers or external messages. Owner
+joint acceptance remains a separate merge gate.
