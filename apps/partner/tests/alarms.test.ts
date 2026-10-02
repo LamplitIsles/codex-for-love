@@ -49,13 +49,13 @@ test('daily alarm does not fire twice in a fall-back hour', async () => {
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
 
-test('one-shot alarm catches up into the one Codex thread with self provenance', async () => {
+test('one-shot alarm within grace is admitted into the one Codex thread with self provenance', async () => {
   const f = await fixture();
   let clock = Date.parse('2026-09-30T00:00:00Z');
   try {
     const alarm = createAlarm(partnerPaths(f.workspace).alarms, 'Remember the picnic', { kind: 'once', at: '2026-09-30T09:00:00+08:00' }, clock);
     editAlarm(partnerPaths(f.workspace).alarms, alarm.id, 'Bring tea to the picnic');
-    clock += 2 * 60 * 60_000;
+    clock += 60 * 60_000 + 60_000;
     const partner = await f.createPartner({ now: () => clock });
     await eventually(async () => (await f.requests()).some(request => request.method === 'turn/start' && JSON.stringify(request.params).includes('Bring tea to the picnic')));
     const starts = (await f.requests()).filter(request => request.method === 'turn/start');
@@ -82,7 +82,7 @@ test('one-shot alarm catches up into the one Codex thread with self provenance',
 
 test('a rejected one-shot start retries when Codex becomes available', async () => {
   const f = await fixture();
-  const clock = Date.parse('2026-09-30T02:00:00Z');
+  const clock = Date.parse('2026-09-30T01:01:00Z');
   try {
     createAlarm(partnerPaths(f.workspace).alarms, 'Try again later', { kind: 'once', at: '2026-09-30T09:00:00+08:00' }, clock - 2 * 60 * 60_000);
     await f.rejectStart(true);
@@ -100,7 +100,7 @@ test('a rejected one-shot start retries when Codex becomes available', async () 
 
 test('an ambiguous one-shot start waits for restart reconciliation and never becomes a Human draft', async () => {
   const f = await fixture();
-  const clock = Date.parse('2026-09-30T02:00:00Z');
+  const clock = Date.parse('2026-09-30T01:01:00Z');
   f.appServer.env!.FAKE_HOLD_METHOD = 'turn/start';
   f.appServer.requestTimeoutMs = 250;
   let partner: Awaited<ReturnType<typeof f.createPartner>> | undefined;

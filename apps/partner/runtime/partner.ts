@@ -1,6 +1,8 @@
+import { listDiary, readDiary } from './diary.ts';
+export { MAX_DIARY_ENTRY_BYTES } from './diary.ts';
 import type { Receipt } from '@lamplit/contracts';
 import { createHash, randomUUID } from 'node:crypto';
-import { access, mkdir, readFile, writeFile, readdir, lstat, unlink } from 'node:fs/promises';
+import { access, mkdir, readFile, writeFile, unlink } from 'node:fs/promises';
 import { basename, extname, isAbsolute, join, relative, resolve, sep as pathSeparator } from 'node:path';
 import type { z } from 'zod';
 import {
@@ -80,7 +82,6 @@ type TurnResult = {
   voiceIds: string[];
   completedAt?: number;
 };
-export const MAX_DIARY_ENTRY_BYTES = 128 * 1024;
 const HISTORY_PAGE_MESSAGES = 50;
 const HISTORICAL_FALLBACK_START = new Date(2026, 8, 1).getTime();
 const ALARM_INPUT_PREFIX = '[Partner self-set reminder; not from the Human or Keet]\n';
@@ -1117,9 +1118,8 @@ export async function createPartner(config: Config, credentials: Credentials, de
       if (closing || compacting || activeTurnId || recoveryPromise || storageError) return;
       for (const alarm of dueAlarms(paths.alarms, now())) {
         if (closing || compacting || activeTurnId || recoveryPromise) break;
-        // A recurring occurrence missed during downtime is skipped. A one-shot
-        // stays due until admitted once, even across restarts.
-        if (alarm.schedule.kind !== 'once' && now() - alarm.nextAt > 60_000) {
+        // Missed occurrences expire; admitted inputs retain their existing receipts.
+        if (now() - alarm.nextAt > 60_000) {
           completeAlarmOccurrence(paths.alarms, alarm, now()); notify(); continue;
         }
         const id = `alarm:${alarm.id}:${alarm.nextAt}`;
@@ -1485,6 +1485,11 @@ export async function createPartner(config: Config, credentials: Credentials, de
 
   return {
     keetEnabled,
+    async relationship() {
+      const history = (await readRelationshipJournal(paths.relationshipJournal)).reverse();
+      return { scope: createHash('sha256').update(paths.workspaceRoot).digest('hex'), current: stateFromHistory(history) };
+    },
+    async relationshipRecords() { return { scope: createHash('sha256').update(paths.workspaceRoot).digest('hex'), records: await readRelationshipJournal(paths.relationshipJournal) }; },
     alarms() { return listAlarms(paths.alarms); },
     checkAlarms,
     async ingestKeet(message: KeetEventBody) {
@@ -1510,28 +1515,9 @@ export async function createPartner(config: Config, credentials: Credentials, de
         drainKeet(); notify();
       }
     },
-    async diary() {
-      const root = join(paths.workspaceRoot, 'memory');
-      let names: string[];
-      try { names = await readdir(root); } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []; throw error; }
-      const entries = await Promise.all(names.filter(name => /^\d{4}-\d{2}-\d{2}\.md$/u.test(name)).map(async name => {
-        const info = await lstat(join(root, name)); return info.isFile() && !info.isSymbolicLink() ? name : undefined;
-      }));
-      return entries.filter((name): name is string => Boolean(name)).sort().reverse();
-    },
-    async diaryEntry(name: string) {
-      if (!/^\d{4}-\d{2}-\d{2}\.md$/u.test(name)) return undefined;
-      const path = join(paths.workspaceRoot, 'memory', name);
-      try {
-        const info = await lstat(path);
-        if (!info.isFile() || info.isSymbolicLink()) return undefined;
-        if (info.size > MAX_DIARY_ENTRY_BYTES) return 'too-large' as const;
-        return await readFile(path, 'utf8');
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
-        throw error;
-      }
-    },
+    diary() { return listDiary(paths.workspaceRoot); },
+    readDiary(name: string) { return readDiary(paths.workspaceRoot, name); },
+    async diaryEntry(name: string) { const entry = await readDiary(paths.workspaceRoot, name); return entry.status === 'found' ? entry.text : entry.status === 'missing' ? undefined : 'too-large' as const; },
     async audio(id: string) { try { return await readFile(join(paths.audio, `${id}.mp3`)); } catch { return undefined; } },
     voiceCredential() { return config.speech ? credentials.speech ?? null : null; },
     async transcribe(data: Uint8Array, mediaType: string, signal: AbortSignal) {

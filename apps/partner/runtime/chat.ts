@@ -1,9 +1,11 @@
 import { capabilities, PAGE_SIZE, type ChatMessage, type ChatView } from '@lamplit/contracts';
 import { createChatHost, type ChatBackend } from '@lamplit/contracts/server';
+import { panelCursors } from './panel-cursor.ts';
 import type { Partner } from './partner.ts';
 import { WebSocketServer } from 'ws';
 
 export function createCodexChatBackend(partner: Partner): ChatBackend {
+  const cursors = panelCursors();
   async function page(cursor?: string) {
     const options: { before?: number; anchor?: string } = cursor ? JSON.parse(cursor) : {};
     if (options.before !== undefined && (!Number.isSafeInteger(options.before) || options.before < 0)) throw new Error('Invalid cursor');
@@ -14,7 +16,7 @@ export function createCodexChatBackend(partner: Partner): ChatBackend {
       if (m.delivery === 'replaced') continue;
       const state = receipts.get(m.id)!.state;
       const delivery = state === 'accepted' ? 'pending' : state === 'missing' ? 'uncertain' : state;
-      ordered.push({ order: m.sequence * 2, message: { id: m.id, role: 'user', text: m.input || '[媒体消息]', delivery, createdAt: m.created, operationId: m.id, turnId: m.turnId } });
+      ordered.push({ order: m.sequence * 2, message: { id: m.id, role: 'user', text: m.input || '[媒体消息]', delivery, createdAt: m.created, operationId: m.id, turnId: m.turnId, ...(m.alarm ? { source: { kind: 'reminder' as const, reminderId: m.id.split(':')[1]!, occurrenceId: m.id } } : {}) } });
     }
     for (const r of snapshot.results) {
       const source = snapshot.messages.find(m => m.id === r.sourceIds.at(-1));
@@ -35,20 +37,50 @@ export function createCodexChatBackend(partner: Partner): ChatBackend {
     async submit(input) { await partner.submit(input.operationId, input.text); return partner.chatReceipt(input.operationId); },
     lookup: id => partner.chatReceipt(id),
     async stop(id) { return partner.chatStop(id); },
+    async relationship() { return partner.relationship(); },
+    async relationshipHistory(input) {
+      const { scope, records } = await partner.relationshipRecords();
+      const position = cursors.decode('relationshipHistory', input.sessionId, input.cursor);
+      const end = position === undefined ? records.length : Number(position);
+      if (!Number.isSafeInteger(end) || end < 0 || end > records.length) throw new Error('Invalid cursor');
+      const start = Math.max(0, end - 20);
+      return { scope, records: records.slice(start, end).reverse(), predecessor: records[start - 1] ?? null,
+        nextCursor: start > 0 ? cursors.encode('relationshipHistory', input.sessionId, String(start)) : null };
+    },
+    async diaryList(input) {
+      const after = cursors.decode('diaryList', input.sessionId, input.cursor);
+      const entries = (await partner.diary()).filter(name => after === undefined || name < after);
+      const page = entries.slice(0, 30);
+      return { entries: page, nextCursor: entries.length > page.length ? cursors.encode('diaryList', input.sessionId, page.at(-1)!) : null };
+    },
+    async diaryRead(input) { return partner.readDiary(input.name); },
+    async album(input) {
+      const cursor = cursors.decode('album', input.sessionId, input.cursor);
+      const page = await partner.conversationImages({ limit: 30, cursor });
+      return { images: page.images.map(image => ({ id: image.id, filename: image.filename, createdAt: image.created, origin: image.origin,
+        available: image.available, previewUrl: image.available ? image.url : null, originalUrl: image.available ? image.url : null })),
+        nextCursor: page.nextCursor ? cursors.encode('album', input.sessionId, page.nextCursor) : null };
+    },
+    async reminders() {
+      return { reminders: partner.alarms().map(alarm => ({ id: alarm.id, message: alarm.message, nextAt: alarm.nextAt,
+        schedule: alarm.schedule.kind === 'once' ? { kind: 'once' as const, at: Date.parse(alarm.schedule.at) }
+          : alarm.schedule.kind === 'interval' ? { kind: 'interval' as const, everySeconds: alarm.schedule.everyMinutes * 60, anchor: alarm.createdAt }
+          : alarm.schedule })) };
+    },
     subscribe: listener => partner.subscribe(listener),
   };
 }
-export function createChatSocket(partner: Partner) {
+export function createChatSocket(partner: Partner, authorize: (request: import('node:http').IncomingMessage) => Promise<boolean> = async () => true) {
   const sockets = new WebSocketServer({ noServer: true, maxPayload: 2 * 1024 * 1024 });
   let host: ReturnType<typeof createChatHost> | undefined;
-  sockets.on('connection', ws => {
+  sockets.on('connection', (ws, request) => {
     let channel: Awaited<ReturnType<typeof createChatHost>>['connect'] extends (...args: never[]) => infer R ? R : never;
     let closed = false;
     ws.on('close', () => { closed = true; channel?.close(); });
     // Register immediately; a browser may send subscription calls before host hydration completes.
     ws.on('message', (data, binary) => {
       if (binary) { ws.close(1003, 'Text frames required'); return; }
-      void (async () => { const h = await (host ??= createChatHost(createCodexChatBackend(partner))); if (closed) return; channel ??= h.connect(ws, async () => true); await channel.receive(data.toString()); })().catch(() => ws.close(1011, 'Chat unavailable'));
+      void (async () => { const h = await (host ??= createChatHost(createCodexChatBackend(partner))); if (closed) return; channel ??= h.connect(ws, () => authorize(request)); await channel.receive(data.toString()); })().catch(() => ws.close(1011, 'Chat unavailable'));
     });
   });
   return { sockets, close: async () => { for (const socket of sockets.clients) socket.close(1001, 'Server closing'); if (host) (await host).close(); sockets.close(); } };

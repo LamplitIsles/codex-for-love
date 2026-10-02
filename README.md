@@ -226,11 +226,14 @@ distinct self-set alarm label, followed by the Partner's ordinary reply.
 The top-left drawer has a read-only Auto wake tab showing each current alarm and
 its next due time. Ask the Partner in chat to edit an alarm's message or cancel
 it. Editing preserves its schedule and next due time; already admitted
-reminders keep their original message. On restart, an overdue one-time alarm is
-delivered once. Recurring alarms skip missed occurrences and continue from
-their next due time. The Partner service must be running to deliver an alarm on
-time. Browser notifications use the existing generic completion notice when an
-open background Companion page has permission.
+reminders keep their original message. An occurrence up to and including 60
+seconds late follows the normal admission flow. Strictly more than 60 seconds
+late never starts Codex: a one-time alarm ends and disappears from the pending list; a recurring alarm advances to
+its next future occurrence. This rule also applies after restart. Existing
+occurrence receipts prevent duplicate admission, and editing or deleting a
+definition never rewrites an admitted message. The Partner service must be
+running to deliver an alarm on time. Browser notifications use the existing
+generic completion notice when an open background Companion page has permission.
 
 ### Optional local pet
 
@@ -342,6 +345,92 @@ Browser origins must match the host; existing gateway authentication
 still applies. Use an independent development instance and do not publicly expose
 an unauthenticated host. See `lamplit-app/docs/integration.md` for build and
 connection commands.
+
+The app owns the public TypeScript/TypeBox schemas. CFL implements six bounded
+reads on `lamplit.chat.v1` over that same connection:
+
+| Read | Native authority | Bound |
+| --- | --- | --- |
+| `relationship` | Workspace relationship JSONL journal | Current state and opaque workspace scope |
+| `relationshipHistory` | Same journal | 20 newest-first records, next cursor and complete older predecessor |
+| `diaryList` / `diaryRead` | `memory/YYYY-MM-DD.md` | 30 date names; found/missing/too-large with 128 KiB UTF-8 limit |
+| `album` | Registered conversation-image catalogue | 30 records, stable descending created time and binary ID |
+| `reminders` | Existing SQLite alarm definitions | At most 100 pending definitions |
+
+Each call requires the selected `sessionId`; it cannot select another conversation.
+Signed opaque cursors are bound to the method and selected session, and expire
+when the host restarts. App schemas validate both request and response at runtime.
+A failed panel call returns a recoverable error; chat and voice remain usable.
+Opening a panel does not start a turn. Relationship history paging cannot replace
+the current relationship with an older state. Native MCP writes are visible on
+refresh without a second relationship store.
+
+Diary reads reject traversal, symbolic-link files and memory directories escaping
+the workspace. Reads use a no-follow file handle and enforce byte limits before
+and during reading. Companion MCP offers `list_diary` (30 names), `read_diary`,
+and cursor-based `read_relationship_history` (up to 20 records plus predecessor),
+as well as the existing bounded `list_photos` and `list_alarms`.
+
+Album metadata contains opaque IDs and same-origin `/api/conversation-images/`
+URLs, with no filesystem paths. Preview and original use the existing image byte
+route; missing files remain visible as unavailable. The catalogue is reconciled
+against official conversation membership; viewing an arbitrary local file with a
+native tool does not register it. There is no thumbnail pipeline or new media store.
+HTTP API reads reject foreign origins and cross-site browser requests. Embedders
+may supply `createWebServer(..., { authorize })`; it is checked on HTTP requests,
+WebSocket admission and every chat call/delivery, including after revocation.
+The standalone host retains its existing trusted gateway boundary; the callback
+is not a new login or multi-tenant system.
+
+Reminder schedules retain native once/daily/weekly meanings, UTC epoch-ms
+`nextAt`, IANA zones and Sunday-zero weekdays. CFL's native interval minimum is
+five whole minutes; public `everySeconds` is `everyMinutes * 60` and `anchor` is
+the persisted creation time, including pre-1970 anchors. The public adapter does
+not change scheduling. Stored native `alarm:<id>:<due-ms>` input metadata supplies
+`source: { kind: "reminder", reminderId, occurrenceId }` in live views and history,
+so the app shows incoming **App reminder** messages rather than human input.
+
+For local verification, use Node 24 and the pinned pnpm from the repository root:
+
+```sh
+pnpm install --frozen-lockfile
+pnpm check
+pnpm build
+pnpm test
+node --test apps/partner/tests/panels.test.ts
+```
+
+For a reviewed app handoff, extract its frozen browser and compiled-contract
+archives into a test-owned directory, verify `identity.json`, archive hashes and
+both expanded manifests before and after acceptance. Keep the dependency path
+portable: refresh the existing adjacent compiled contracts with
+`pnpm --filter @lamplitisles/partner add '@lamplit/contracts@file:../../../lamplit-app/packages/contracts'`
+only after verifying its compiled files match the frozen contracts manifest.
+Do not rebuild or refreeze the app during backend acceptance.
+
+Start an isolated real Node host on port 8952 using the extracted browser assets
+at `/slice/`, test-owned workspace/SQLite/Codex home, fake official app-server and
+fake streaming ASR. Native seeds are in `apps/partner/tests/panels-seed.ts`:
+25 relationship records, 35 diary/image members, all four schedules and the fixture original PNG.
+Seed a persisted application reminder through normal alarm admission. To test a
+missing diary after listing, remove only that test-owned file after the native
+list read. Record the actual host harness command and fake PCM/provider evidence.
+Then run the app's read-only acceptance runner from its checkout:
+
+```sh
+APP_ACCEPTANCE_URL=http://127.0.0.1:8952/slice/ \
+APP_ACCEPTANCE_INTERVAL_SECONDS=300 \
+APP_ACCEPTANCE_EVIDENCE=/absolute/path/to/codex-for-love/.scratch/companion-panels/browser \
+  bun run test:panels-browser
+```
+
+Optional synthetic gateway credentials use `APP_ACCEPTANCE_USERNAME` and
+`APP_ACCEPTANCE_PASSWORD`. Fake providers return `fixture reply` and
+`recognized final`; optional `APP_ACCEPTANCE_REPLY` and
+`APP_ACCEPTANCE_TRANSCRIPT` override those expected values. This runner checks
+390/1280 panels, original bytes, completed text and real PCM-to-draft voice.
+Record browser/contract artifact hashes, the backend HEAD and the acceptance
+runner HEAD separately. Keep all evidence and runtime state outside Git.
 
 ### Streaming voice input
 

@@ -28,3 +28,12 @@ test('conversation image page omission defaults to five items', () => {
   assert.equal(page.images.length, 5);
   assert.ok(page.nextCursor);
 });
+
+test('same-time catalogue pages use binary ID order without duplicates after append', () => {
+  const images = Array.from({ length: 35 }, (_, i) => image(`equal-${i}`, 100, 'historical'));
+  const expected = [...images].sort((a, b) => a.id < b.id ? 1 : a.id > b.id ? -1 : 0);
+  const first = pageConversationImages(images, 30);
+  const last = pageConversationImages([...images, image('appended', 101, 'human')], 30, first.nextCursor);
+  assert.deepEqual([...first.images, ...last.images].map(i => i.id), expected.map(i => i.id));
+  assert.equal(last.nextCursor, undefined);
+});

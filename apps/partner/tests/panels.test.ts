@@ -1,0 +1,141 @@
+import assert from 'node:assert/strict';
+import { once } from 'node:events';
+import { mkdir, rm, rmdir, symlink, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { test } from 'node:test';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { openChat } from '@lamplit/contracts/client';
+import type { ChatView } from '@lamplit/contracts';
+import { createCodexChatBackend } from '../runtime/chat.ts';
+import { createWebServer } from '../runtime/server.ts';
+import { completeAlarmOccurrence, createAlarm, editAlarm, deleteAlarm, listAlarms } from '../runtime/alarms.ts';
+import { partnerPaths } from '../runtime/storage-paths.ts';
+import { fixture, eventually } from './fixture.ts';
+import { fixtureImage, seedNow, seedPanels } from './panels-seed.ts';
+
+test('public panels read native journal, diary, catalogue and SQLite; MCP writes, scope, schema, errors and auth', async () => {
+  const f = await fixture(); const data = await seedPanels(f.workspace, f.appServer.env.FAKE_SERVER_STATE!);
+  const partner = await f.createPartner({ now: () => seedNow });
+  let authorized = true;
+  const app = createWebServer(partner, join(f.directory, 'assets'), { authorize: async () => authorized });
+  app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening');
+  const base = `http://127.0.0.1:${(app.server.address() as { port: number }).port}`;
+  let view: ChatView | undefined;
+  const socket = new WebSocket(base.replace('http', 'ws') + '/api/chat/socket');
+  const frames: Array<{ type: string; id?: string }> = [];
+  socket.addEventListener('message', event => frames.push(JSON.parse(String(event.data))));
+  const client = await openChat(socket, v => { view = v; }, () => {});
+  const mcp = new Client({ name: 'panels-test', version: '1' });
+  await mcp.connect(new StdioClientTransport({ command: process.execPath, args: [fileURLToPath(new URL('../runtime/companion-mcp.ts', import.meta.url)), f.workspace], stderr: 'ignore' }));
+  const input = { sessionId: view!.sessionId, cursor: null };
+  try {
+    const relation = await client.relationship({ sessionId: input.sessionId });
+    assert.equal(relation.current.affinity, 65);
+    const history = await client.relationshipHistory(input);
+    assert.equal(history.records.length, 20); assert.deepEqual(history.predecessor, data.records[4]);
+    const older = await client.relationshipHistory({ ...input, cursor: history.nextCursor });
+    assert.equal(older.records.length, 5); assert.equal(older.nextCursor, null); assert.equal(older.predecessor, null);
+    await mcp.callTool({ name: 'update_relationship', arguments: { affinity: { delta: 1, reason: 'native MCP write' } } });
+    assert.equal((await client.relationship({ sessionId: input.sessionId })).current.affinity, 66);
+    assert.equal((await client.relationshipHistory({ ...input, cursor: history.nextCursor })).records.length, 5);
+    assert.equal((await client.relationship({ sessionId: input.sessionId })).current.affinity, 66);
+    const mcpHistory = await mcp.callTool({ name: 'read_relationship_history', arguments: { limit: 20 } }) as { content: Array<{ text: string }> };
+    const mcpPage = JSON.parse(mcpHistory.content[0]!.text);
+    const mcpOlder = await mcp.callTool({ name: 'read_relationship_history', arguments: { cursor: mcpPage.nextCursor } }) as { content: Array<{ text: string }> };
+    assert.equal(JSON.parse(mcpOlder.content[0]!.text).records.length, 6);
+    const diaries = await client.diaryList(input);
+    assert.equal(diaries.entries.length, 30); assert.deepEqual(diaries.entries, data.dates.slice(0, 30));
+    assert.deepEqual((await client.diaryList({ ...input, cursor: diaries.nextCursor })).entries, data.dates.slice(30));
+    await rm(join(f.workspace, 'memory', data.dates[1]!));
+    assert.equal((await client.diaryRead({ sessionId: input.sessionId, name: data.dates[1]! })).status, 'missing');
+    assert.equal((await client.diaryRead({ sessionId: input.sessionId, name: data.dates[2]! })).status, 'too-large');
+    const boundary = '界'.repeat(43690) + 'ab';
+    assert.equal(Buffer.byteLength(boundary), 128 * 1024);
+    await writeFile(join(f.workspace, 'memory', '2026-01-03.md'), 'too-large');
+    assert.deepEqual(await client.diaryRead({ sessionId: input.sessionId, name: '2026-01-03.md' }), { status: 'found', name: '2026-01-03.md', text: 'too-large' });
+    await writeFile(join(f.workspace, 'memory', '2026-01-01.md'), boundary);
+    assert.equal((await client.diaryRead({ sessionId: input.sessionId, name: '2026-01-01.md' })).status, 'found');
+    await writeFile(join(f.workspace, 'memory', '2026-01-01.md'), boundary + 'x');
+    assert.equal((await client.diaryRead({ sessionId: input.sessionId, name: '2026-01-01.md' })).status, 'too-large');
+    await symlink(f.config.persona, join(f.workspace, 'memory', '2026-01-02.md'));
+    assert.equal((await client.diaryRead({ sessionId: input.sessionId, name: '2026-01-02.md' })).status, 'missing');
+    assert.equal((await client.diaryList(input)).entries.includes('2026-01-02.md'), false);
+    await assert.rejects(client.diaryRead({ sessionId: input.sessionId, name: '../persona.md' }));
+    socket.send(JSON.stringify({ version: 1, type: 'call', id: 'invalid-panel', call: { serviceId: 'lamplit.chat.v1', member: 'diaryRead', args: [{ sessionId: input.sessionId, name: '../persona.md' }] } }));
+    await eventually(async () => frames.some(frame => frame.id === 'invalid-panel' && frame.type === 'error'));
+    assert.equal((await client.relationship({ sessionId: input.sessionId })).current.affinity, 66);
+    const album = await client.album(input); assert.equal(album.images.length, 30);
+    assert.equal(album.images[1]!.available, false); assert.equal(album.images[1]!.originalUrl, null);
+    assert.equal((await client.album({ ...input, cursor: album.nextCursor })).images.length, 5);
+    assert.equal(JSON.stringify(album).includes(f.workspace), false);
+    assert.deepEqual(Buffer.from(await (await fetch(base + album.images[0]!.originalUrl)).arrayBuffer()), fixtureImage);
+    assert.equal((await fetch(base + `/api/conversation-images/${'a'.repeat(64)}`)).status, 404);
+    assert.equal((await fetch(base + `/api/conversation-images/${data.images[1]!.id}`)).status, 404);
+    assert.equal((await fetch(base + album.images[0]!.originalUrl, { headers: { origin: 'https://foreign.invalid' } })).status, 403);
+    await writeFile(join(f.workspace, 'unregistered.png'), fixtureImage);
+    assert.equal((await client.album(input)).images.length, 30);
+    await assert.rejects(client.album({ ...input, cursor: diaries.nextCursor }));
+    await assert.rejects(client.album({ ...input, cursor: album.nextCursor!.slice(0, -2) + 'zz' }));
+    await assert.rejects(client.album({ ...input, sessionId: 'other-session', cursor: album.nextCursor }));
+    const backend = createCodexChatBackend(partner);
+    const directPage = await backend.album(input);
+    await assert.rejects(backend.album({ ...input, sessionId: 'other-session', cursor: directPage.nextCursor }));
+    const reminders = await client.reminders({ sessionId: input.sessionId }); assert.equal(reminders.reminders.length, 4);
+    assert.deepEqual(reminders.reminders.find(r => r.schedule.kind === 'interval')!.schedule, { kind: 'interval', everySeconds: 300, anchor: seedNow });
+    await mcp.callTool({ name: 'create_alarm', arguments: { message: 'MCP alarm', schedule: { kind: 'interval', everyMinutes: 5 } } });
+    assert.equal((await client.reminders({ sessionId: input.sessionId })).reminders.length, 5);
+    const negative = createAlarm(partnerPaths(f.workspace).alarms, 'pre-epoch anchor', { kind: 'interval', everyMinutes: 5 }, -600000);
+    completeAlarmOccurrence(partnerPaths(f.workspace).alarms, negative, seedNow);
+    assert.equal((await client.reminders({ sessionId: input.sessionId })).reminders.find(r => r.id === negative.id)?.schedule.kind, 'interval');
+    assert.equal(((await client.reminders({ sessionId: input.sessionId })).reminders.find(r => r.id === negative.id)!.schedule as { anchor: number }).anchor, -600000);
+    deleteAlarm(partnerPaths(f.workspace).alarms, negative.id);
+    await rm(join(f.workspace, 'memory'), { recursive: true }); await writeFile(join(f.workspace, 'memory'), 'not directory');
+    await assert.rejects(client.diaryList(input));
+    await rm(join(f.workspace, 'memory')); await mkdir(join(f.workspace, 'memory'));
+    assert.deepEqual((await client.diaryList(input)).entries, []);
+    await rmdir(join(f.workspace, 'memory')); await symlink(f.directory, join(f.workspace, 'memory'));
+    await assert.rejects(client.diaryList(input));
+    await assert.rejects(client.diaryRead({ sessionId: input.sessionId, name: '2026-01-01.md' }));
+    assert.equal((await f.requests()).filter(r => r.method === 'turn/start').length, 0);
+    authorized = false;
+    assert.equal((await fetch(base + album.images[0]!.originalUrl)).status, 401);
+    await assert.rejects(client.relationship({ sessionId: input.sessionId }));
+  } finally { client.close(); await mcp.close(); await app.close(); await f.close(); }
+});
+
+for (const kind of ['once', 'interval'] as const) for (const lateness of [59000, 60000, 60001]) {
+  test(`${kind} native scheduler at ${lateness}ms lateness preserves admission and immutable source`, async () => {
+    const f = await fixture(); const path = partnerPaths(f.workspace).alarms;
+    let clock = seedNow;
+    const alarm = createAlarm(path, 'immutable reminder', kind === 'once' ? { kind, at: new Date(clock + 300000).toISOString() } : { kind, everyMinutes: 5 }, clock);
+    clock = alarm.nextAt + lateness;
+    await f.holdProvider(true);
+    let partner = await f.createPartner({ now: () => clock });
+    try {
+      await partner.checkAlarms();
+      const starts = (await f.requests()).filter(r => r.method === 'turn/start');
+      assert.equal(starts.length, lateness <= 60000 ? 1 : 0);
+      if (lateness > 60000) {
+        assert.equal((await partner.snapshot()).messages.length, 0);
+        assert.equal(listAlarms(path).length, kind === 'once' ? 0 : 1);
+        if (kind === 'interval') assert.ok(listAlarms(path)[0]!.nextAt > clock);
+      } else {
+        const id = `alarm:${alarm.id}:${alarm.nextAt}`;
+        editAlarm(path, alarm.id, 'edited after admission'); deleteAlarm(path, alarm.id);
+        const backend = createCodexChatBackend(partner);
+        const message = (await backend.read()).messages.find(m => m.id === id)!;
+        assert.equal(message.text, 'immutable reminder');
+        assert.deepEqual(message.source, { kind: 'reminder', reminderId: alarm.id, occurrenceId: id });
+        assert.ok((await backend.history(JSON.stringify({}))).messages.some(m => m.id === id && m.source?.kind === 'reminder'));
+        await partner.checkAlarms(); assert.equal((await f.requests()).filter(r => r.method === 'turn/start').length, 1);
+        await f.holdProvider(false); await eventually(async () => (await partner.snapshot()).results.some(r => r.chatStatus === 'completed'));
+        assert.equal((await backend.lookup(id)).state, 'consumed');
+        await partner.close(); partner = await f.createPartner({ now: () => clock });
+        assert.deepEqual((await createCodexChatBackend(partner).read()).messages.find(m => m.id === id)?.source, message.source);
+        assert.equal((await f.requests()).filter(r => r.method === 'turn/start').length, 1);
+      }
+    } finally { await f.close(); }
+  });
+}

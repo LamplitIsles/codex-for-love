@@ -27,7 +27,7 @@ test('Companion MCP serves bounded journal tools over stdio', async () => {
   await client.connect(new StdioClientTransport({ command: process.execPath, args: [script, workspace], stderr: 'ignore' }));
   try {
     const tools = await client.listTools();
-    assert.deepEqual(tools.tools.map((tool) => tool.name).sort(), ['create_alarm', 'delete_alarm', 'edit_alarm', 'list_alarms', 'list_photos', 'read_conversation_record', 'read_relationship_history', 'roll_dice', 'search_conversation', 'send_voice', 'set_signature', 'update_relationship']);
+    assert.deepEqual(tools.tools.map((tool) => tool.name).sort(), ['create_alarm', 'delete_alarm', 'edit_alarm', 'list_alarms', 'list_diary', 'list_photos', 'read_conversation_record', 'read_diary', 'read_relationship_history', 'roll_dice', 'search_conversation', 'send_voice', 'set_signature', 'update_relationship']);
     const created = await client.callTool({ name: 'create_alarm', arguments: { message: 'Check the tea', schedule: { kind: 'once', at: new Date(Date.now() + 3_600_000).toISOString() } } }) as { content: Array<{ text: string }> };
     const alarm = JSON.parse(created.content[0]!.text) as { id: string; message: string; schedule: unknown; nextAt: number; createdAt: number };
     assert.equal(alarm.message, 'Check the tea');

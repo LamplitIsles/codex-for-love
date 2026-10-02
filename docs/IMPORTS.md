@@ -227,3 +227,15 @@ validators and types from `LamplitIsles/lamplit-app` at
 `f56f1259c2af71e3c59f7cd644b2721ffd8c63a6`. It does not import private frontend
 definitions. Provider sentence ordering/replacement and final-only behavior follow
 the Lamplit implementation; no audio or transcript store is added.
+
+### Shared companion panels
+
+The six public panel reads and reminder message source consume the compiled
+Apache-2.0 `@lamplit/contracts` package from `LamplitIsles/lamplit-app` reviewed
+source `0075e3c0887a30a6b19f63852ab20c103f13c79e`. CFL keeps the existing portable
+sibling-package dependency and imports only public package exports. Adapter,
+cursor and filesystem wiring are original CFL work. `tests/panels-seed.ts`
+reproduces the state, reasons, dates, filenames and original PNG bytes of that
+app's `tests/panels-fixture.ts` for isolated native acceptance; native image
+membership/origins and alarm schedules follow CFL's own stores. Upstream
+Apache-2.0 licenses and notices remain unchanged.

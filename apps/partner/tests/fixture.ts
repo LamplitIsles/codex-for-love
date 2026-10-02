@@ -15,8 +15,8 @@ function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
-export async function fixture() {
-  const directory = await realpath(await mkdtemp(join(tmpdir(), 'lamplit-partner-test-')));
+export async function fixture(directoryRoot?: string) {
+  const directory = await realpath(directoryRoot ?? await mkdtemp(join(tmpdir(), 'lamplit-partner-test-')));
   const workspace = join(directory, 'workspace');
   await mkdir(join(directory, 'assets'), { recursive: true });
   await mkdir(workspace, { recursive: true });

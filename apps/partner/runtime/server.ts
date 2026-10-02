@@ -32,7 +32,7 @@ export function isLoopbackPeer(peer: string | undefined): boolean {
   return peer === '127.0.0.1' || peer === '::1' || peer === '::ffff:127.0.0.1';
 }
 
-export function createWebServer(partner: Partner, assets: string, options: { voice?: VoiceDependencies; heartbeatMs?: number; chatAssets?: string; conversationSearch?: ConversationSearch } = {}) {
+export function createWebServer(partner: Partner, assets: string, options: { authorize?: (request: IncomingMessage) => Promise<boolean>; voice?: VoiceDependencies; heartbeatMs?: number; chatAssets?: string; conversationSearch?: ConversationSearch } = {}) {
   const serve = sirv(assets, {
     single: true,
     setHeaders(response, pathname) {
@@ -43,6 +43,9 @@ export function createWebServer(partner: Partner, assets: string, options: { voi
     },
   });
   const serveChat = options.chatAssets ? sirv(options.chatAssets, { single: true, setHeaders(response) { response.setHeader("cache-control", "no-store") } }) : undefined;
+  const authorize = async (request: IncomingMessage) => {
+    try { return options.authorize ? await options.authorize(request) : true; } catch { return false; }
+  };
   const streams = new Set<ServerResponse>();
   const voice = createVoiceHost(() => partner.voiceCredential(), options.voice);
   const server = createServer(async (request, response) => {
@@ -53,6 +56,9 @@ export function createWebServer(partner: Partner, assets: string, options: { voi
       const path = new URL(request.url ?? '/', 'http://localhost').pathname;
       if (serveChat && (path === '/slice' || path.startsWith('/slice/'))) { request.url = request.url!.slice('/slice'.length) || '/'; return serveChat(request, response); }
       if (!path.startsWith('/api/')) return serve(request, response);
+      if (!await authorize(request)) return json(response, { error: 'Unauthorized' }, 401);
+      if (request.headers.origin && ![`http://${request.headers.host}`, `https://${request.headers.host}`].includes(request.headers.origin)) return json(response, { error: 'Forbidden origin' }, 403);
+      if (request.headers['sec-fetch-site'] === 'cross-site') return json(response, { error: 'Forbidden origin' }, 403);
       if (path === VOICE_CAPABILITY_PATH) return json(response, request.method === 'GET' ? { available: voice.available() } : { code: 'method_not_allowed' }, request.method === 'GET' ? 200 : 405);
       if (path === VOICE_STREAM_PATH) return json(response, { code: 'upgrade_required' }, 426);
       if (path === '/api/keet/events' && request.method === 'POST') {
@@ -206,15 +212,15 @@ export function createWebServer(partner: Partner, assets: string, options: { voi
       else response.end();
     }
   });
-  const chat = createChatSocket(partner);
-  server.on('upgrade', (request, socket, head) => {
+  const chat = createChatSocket(partner, authorize);
+  server.on('upgrade', async (request, socket, head) => {
     const path = new URL(request.url ?? '/', 'http://localhost').pathname;
     const origin = request.headers.origin;
     const authority = request.headers.host;
     const sameOrigin = origin === `http://${authority}` || origin === `https://${authority}`;
     const allowed = sameOrigin || (path === '/api/chat/socket' && !origin && isLoopbackPeer(request.socket.remoteAddress));
     const target = path === '/api/chat/socket' ? chat.sockets : path === VOICE_STREAM_PATH ? voice.sockets : undefined;
-    if (request.method !== 'GET' || !target || !allowed) { socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n'); return; }
+    if (request.method !== 'GET' || !target || !allowed || (!await authorize(request))) { socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n'); return; }
     target.handleUpgrade(request, socket, head, ws => target.emit('connection', ws, request));
   });
   return { server, async close() {

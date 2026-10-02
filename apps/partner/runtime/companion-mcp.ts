@@ -1,6 +1,8 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
+import { listDiary, readDiary } from './diary.ts';
+import { panelCursors } from './panel-cursor.ts';
 import { dirname } from 'node:path';
 import { canonicalizeChangeReason, canonicalizeHistoryRead, canonicalizeRelationshipUpdate, canonicalizeSignature, MOODS } from '../src/lib/companion/domain.ts';
 import { rollDice } from './tools/dice-core.ts';
@@ -19,11 +21,29 @@ const journal = partnerPaths(workspace).relationshipJournal;
 const conversationImages = partnerPaths(workspace).conversationImages;
 const alarms = partnerPaths(workspace).alarms;
 const conversationSearch = createConversationSearch({ workspace, codexHome: configPath ? (await loadConfig(configPath)).codex.home : undefined });
+const cursors = panelCursors();
 const server = new McpServer({ name: 'companion', version: '0.1.0' });
 const reaction = { mood: z.object({ value: z.enum(MOODS), note: z.string().optional(), reason: z.string() }).strict().optional(), affinity: z.object({ delta: z.number().int().min(-10).max(10), reason: z.string() }).strict().optional() };
 server.registerTool('update_relationship', { description: 'Record a current mood or relationship reaction with concise factual reasons.', inputSchema: reaction }, async (input) => ({ content: [{ type: 'text', text: JSON.stringify(await updateRelationshipJournal(journal, canonicalizeRelationshipUpdate(input))) }] }));
 server.registerTool('set_signature', { description: 'Set a short profile signature with a concise factual reason.', inputSchema: { signature: z.string(), reason: z.string() } }, async (input) => ({ content: [{ type: 'text', text: JSON.stringify(await updateRelationshipJournal(journal, { signature: { value: canonicalizeSignature(input.signature), reason: canonicalizeChangeReason(input.reason) } })) }] }));
-server.registerTool('read_relationship_history', { description: 'Read recent relationship state records.', inputSchema: { limit: z.number().int().min(1).max(20).optional() } }, async (input) => ({ content: [{ type: 'text', text: JSON.stringify((await readRelationshipJournal(journal)).reverse().slice(0, canonicalizeHistoryRead(input))) }] }));
+server.registerTool('read_relationship_history', { description: 'Read recent relationship state records.', inputSchema: { limit: z.number().int().min(1).max(20).optional(), cursor: z.string().min(1).max(2048).optional() } }, async (input) => {
+  const records = await readRelationshipJournal(journal);
+  const position = cursors.decode('relationshipHistory', workspace, input.cursor ?? null);
+  const end = position === undefined ? records.length : Number(position);
+  if (!Number.isSafeInteger(end) || end < 0 || end > records.length) throw new Error('Invalid cursor');
+  const start = Math.max(0, end - canonicalizeHistoryRead(input.limit === undefined ? {} : { limit: input.limit }));
+  return { content: [{ type: 'text', text: JSON.stringify({ records: records.slice(start, end).reverse(), predecessor: records[start - 1] ?? null, nextCursor: start ? cursors.encode('relationshipHistory', workspace, String(start)) : null }) }] };
+});
+server.registerTool('list_diary', { description: 'List dated memory diary entries in bounded newest-first pages.', inputSchema: { cursor: z.string().min(1).max(2048).optional() } }, async ({ cursor }) => {
+  const after = cursors.decode('diaryList', workspace, cursor ?? null);
+  const all = (await listDiary(workspace)).filter(name => after === undefined || name < after);
+  const entries = all.slice(0, 30);
+  return { content: [{ type: 'text', text: JSON.stringify({ entries, nextCursor: all.length > entries.length ? cursors.encode('diaryList', workspace, entries.at(-1)!) : null }) }] };
+});
+server.registerTool('read_diary', { description: 'Read one dated memory diary entry within the UTF-8 byte limit.', inputSchema: { name: z.string().regex(/^\d{4}-\d{2}-\d{2}\.md$/u) } }, async ({ name }) => {
+  const entry = await readDiary(workspace, name);
+  return { content: [{ type: 'text', text: JSON.stringify(entry) }] };
+});
 server.registerTool('list_photos', { description: 'List our shared photo library: human-sent, Agent-generated, and restored historical conversation images, newest first in bounded pages. Returned local paths may be inspected deliberately with native tools.', inputSchema: { limit: z.number().int().min(1).max(50).optional(), cursor: z.string().regex(/^[A-Za-z0-9_-]{54}$/u).optional() } }, async ({ limit, cursor }) => {
   const page = pageConversationImages(await withAvailability(await readConversationImages(conversationImages)), limit ?? 5, cursor);
   return { content: [{ type: 'text', text: JSON.stringify({ images: page.images.map(({ id, filename, path, created, origin, available }) => ({ id, filename, path, directory: dirname(path), created, origin, available })), ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}) }) }] };

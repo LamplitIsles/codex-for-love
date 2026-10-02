@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { access, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { stat, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 
 export type ConversationImageOrigin = 'human' | 'agent' | 'historical';
@@ -32,7 +32,7 @@ export function conversationImageId(origin: ConversationImageOrigin, source: str
 export function pageConversationImages(images: readonly ConversationImage[], limit = 5, cursor?: string): ConversationImagePage {
   const after = readCursor(cursor); if (cursor && !after) throw new Error('Invalid conversation image cursor');
   const ordered = images.filter((image) => !after || image.created < after[0] || (image.created === after[0] && image.id < after[1]))
-    .sort((a, b) => b.created - a.created || b.id.localeCompare(a.id));
+    .sort((a, b) => b.created - a.created || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
   const page = ordered.slice(0, limit);
   return { images: page, ...(ordered.length > page.length ? { nextCursor: cursorFor(page.at(-1)!) } : {}) };
 }
@@ -41,7 +41,7 @@ export async function readConversationImages(path: string): Promise<Conversation
 }
 export async function withAvailability(images: readonly ConversationImage[]): Promise<ConversationImage[]> {
   return Promise.all(images.map(async (image) => {
-    try { await access(image.path); return { ...image, available: true }; }
+    try { const info = await stat(image.path); return { ...image, available: info.isFile() }; }
     catch { return { ...image, available: false }; }
   }));
 }
