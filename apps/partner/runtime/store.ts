@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { DatabaseSync } from 'node:sqlite';
+import type { Submission, ImageRef } from '@lamplit/contracts';
 import type { MaterializedGeneratedImage, MaterializedInputImage } from './images.ts';
 import type { CompactBoundary, ContextObservation } from '../src/lib/continuity.ts';
 
@@ -23,6 +24,7 @@ export type LocalOutcome = { status: LocalOutcomeStatus; error: string | null };
 export type MessagePageOptions = { before?: number; after?: number };
 export type StoredImage = Omit<MaterializedInputImage, 'data'>;
 export type StoredGeneratedImage = MaterializedGeneratedImage;
+export type StagedImages = { images: StoredImage[]; refs: ImageRef[]; variants: Array<{ preview: string; model: string }> };
 export type KeetDestination = { groupName: string; kind: 'group' | 'broadcast' | 'dm' };
 export type KeetGroupRecord = { senderLabel: string; text: string; replyTo?: { deviceId: string; seq: number } };
 export type KeetReactionContext = { targetMessageId: { deviceId: string; seq: number }; targetText: string; emoji: string; externalCount: number };
@@ -66,6 +68,9 @@ export class Store {
       // not a model journal; it contains only presentation/domain metadata.
       this.db.exec('PRAGMA locking_mode=EXCLUSIVE; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;');
       this.db.exec(`
+        CREATE TABLE IF NOT EXISTS staged_images (operation_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, fingerprint TEXT NOT NULL, payload TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS shared_submissions (operation_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, fingerprint TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS rejected_inputs (message_id TEXT PRIMARY KEY, error TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS chat_completed_items (turn_id TEXT NOT NULL, item_id TEXT PRIMARY KEY);
         CREATE TABLE IF NOT EXISTS message_meta (
           sequence INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -169,7 +174,7 @@ export class Store {
     return this.transaction(() => Number((this.db.prepare('SELECT COALESCE(MAX(revision), 0) AS value FROM message_revisions').get() as { value: number }).value));
   }
 
-  async admit(id: string, input: string, images: readonly StoredImage[] = []): Promise<MessageMeta> {
+  async admit(id: string, input: string, images: readonly StoredImage[] = [], shared?: { sessionId: string; input: Submission }): Promise<MessageMeta> {
     return this.transaction(() => {
       const fingerprint = createHash('sha256').update(JSON.stringify([input, images.map((image) => image.id).sort()])).digest('hex');
       const existing = this.db.prepare('SELECT sequence,id,created,fingerprint FROM message_meta WHERE id=?').get(id) as { sequence: number; id: string; created: number; fingerprint: string | null } | undefined;
@@ -181,6 +186,18 @@ export class Store {
         if (JSON.stringify(oldImages) !== JSON.stringify(newImages)) throw identityConflict();
         return this.meta(existing);
       }
+      if (shared) {
+        for (const sourceId of shared.input.replacementSourceIds ?? []) {
+          if (!this.db.prepare('SELECT 1 FROM pending_inputs p JOIN rejected_inputs r ON r.message_id=p.message_id WHERE p.message_id=?').get(sourceId)
+            || this.db.prepare("SELECT 1 FROM message_outcomes WHERE message_id=? AND status='replaced'").get(sourceId)) throw new Error('Replacement source is not eligible');
+        }
+        this.db.prepare('INSERT INTO shared_submissions(operation_id,session_id,fingerprint) VALUES(?,?,?)').run(id, shared.sessionId, createHash('sha256').update(JSON.stringify(shared.input)).digest('hex'));
+        for (const sourceId of shared.input.replacementSourceIds ?? []) {
+          this.db.prepare("INSERT INTO message_outcomes(message_id,status,error) VALUES(?,'replaced','replaced') ON CONFLICT(message_id) DO UPDATE SET status='replaced',error='replaced'").run(sourceId);
+          this.db.prepare('DELETE FROM pending_inputs WHERE message_id=?').run(sourceId);
+          this.addRevision(sourceId);
+        }
+      }
       const created = Date.now();
       this.db.prepare('INSERT INTO message_meta(id,created,fingerprint) VALUES(?,?,?)').run(id, created, fingerprint);
       this.db.prepare('INSERT INTO pending_inputs(message_id,input) VALUES(?,?)').run(id, input);
@@ -191,6 +208,45 @@ export class Store {
       this.addRevision(id);
       return this.meta(this.db.prepare('SELECT sequence,id,created FROM message_meta WHERE id=?').get(id) as { sequence: number; id: string; created: number });
     });
+  }
+
+  async stageImages(operationId: string, sessionId: string, fingerprint: string, payload: StagedImages): Promise<void> {
+    await this.transaction(() => {
+      const old = this.db.prepare('SELECT session_id,fingerprint FROM staged_images WHERE operation_id=?').get(operationId) as { session_id: string; fingerprint: string } | undefined;
+      if (old) { if (old.session_id !== sessionId || old.fingerprint !== fingerprint) throw identityConflict(); return; }
+      if (this.db.prepare('SELECT 1 FROM message_meta WHERE id=?').get(operationId)) throw identityConflict();
+      this.db.prepare('INSERT INTO staged_images(operation_id,session_id,fingerprint,payload) VALUES(?,?,?,?)').run(operationId, sessionId, fingerprint, JSON.stringify(payload));
+    });
+  }
+  async stagedImages(operationId: string, sessionId: string): Promise<StagedImages | undefined> {
+    return this.transaction(() => {
+      const row = this.db.prepare('SELECT payload FROM staged_images WHERE operation_id=? AND session_id=?').get(operationId, sessionId) as { payload: string } | undefined;
+      return row ? JSON.parse(row.payload) : undefined;
+    });
+  }
+  async stagedMedia(id: string, sessionId: string): Promise<{ image: StoredImage; preview: string; model: string } | undefined> {
+    return this.transaction(() => {
+      const rows = this.db.prepare('SELECT payload FROM staged_images WHERE session_id=?').all(sessionId) as Array<{ payload: string }>;
+      for (const row of rows) {
+        const payload = JSON.parse(row.payload) as StagedImages;
+        const index = payload.images.findIndex(image => image.id === id);
+        if (index >= 0) return { image: payload.images[index]!, ...payload.variants[index]! };
+      }
+      return undefined;
+    });
+  }
+  async sharedSubmission(id: string, sessionId: string): Promise<string | undefined> {
+    return this.transaction(() => {
+      const row = this.db.prepare('SELECT fingerprint,session_id FROM shared_submissions WHERE operation_id=?').get(id) as { fingerprint: string; session_id: string } | undefined;
+      if (row && row.session_id !== sessionId) throw identityConflict();
+      return row?.fingerprint;
+    });
+  }
+  async markRejected(ids: readonly string[], error: string): Promise<void> {
+    await this.transaction(() => { for (const id of ids) this.db.prepare('INSERT OR REPLACE INTO rejected_inputs(message_id,error) VALUES(?,?)').run(id, error); });
+  }
+  async rejected(id: string): Promise<string | undefined> {
+    return this.transaction(() => (this.db.prepare('SELECT error FROM rejected_inputs WHERE message_id=?').get(id) as { error: string } | undefined)?.error);
   }
 
   /** Atomically make one gateway event durable and, when qualified, create its native input. */
@@ -458,6 +514,9 @@ export class Store {
     return { ...image, data: await readFile(image.path) };
   }
 
+  async imageAtPath(path: string): Promise<StoredImage | undefined> {
+    return this.transaction(() => this.db.prepare('SELECT id,operation_id,name,media_type,path FROM input_images WHERE path=? UNION ALL SELECT id,operation_id,name,media_type,path FROM generated_images WHERE path=? LIMIT 1').get(path, path) as StoredImage | undefined);
+  }
   async imageMetadata(id: string): Promise<StoredImage | undefined> {
     return this.transaction(() => this.db.prepare(`
       SELECT id,operation_id,name,media_type,path FROM input_images WHERE id=?

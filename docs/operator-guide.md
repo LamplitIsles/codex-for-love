@@ -589,3 +589,15 @@ Do not use `git push` directly for this governed release operation. After the
 required review, use the repository's `og` tag-push workflow. The Trusted
 Publisher setup is a separate human-only `.scratch` wizard; no npm token or
 GitHub secret is used by this repository.
+
+## Shared-slice image recovery
+
+At `/slice/`, select or paste supported images and remove selections before send.
+An upload failure keeps editable text and files. Submitted recovery offers inspect,
+restore to edit and dismiss. Current edits prevent restoration from overwriting them.
+Uncertain delivery permits inspection only; a completed turn or socket reconnect is
+not proof of unconsumption. Eligible edited resend uses a new operation UUID.
+Missing originals block image resend until explicitly removed or replaced.
+Clearing restored input returns its offer; discard/dismiss hides it only for this
+page/session and never changes native consumption. See
+[image/recovery protocol](image-send-recovery.md) for limits and isolated acceptance.

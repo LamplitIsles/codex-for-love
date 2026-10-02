@@ -35,8 +35,8 @@ importers:
         specifier: github:lamplitisles/codex-app-server-client#56ab11736036d6a5c3dd6e150498dec2d95b2bf5
         version: https://codeload.github.com/lamplitisles/codex-app-server-client/tar.gz/56ab11736036d6a5c3dd6e150498dec2d95b2bf5
       '@lamplit/contracts':
-        specifier: file:../../../lamplit-app/packages/contracts
-        version: file:../lamplit-app/packages/contracts
+        specifier: file:../../vendor/lamplit-contracts-images.tgz
+        version: file:vendor/lamplit-contracts-images.tgz
       '@modelcontextprotocol/sdk':
         specifier: ^1.30.0
         version: 1.30.0(zod@4.6.2)
@@ -509,8 +509,9 @@ packages:
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
 
-  '@lamplit/contracts@file:../lamplit-app/packages/contracts':
-    resolution: {directory: ../lamplit-app/packages/contracts, type: directory}
+  '@lamplit/contracts@file:vendor/lamplit-contracts-images.tgz':
+    resolution: {integrity: sha512-D7AZK1T73Ln0cBYDRheN4LWpqntqqGNnQxwZBinQwCtbig5KJE/jM51PD4vxeJVWYa28UbcLSJsqifmPR15bQA==, tarball: file:vendor/lamplit-contracts-images.tgz}
+    version: 0.1.0
 
   '@lix-js/sdk-darwin-arm64@0.16.1':
     resolution: {integrity: sha512-BKUerxQ5DV1o9L8n3uxZMTdUyjNGDLyh4zoYCQ1sakeAa2mQbb4aYnhYrpJT8Ob+zA5B/IZMQfphz6zOSrXNcw==}
@@ -2041,7 +2042,7 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.6.0
 
-  '@lamplit/contracts@file:../lamplit-app/packages/contracts':
+  '@lamplit/contracts@file:vendor/lamplit-contracts-images.tgz':
     dependencies:
       '@earendil-works/chord': 1.0.0
       typebox: 1.3.34

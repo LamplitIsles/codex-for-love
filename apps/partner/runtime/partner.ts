@@ -1,8 +1,8 @@
 import { listDiary, readDiary } from './diary.ts';
 export { MAX_DIARY_ENTRY_BYTES } from './diary.ts';
-import type { Receipt } from '@lamplit/contracts';
+import { validateUpload, validateSubmission, validateRecovery, type Receipt, type Submission, type ImageUpload, type ImageRef, type InputRecovery } from '@lamplit/contracts';
 import { createHash, randomUUID } from 'node:crypto';
-import { access, mkdir, readFile, writeFile, unlink } from 'node:fs/promises';
+import { access, lstat, mkdir, readFile, writeFile, unlink } from 'node:fs/promises';
 import { basename, extname, isAbsolute, join, relative, resolve, sep as pathSeparator } from 'node:path';
 import type { z } from 'zod';
 import {
@@ -30,7 +30,7 @@ import {
   materializeGeneratedImage,
   materializeImages,
   type MaterializedInputImage,
-  type imageInputSchema,
+  imageInputSchema,
 } from './images.ts';
 import { transcribeAudio } from './speech.ts';
 import { Store, type MessageMeta, type MessagePageOptions, type StoredImage, type StoredInput, type StoredInputSegment } from './store.ts';
@@ -905,6 +905,20 @@ export async function createPartner(config: Config, credentials: Credentials, de
     syncActiveTurn();
   }
 
+  /** Reconcile recovery facts without clearing an active turn's runtime maps. */
+  function refreshRecoveryHistory(): Promise<void> {
+    const task = eventChain.then(async () => {
+      for (const candidate of await listTurns()) {
+        const turn = registerTurn(candidate);
+        if (turn) await projectTurn(turn, false);
+      }
+      syncActiveTurn();
+      await setRestoredDraft((await unresolvedMessages()).map(source => source.id));
+    });
+    eventChain = task.catch(() => undefined);
+    return task;
+  }
+
   async function unresolvedMessages(): Promise<Array<{ id: string; input: string }>> {
     const rows = await store.pendingMessages();
     if (!rows.length) return [];
@@ -989,6 +1003,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
       // A JSON-RPC rejection means the server did not accept this alarm. A
       // timeout or lost connection remains ambiguous until fresh history is
       // loaded after restart, so never retry it in this process.
+      if (error instanceof AppServerInvalidRequestError && intent.source === 'human') await store.markRejected(intent.ids, error instanceof Error ? error.message : String(error));
       if (intent.source !== 'alarm' || !rejectedBeforeAcceptance) await markUnresolved(intent);
       throw error;
     } finally {
@@ -1068,6 +1083,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
           continue;
         }
         removePendingIntent(pendingSteers, intent.transportId);
+        if (error instanceof AppServerInvalidRequestError && intent.source === 'human') await store.markRejected(intent.ids, error.message);
         await markUnresolved(intent);
         throw error;
       } finally {
@@ -1483,6 +1499,65 @@ export async function createPartner(config: Config, credentials: Credentials, de
     throw error;
   }
 
+  function submitInput(id: string, input: string, values: readonly z.infer<typeof imageInputSchema>[] = [], replaces: readonly string[] = [], shared?: Submission) {
+    const task = admission.then(async () => {
+      if (closing || storageError) throw new Error('Partner is unavailable');
+      await eventChain;
+      if (shared) {
+        const existing = await store.sharedSubmission(id, threadId);
+        if (existing) {
+          if (existing !== createHash('sha256').update(JSON.stringify(shared)).digest('hex')) throw new Error('Message identity conflict');
+          return;
+        }
+        if (await store.messageMeta(id)) throw new Error('Message identity conflict');
+        if (replaces.length) await refreshRecoveryHistory();
+        for (const sourceId of replaces) {
+          if (observedInputIds.has(sourceId) || (await store.outcome(sourceId))?.status === 'replaced' || !await store.rejected(sourceId)) throw new Error('Replacement source is not eligible');
+        }
+        const staged = await store.stagedImages(id, threadId);
+        if (shared.images?.length) {
+          if (!staged || JSON.stringify(staged.refs) !== JSON.stringify(shared.images)) throw new Error('Images do not belong to this operation');
+          values = await Promise.all(staged.images.map(async image => ({ type: 'image' as const, name: image.name, mediaType: image.media_type, data: (await readFile(image.path)).toString('base64') })));
+        } else if (staged?.refs.length) throw new Error('Incomplete image submission');
+      }
+      const images = inputImages(id, values);
+      if (shared && JSON.stringify(images.map(image => image.id)) !== JSON.stringify((shared.images ?? []).map(image => image.attachmentId))) throw new Error('Staged original bytes changed');
+      const materialized = await materializeImages(paths.workspaceRoot, images);
+      await store.admit(id, input, materialized, shared ? { sessionId: threadId, input: shared } : undefined);
+      messageIds.add(id);
+      const message = await store.messageMeta(id);
+      if (message) {
+        messagesById.set(id, { created: message.created, sequence: message.sequence });
+      }
+      if (operationTurn(id) || pendingStarts.has(id) || pendingSteers.some((intent) => intent.ids.includes(id)) || (await store.outcome(id))) return;
+      if (unresolvedInputIds.has(id) && !replaces.includes(id)) throw new Error('Message delivery is unresolved; inspect the conversation before retrying');
+      for (const replacedId of replaces) {
+        if (replacedId === id) continue;
+        if (!shared && (!messageIds.has(replacedId) || (!unresolvedInputIds.has(replacedId) && restoredDraft?.sourceIds.includes(replacedId) !== true))) throw new Error('Invalid restored draft replacement');
+        if (!shared) await store.markOutcome(replacedId, 'replaced', 'replaced');
+        observedInputIds.add(replacedId);
+        unresolvedInputIds.delete(replacedId);
+      }
+      if (replaces.length) await setRestoredDraft([...unresolvedInputIds]);
+      await eventChain;
+      syncActiveTurn();
+      const intent: InputIntent = { ids: [id], input, images: materialized, transportId: id, source: 'human' };
+      // Native acceptance can precede turn/started. Hold inputs until that
+      // compaction ends instead of racing a new turn against its start.
+      if (compacting && !activeTurnId) {
+        rejectedSteers.push(intent);
+        notify();
+        return;
+      }
+      if (rejectedSteers.length) await (drainRejectedSteers() ?? Promise.resolve());
+      if (activeTurnId) await steerIntent(intent, activeTurnId);
+      else await startIntent(intent);
+      notify();
+    });
+    admission = task.catch(() => { if (!closing) notify(); });
+    return task;
+  }
+
   return {
     keetEnabled,
     async relationship() {
@@ -1524,6 +1599,56 @@ export async function createPartner(config: Config, credentials: Credentials, de
       if (!config.speech || !credentials.speech) throw new Error('Speech is unavailable');
       return transcribeAudio(config.speech.endpoint, credentials.speech, data, mediaType, signal);
     },
+    async sharedImageLimits() { return storageError || closing ? false as const : { ...imageLimits, mediaTypes: [...imageLimits.mediaTypes] }; },
+    async uploadImages(value: ImageUpload, authorize: () => Promise<boolean> = async () => true) {
+      const task = admission.then(async () => {
+        if (closing || storageError || !await authorize()) throw new Error('Images unavailable');
+        const raw = validateUpload(value, { ...imageLimits, mediaTypes: [...imageLimits.mediaTypes] });
+        const input: ImageUpload = { sessionId: raw.sessionId, operationId: raw.operationId, images: raw.images.map(({ id, order, name, mediaType, original, preview, model }) => ({ id, order, name, mediaType, original, preview, model })) };
+        if (input.sessionId !== threadId) throw new Error('Wrong image session');
+        const values = input.images.map(image => imageInputSchema.parse({ type: 'image', mediaType: image.mediaType, name: image.name, data: image.original }));
+        if (values.some(image => /[\\/\x00-\x1f]/u.test(image.name ?? ''))) throw new Error('Invalid image name');
+        const materialized = await materializeImages(paths.workspaceRoot, inputImages(input.operationId, values));
+        const refs: ImageRef[] = materialized.map(image => ({ attachmentId: image.id, name: image.name, mediaType: image.media_type, availability: 'available' }));
+        const fingerprint = createHash('sha256').update(JSON.stringify(input)).digest('hex');
+        if (!await authorize()) throw new Error('Image authorization changed');
+        await store.stageImages(input.operationId, threadId, fingerprint, { images: materialized.map(({ id, operation_id, name, media_type, path }) => ({ id, operation_id, name, media_type, path })), refs, variants: input.images.map(({ preview, model }) => ({ preview, model })) });
+        return { sessionId: threadId, operationId: input.operationId, images: refs };
+      });
+      admission = task.then(() => undefined, () => undefined);
+      return task;
+    },
+    async sharedMedia(id: string, variant: 'original' | 'preview' | 'model') {
+      const staged = await store.stagedMedia(id, threadId);
+      if (staged && variant !== 'original') return { bytes: Buffer.from(staged[variant], 'base64'), mediaType: 'image/jpeg' };
+      const metadata = staged?.image ?? await store.imageMetadata(id);
+      if (!metadata || variant !== 'original') return null;
+      // Store metadata belongs to this Partner's selected conversation, never a caller path.
+      try { const file = await lstat(metadata.path); if (!file.isFile() || file.size > 32 * 1024 * 1024) return null; return { bytes: await readFile(metadata.path), mediaType: metadata.media_type }; } catch { return null; }
+    },
+    async sharedImageRef(id: string): Promise<ImageRef | undefined> {
+      const image = await store.imageMetadata(id);
+      if (!image) return undefined;
+      let availability: ImageRef['availability'] = 'available';
+      try { await access(image.path); } catch { availability = 'missing'; }
+      return { attachmentId: id, name: image.name, mediaType: image.media_type as ImageRef['mediaType'], availability };
+    },
+    async sharedRecovery(): Promise<InputRecovery[]> {
+      await eventChain;
+      if ((await unresolvedMessages()).length) await refreshRecoveryHistory();
+      const sources = await unresolvedMessages();
+      const recovery: InputRecovery[] = [];
+      for (const source of sources.slice(-20)) {
+        // Match the frozen OperationIdSchema without normalizing the stored identity.
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(source.id)) continue;
+        const payload = await store.inputPayload(source.id);
+        if (!payload || (!unresolvedInputIds.has(source.id) && !await store.rejected(source.id))) continue;
+        const rejected = await store.rejected(source.id);
+        const images = (await Promise.all(payload.images.map(image => this.sharedImageRef(image.id)))).filter((ref): ref is ImageRef => !!ref);
+        recovery.push(validateRecovery({ sourceId: source.id, operationId: source.id, text: payload.input, images, state: rejected ? 'rejected' : 'uncertain', replacementEligible: !!rejected }));
+      }
+      return recovery;
+    },
     async image(id: string) {
       const metadata = await store.imageMetadata(id);
       if (!metadata) return undefined;
@@ -1533,6 +1658,11 @@ export async function createPartner(config: Config, credentials: Credentials, de
       await eventChain;
       const page = pageConversationImages(await withAvailability([...catalogue.values()]), options.limit ?? 5, options.cursor);
       return { images: page.images.map(({ id, filename, mediaType, created, origin, available }) => ({ id, filename, mediaType, created, origin, available, url: `/api/conversation-images/${id}` })), ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}) };
+    },
+    async sharedAlbum(options: { limit?: number; cursor?: string } = {}) {
+      await eventChain;
+      const page = pageConversationImages(await withAvailability([...catalogue.values()]), options.limit ?? 30, options.cursor);
+      return { images: await Promise.all(page.images.map(async image => ({ ...image, id: (await store.imageAtPath(image.path))?.id ?? image.id }))), nextCursor: page.nextCursor };
     },
     async conversationImage(id: string) {
       const image = catalogue.get(id); if (!image) return undefined;
@@ -1658,7 +1788,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
       const turn = operationTurn(id);
       const outcome = await store.outcome(id);
       const consumed = observedInputIds.has(id);
-      return { operationId: id, state: consumed ? 'consumed' : unresolvedInputIds.has(id) ? 'uncertain' : outcome?.status === 'attachment-error' || outcome?.status === 'replaced' ? 'rejected' : 'accepted', messageId: id, turnId: turn?.id ?? null, error: outcome?.error ?? null };
+      return { operationId: id, state: consumed ? 'consumed' : await store.rejected(id) ? 'rejected' : unresolvedInputIds.has(id) ? 'uncertain' : outcome?.status === 'attachment-error' || outcome?.status === 'replaced' ? 'rejected' : 'accepted', messageId: id, turnId: turn?.id ?? null, error: outcome?.error ?? null };
     },
     async chatStop(id: string) {
       if (!activeTurnId || activeTurnId !== id) return { stopped: false };
@@ -1670,44 +1800,13 @@ export async function createPartner(config: Config, credentials: Credentials, de
       if (activeTurnId === id) { activeTurnId = null; activeOperationId = null; }
       syncActiveTurn(); notify(); return { stopped: true };
     },
-    submit(id: string, input: string, values: readonly z.infer<typeof imageInputSchema>[] = [], replaces: readonly string[] = []) {
-      const task = admission.then(async () => {
-        if (closing || storageError) throw new Error('Partner is unavailable');
-        const images = inputImages(id, values);
-        const materialized = await materializeImages(paths.workspaceRoot, images);
-        await store.admit(id, input, materialized);
-        messageIds.add(id);
-        const message = await store.messageMeta(id);
-        if (message) {
-          messagesById.set(id, { created: message.created, sequence: message.sequence });
-        }
-        if (operationTurn(id) || pendingStarts.has(id) || pendingSteers.some((intent) => intent.ids.includes(id)) || (await store.outcome(id))) return;
-        if (unresolvedInputIds.has(id) && !replaces.includes(id)) throw new Error('Message delivery is unresolved; inspect the conversation before retrying');
-        for (const replacedId of replaces) {
-          if (replacedId === id) continue;
-          if (!messageIds.has(replacedId) || (!unresolvedInputIds.has(replacedId) && restoredDraft?.sourceIds.includes(replacedId) !== true)) throw new Error('Invalid restored draft replacement');
-          await store.markOutcome(replacedId, 'replaced', 'replaced');
-          observedInputIds.add(replacedId);
-          unresolvedInputIds.delete(replacedId);
-        }
-        if (replaces.length) await setRestoredDraft([...unresolvedInputIds]);
-        await eventChain;
-        syncActiveTurn();
-        const intent: InputIntent = { ids: [id], input, images: materialized, transportId: id, source: 'human' };
-        // Native acceptance can precede turn/started. Hold inputs until that
-        // compaction ends instead of racing a new turn against its start.
-        if (compacting && !activeTurnId) {
-          rejectedSteers.push(intent);
-          notify();
-          return;
-        }
-        if (rejectedSteers.length) await (drainRejectedSteers() ?? Promise.resolve());
-        if (activeTurnId) await steerIntent(intent, activeTurnId);
-        else await startIntent(intent);
-        notify();
-      });
-      admission = task.catch(() => { if (!closing) notify(); });
-      return task;
+    submit: submitInput,
+    async submitShared(value: Submission) {
+      const input = validateSubmission(value);
+      const normalized: Submission = { operationId: input.operationId, text: input.text, ...(input.images?.length ? { images: input.images.map(({ attachmentId, name, mediaType, availability }) => ({ attachmentId, name, mediaType, availability })) } : {}), ...(input.replacementSourceIds?.length ? { replacementSourceIds: input.replacementSourceIds } : {}) };
+      try { await submitInput(input.operationId, input.text, [], input.replacementSourceIds ?? [], normalized); }
+      catch (error) { const admitted = await store.sharedSubmission(input.operationId, threadId); if (!admitted || admitted !== createHash('sha256').update(JSON.stringify(normalized)).digest('hex') || (!unresolvedInputIds.has(input.operationId) && !await store.rejected(input.operationId))) throw error; }
+      return this.chatReceipt(input.operationId);
     },
     async cancel(id: string) {
       const active = activeTurnId && (activeTurnId === id || activeSourceIds(activeTurnId).includes(id) || operationTurn(id)?.id === activeTurnId);

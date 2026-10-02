@@ -239,3 +239,18 @@ reproduces the state, reasons, dates, filenames and original PNG bytes of that
 app's `tests/panels-fixture.ts` for isolated native acceptance; native image
 membership/origins and alarm schedules follow CFL's own stores. Upstream
 Apache-2.0 licenses and notices remain unchanged.
+
+### Reviewed image/recovery contract artifact
+
+`vendor/lamplit-contracts-images.tgz` is the unmodified compiled Apache-2.0
+`@lamplit/contracts` package from `LamplitIsles/lamplit-app` HEAD
+`ebde803fb955349c8bd05de259f13ca14b63f668` (spec #3096, reviewed handoff).
+SHA256: `9d2bb7d559f064a35c5ed93a4ac265ecc6ff128b2fa70950cf701d44f5c8c737`.
+The archive retains its upstream LICENSE and compiled public schemas, image HTTP
+handler, WS host and voice protocol. No private app source or browser build is
+copied into product source. The reviewed browser and acceptance archives are
+extracted only into test-owned scratch for acceptance. CFL image staging,
+projection, recovery binding and native test controls are original integration
+work; existing native materialization and app-server execution remain the owners.
+The Owner-approved review2 acceptance runner is from app source HEAD
+`091c0def66abdb45728906785e6defd55c60d50c`; browser/contracts retain the product HEAD above.

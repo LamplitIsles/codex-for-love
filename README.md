@@ -329,11 +329,11 @@ Development and tests must use fresh, test-owned workspaces. Do not point them a
 ## Shared Lamplit App development slice
 
 The optional shared frontend is served at `/slice/` when `LAMPLIT_APP_ASSETS`
-points to `lamplit-app/apps/web/build`. The existing frontend remains at `/`.
-The common `/api/chat/socket` protocol uses `@lamplit/contracts`, installed from
-the adjacent `lamplit-app/packages/contracts` checkout after its build. Refresh
-the pnpm file dependency after changing contracts. This is a development slice,
-not a production cutover or published-package release workflow.
+points to an extracted, reviewed Lamplit browser archive. The existing frontend
+remains at `/`. The common `/api/chat/socket` protocol uses the exact compiled
+`@lamplit/contracts` archive pinned in `vendor/lamplit-contracts-images.tgz`.
+Use `pnpm install --frozen-lockfile`; no adjacent source build is required.
+This is a development slice, not a production cutover or published-package release workflow.
 
 The official app-server remains the sole execution/history owner. Completed
 message IDs are presentation metadata; no reply text is duplicated in a new
@@ -402,10 +402,9 @@ node --test apps/partner/tests/panels.test.ts
 
 For a reviewed app handoff, extract its frozen browser and compiled-contract
 archives into a test-owned directory, verify `identity.json`, archive hashes and
-both expanded manifests before and after acceptance. Keep the dependency path
-portable: refresh the existing adjacent compiled contracts with
-`pnpm --filter @lamplitisles/partner add '@lamplit/contracts@file:../../../lamplit-app/packages/contracts'`
-only after verifying its compiled files match the frozen contracts manifest.
+both expanded manifests before and after acceptance. The repository pins the
+reviewed compiled contracts archive directly; verify its SHA256 against the matching handoff identity. A later contract update must
+use pnpm to install the reviewed archive rather than an adjacent source checkout.
 Do not rebuild or refreeze the app during backend acceptance.
 
 Start an isolated real Node host on port 8952 using the extracted browser assets
@@ -450,3 +449,29 @@ Cancel, disconnect, errors, timeouts and server shutdown release the provider
 connection. Audio and unsent transcripts are transient. Shared runtime validation
 comes from `@lamplit/contracts/voice`. The retained native UI's batch transcription
 endpoint remains independent.
+
+### Shared image sending and recovery
+
+The shared slice accepts PNG/JPEG/WebP/GIF: five images, 5 MiB each, 20 MiB
+original bytes total and 160-character filenames. It serves existing generated
+originals up to 32 MiB independently of intake limits. Preview/model uploads keep
+the common 160,000/320,000-byte JPEG bounds. Native execution receives the original
+bytes, including image-only messages and active-turn steering.
+
+Authenticated `POST /api/chat/images` stages an immutable ordered upload under
+this Partner session and operation UUID. Upload does not admit a message or add
+album membership. `/api/chat/socket` submit binds text, ordered references and
+replacement IDs atomically to native admission. Exact retries reconcile without
+execution; changed identity, incomplete references and foreign operations fail.
+Authenticated `GET /api/chat/media/{id}/{original|preview|model}` returns `no-store`
+media or a visible missing result. Native-origin originals need no uploaded variants.
+
+Recovery refreshes official history and exposes submitted text/images. Only a
+verified app-server invalid-request rejection is eligible for replacement;
+internal errors, lost responses, interruptions and unresolved native input remain
+uncertain. Recovery never automatically executes. Restore/edit sends a fresh UUID
+and replaces only eligible sources; consumed/replaced input cannot return. Missing
+originals leave text editable and require explicit removal or a new selection.
+The native frontend and its private routes remain available at `/`.
+
+See [the shared image protocol and isolated acceptance recipe](docs/image-send-recovery.md).

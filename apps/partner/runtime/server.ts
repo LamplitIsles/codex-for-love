@@ -1,3 +1,4 @@
+import { imageHttp } from '@lamplit/contracts/server';
 import { createChatSocket } from './chat.ts';
 import { createVoiceHost, type VoiceDependencies } from './voice.ts';
 import { VOICE_CAPABILITY_PATH, VOICE_STREAM_PATH } from '@lamplit/contracts/voice';
@@ -23,6 +24,18 @@ async function body(request: IncomingMessage, limit = 65536): Promise<unknown> {
     chunks.push(chunk);
   }
   return JSON.parse(Buffer.concat(chunks).toString());
+}
+/** Cancellation drains the HTTP body rather than destroying the response socket. */
+function requestBody(request: IncomingMessage): ReadableStream<Uint8Array> {
+  let cancelled = false;
+  return new ReadableStream({
+    start(controller) {
+      request.on('data', chunk => { if (!cancelled) controller.enqueue(chunk); });
+      request.once('end', () => { if (!cancelled) controller.close(); });
+      request.once('error', error => { if (!cancelled) controller.error(error); });
+    },
+    cancel() { cancelled = true; request.resume(); },
+  });
 }
 function json(response: ServerResponse, value: unknown, status = 200) {
   response.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
@@ -59,6 +72,21 @@ export function createWebServer(partner: Partner, assets: string, options: { aut
       if (!await authorize(request)) return json(response, { error: 'Unauthorized' }, 401);
       if (request.headers.origin && ![`http://${request.headers.host}`, `https://${request.headers.host}`].includes(request.headers.origin)) return json(response, { error: 'Forbidden origin' }, 403);
       if (request.headers['sec-fetch-site'] === 'cross-site') return json(response, { error: 'Forbidden origin' }, 403);
+      if (path === '/api/chat/images' || path.startsWith('/api/chat/media/')) {
+        // The same-host Origin above is validated before reconstructing the external POST URL.
+        const origin = request.method === 'POST' && request.headers.origin ? request.headers.origin : `http://${request.headers.host}`;
+        const webRequest = new Request(`${origin}${request.url}`, {
+          method: request.method,
+          headers: new Headers(Object.entries(request.headers).flatMap(([key, value]) => value === undefined ? [] : [[key, Array.isArray(value) ? value.join(',') : value]])),
+          ...(request.method === 'POST' ? { body: requestBody(request), duplex: 'half' } : {}),
+        } as RequestInit);
+        const result = await imageHttp(webRequest, { upload: value => partner.uploadImages(value, () => authorize(request)), media: (id, variant) => partner.sharedMedia(id, variant) }, async () => {
+          if (!await authorize(request)) return null;
+          return { sessionId: (await partner.snapshot()).sessionId, limits: await partner.sharedImageLimits() };
+        });
+        response.writeHead(result!.status, Object.fromEntries(result!.headers));
+        response.end(Buffer.from(await result!.arrayBuffer())); return;
+      }
       if (path === VOICE_CAPABILITY_PATH) return json(response, request.method === 'GET' ? { available: voice.available() } : { code: 'method_not_allowed' }, request.method === 'GET' ? 200 : 405);
       if (path === VOICE_STREAM_PATH) return json(response, { code: 'upgrade_required' }, 426);
       if (path === '/api/keet/events' && request.method === 'POST') {

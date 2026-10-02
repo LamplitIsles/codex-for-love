@@ -142,7 +142,9 @@ function createNativeImage(kind, number) {
   const path = join(nativeRoot, `${kind}-${number}.png`);
   if (!existsSync(path)) {
     mkdirSync(nativeRoot, { recursive: true });
-    writeFileSync(path, kind === 'edited' ? pngEdited : pngCreated, { mode: 0o600 });
+    const png = kind === 'edited' ? pngEdited : pngCreated;
+    const size = Number(process.env.FAKE_GENERATED_IMAGE_BYTES ?? png.length);
+    writeFileSync(path, Buffer.concat([png, Buffer.alloc(Math.max(0, size - png.length))]), { mode: 0o600 });
   }
   return path;
 }
@@ -240,6 +242,7 @@ async function runTurn(turn) {
 }
 
 function startTurn(input, clientUserMessageId) {
+  if (process.env.FAKE_IMAGES_FIXTURE === 'true') log({ fixtureExecution: true, operationId: clientUserMessageId, originals: (input ?? []).filter(item => item.type === 'localImage').map(item => ({ path: item.path, base64: readFileSync(item.path).toString('base64') })) });
   const turn = { id: `turn-${state.next++}`, items: [userItem(input, clientUserMessageId)], itemsView: 'full', status: 'inProgress', error: null, startedAt: nowSeconds(), completedAt: null };
   state.turns.push(turn);
   state.active = turn.id;
@@ -257,6 +260,8 @@ function rpcError(code, message, data) {
 }
 
 function steerTurn(params) {
+  if (process.env.FAKE_IMAGES_FIXTURE === 'true' && control().mode === 'uncertain') rpcError(-32603, 'fixture ambiguous delivery');
+  if (process.env.FAKE_IMAGES_FIXTURE === 'true' && ['unconsumed', 'rejected'].includes(control().mode)) rpcError(-32600, 'fixture explicitly rejected steering input before acceptance');
   const turn = state.turns.find((candidate) => candidate.id === state.active);
   if (!turn) rpcError(-32600, 'no active turn to steer');
   const noActiveCount = Number(process.env.FAKE_NO_ACTIVE_STEER_COUNT ?? 0);
@@ -285,6 +290,7 @@ function steerTurn(params) {
       additionalDetails: null,
     });
   }
+  if (process.env.FAKE_IMAGES_FIXTURE === 'true') log({ fixtureExecution: true, operationId: params.clientUserMessageId, originals: (params.input ?? []).filter(item => item.type === 'localImage').map(item => ({ path: item.path, base64: readFileSync(item.path).toString('base64') })) });
   const item = userItem(params.input, params.clientUserMessageId);
   turn.items.push(item);
   save();
@@ -388,6 +394,8 @@ async function handle(request) {
       return page(items, p);
     }
     case 'turn/start': {
+      if (process.env.FAKE_IMAGES_FIXTURE === 'true' && ['unconsumed', 'rejected'].includes(control().mode)) rpcError(-32600, 'fixture explicitly rejected input before acceptance');
+      if (process.env.FAKE_IMAGES_FIXTURE === 'true' && control().mode === 'uncertain') rpcError(-32603, 'fixture ambiguous delivery');
       if (control().rejectStart) rpcError(-32603, 'fixture turn start temporarily unavailable');
       if (state.active) rpcError(-32600, 'cannot start a turn while another turn is active');
       const turn = startTurn(p.input, p.clientUserMessageId);
@@ -404,6 +412,37 @@ async function handle(request) {
     case 'thread/compact/start': void compact(); return {};
     default: throw new Error(`fixture does not implement ${request.method}`);
   }
+}
+
+if (process.env.FAKE_IMAGES_FIXTURE === 'true') {
+  let lastCommand;
+  setInterval(() => {
+    const command = control().command;
+    if (!command || command.id === lastCommand) return;
+    lastCommand = command.id;
+    if (command.action === 'complete') {
+      const turn = state.turns.find(turn => turn.id === state.active);
+      if (turn) {
+        mkdirSync(nativeRoot, { recursive: true });
+        const savedPath = join(nativeRoot, 'generated.png'); writeFileSync(savedPath, pngCreated);
+        turn.items.push({ type: 'agentMessage', id: `image-reply-${state.next++}`, text: '完整图片回复', phase: 'final_answer' }, { type: 'imageGeneration', id: 'generated', status: 'completed', revisedPrompt: 'fixture', result: '', failure: null, savedPath });
+        turn.status = 'completed'; turn.completedAt = nowSeconds(); state.active = null; save();
+        send({ method: 'turn/completed', params: { threadId: state.threadId, turn } });
+      }
+    } else if (command.action === 'history') {
+      const turn = state.turns.at(-1);
+      for (let i = 0; i < 32; i++) turn.items.push({ type: 'agentMessage', id: `history-${state.next++}`, text: `历史回复 ${i}`, phase: 'final_answer' });
+      save(); send({ method: 'turn/completed', params: { threadId: state.threadId, turn } });
+    } else if (command.action === 'consume') {
+      const inputs = command.inputs;
+      for (const input of inputs) {
+        const turn = { id: `seed-${state.next++}`, status: 'completed', itemsView: 'full', startedAt: nowSeconds(), completedAt: nowSeconds(), error: null,
+          items: [userItem([{ type: 'text', text: input.text }, ...(input.images ?? []).map(image => ({ type: 'localImage', path: image.path }))], input.id)] };
+        state.turns.push(turn); save(); send({ method: 'turn/completed', params: { threadId: state.threadId, turn } });
+      }
+    }
+    writeFileSync(join(root, 'command-done'), command.id);
+  }, 10).unref();
 }
 
 const lines = createInterface({ input: process.stdin });

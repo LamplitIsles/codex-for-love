@@ -1,4 +1,4 @@
-import { capabilities, PAGE_SIZE, type ChatMessage, type ChatView } from '@lamplit/contracts';
+import { capabilities, mediaUrl, PAGE_SIZE, type ImageRef, type ChatMessage, type ChatView } from '@lamplit/contracts';
 import { createChatHost, type ChatBackend } from '@lamplit/contracts/server';
 import { panelCursors } from './panel-cursor.ts';
 import type { Partner } from './partner.ts';
@@ -16,11 +16,14 @@ export function createCodexChatBackend(partner: Partner): ChatBackend {
       if (m.delivery === 'replaced') continue;
       const state = receipts.get(m.id)!.state;
       const delivery = state === 'accepted' ? 'pending' : state === 'missing' ? 'uncertain' : state;
-      ordered.push({ order: m.sequence * 2, message: { id: m.id, role: 'user', text: m.input || '[媒体消息]', delivery, createdAt: m.created, operationId: m.id, turnId: m.turnId, ...(m.alarm ? { source: { kind: 'reminder' as const, reminderId: m.id.split(':')[1]!, occurrenceId: m.id } } : {}) } });
+      const images = (await Promise.all(m.inputImages.map(image => partner.sharedImageRef(image.id)))).filter((ref): ref is ImageRef => !!ref);
+      ordered.push({ order: m.sequence * 2, message: { id: m.id, role: 'user', text: m.input, ...(images.length ? { images } : {}), delivery, createdAt: m.created, operationId: m.id, turnId: m.turnId, ...(m.alarm ? { source: { kind: 'reminder' as const, reminderId: m.id.split(':')[1]!, occurrenceId: m.id } } : {}) } });
     }
     for (const r of snapshot.results) {
       const source = snapshot.messages.find(m => m.id === r.sourceIds.at(-1));
-      for (const [index, message] of r.completedMessages.entries()) ordered.push({ order: (source?.sequence ?? 0) * 2 + 1 + index / 1000, message: { id: message.id, role: 'agent', text: message.text, createdAt: r.completedAt ?? source?.created ?? 0, operationId: null, turnId: r.turnId } });
+      const images = (await Promise.all(r.images.map(image => partner.sharedImageRef(image.id)))).filter((ref): ref is ImageRef => !!ref);
+      const completed = r.completedMessages.length ? r.completedMessages : images.length ? [{ id: `${r.id}:images`, text: '' }] : [];
+      for (const [index, message] of completed.entries()) ordered.push({ order: (source?.sequence ?? 0) * 2 + 1 + index / 1000, message: { id: message.id, role: 'agent', text: message.text, ...(index === completed.length - 1 && images.length ? { images } : {}), createdAt: r.completedAt ?? source?.created ?? 0, operationId: null, turnId: r.turnId } });
       if (['completed', 'failed', 'interrupted', 'cancelled'].includes(r.chatStatus)) ordered.push({ order: (source?.sequence ?? 0) * 2 + 1.9, message: { id: `${r.id}:status`, role: 'notice', text: r.chatStatus === 'completed' ? '回复完成' : r.chatStatus === 'failed' ? '回复失败' : '已停止回复', createdAt: r.completedAt ?? source?.created ?? 0, operationId: null, turnId: r.turnId } });
     }
     ordered.sort((a,b) => a.order - b.order);
@@ -32,9 +35,9 @@ export function createCodexChatBackend(partner: Partner): ChatBackend {
     return { snapshot, messages: all.slice(start, end), before };
   }
   return {
-    async read(): Promise<ChatView> { const p = await page(); return { version: 1, sessionId: p.snapshot.sessionId, name: p.snapshot.name, activeTurnId: p.snapshot.cancellable[0] ?? null, messages: p.messages, before: p.before, capabilities }; },
+    async read(): Promise<ChatView> { const recovery = await partner.sharedRecovery(); const p = await page(); return { version: 1, sessionId: p.snapshot.sessionId, name: p.snapshot.name, activeTurnId: p.snapshot.cancellable[0] ?? null, messages: p.messages, before: p.before, capabilities: { ...capabilities, images: await partner.sharedImageLimits() }, recovery }; },
     async history(before) { const p = await page(before); return { messages: p.messages, before: p.before }; },
-    async submit(input) { await partner.submit(input.operationId, input.text); return partner.chatReceipt(input.operationId); },
+    submit: input => partner.submitShared(input),
     lookup: id => partner.chatReceipt(id),
     async stop(id) { return partner.chatStop(id); },
     async relationship() { return partner.relationship(); },
@@ -56,9 +59,9 @@ export function createCodexChatBackend(partner: Partner): ChatBackend {
     async diaryRead(input) { return partner.readDiary(input.name); },
     async album(input) {
       const cursor = cursors.decode('album', input.sessionId, input.cursor);
-      const page = await partner.conversationImages({ limit: 30, cursor });
+      const page = await partner.sharedAlbum({ limit: 30, cursor });
       return { images: page.images.map(image => ({ id: image.id, filename: image.filename, createdAt: image.created, origin: image.origin,
-        available: image.available, previewUrl: image.available ? image.url : null, originalUrl: image.available ? image.url : null })),
+        available: image.available, previewUrl: image.available ? mediaUrl(image.id) : null, originalUrl: image.available ? mediaUrl(image.id) : null })),
         nextCursor: page.nextCursor ? cursors.encode('album', input.sessionId, page.nextCursor) : null };
     },
     async reminders() {
