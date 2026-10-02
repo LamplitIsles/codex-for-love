@@ -111,7 +111,7 @@ try {
   await mouse("mouseReleased", mx, my);
   await wait(300);
   assert.equal(await js('!!document.querySelector(".companion-action-menu.modal-in")'), true, "mouse hold opens official Actions and survives release");
-  await js('document.querySelector(".companion-action-menu .list:last-child .list-button").click()');
+  await js('document.querySelector(".companion-action-menu li:last-child .list-button").click()');
   await wait(400);
   await mouse("mousePressed", mx, my, 1);
   await wait(100);
@@ -152,7 +152,7 @@ try {
   assert.deepEqual(sheet.buttons,['Copy message','Cancel']);
   assert.equal(sheet.clone,false);
   assert.equal(await js("getSelection().toString()"), "", "custom press must not select message text");
-  await tap(".companion-action-menu .list:last-child .list-button");
+  await tap(".companion-action-menu li:last-child .list-button");
   await wait(400);
   assert.equal(
     await js('!!document.querySelector(".companion-action-menu.modal-in")'),
@@ -196,7 +196,7 @@ try {
   await wait(300);
   assert.equal(await js('!!document.querySelector(".companion-action-menu.modal-in")'), true, "mouse hold on enlarged image opens save menu");
   assert.equal(await js('!!document.querySelector(".photo-browser-popup.modal-in")'), true, "hold release keeps image preview open");
-  await js('document.querySelector(".companion-action-menu .list:last-child .list-button").click()');
+  await js('document.querySelector(".companion-action-menu li:last-child .list-button").click()');
   await wait(400);
   assert.equal(await js('!!document.querySelector(".companion-action-menu.modal-in")'), false, "image menu cancels before pinch");
   await touch("touchStart", [p(150, cy), p(240, cy, 1)]);

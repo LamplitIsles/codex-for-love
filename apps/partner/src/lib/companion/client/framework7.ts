@@ -1,5 +1,6 @@
 import Framework7 from "framework7/lite";
 import Framework7Svelte from "framework7-svelte";
+import Accordion from "framework7/components/accordion";
 import Messages from "framework7/components/messages";
 import Messagebar from "framework7/components/messagebar";
 import Input from "framework7/components/input";
@@ -13,6 +14,7 @@ import Swiper from "framework7/components/swiper";
 import Toast from "framework7/components/toast";
 import VirtualList from "framework7/components/virtual-list";
 import "framework7/css";
+import "framework7/components/accordion/css";
 import "framework7/components/messages/css";
 import "framework7/components/messagebar/css";
 import "framework7/components/input/css";
@@ -30,6 +32,7 @@ import "framework7/components/skeleton/css";
 import "framework7/components/radio/css";
 import "framework7/components/card/css";
 Framework7.use([
+  Accordion,
   Messages,
   Messagebar,
   Input,

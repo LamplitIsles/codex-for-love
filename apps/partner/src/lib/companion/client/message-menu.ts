@@ -20,8 +20,8 @@ export function messageMenu(
     targetEl: target,
     closeOnEscape: true,
     buttons: [
-      actions.map(action => ({ text: action.text, onClick: () => { void action.run(); } })),
-      [{ text: cancelLabel, strong: true }],
+      ...actions.map(action => ({ text: action.text, onClick: () => { void action.run(); } })),
+      { text: cancelLabel, strong: true },
     ],
     on: {
       opened() {

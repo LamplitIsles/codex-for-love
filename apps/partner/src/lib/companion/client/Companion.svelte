@@ -13,7 +13,8 @@
   export let backgrounds: { landscape: string; portrait: string } | undefined = undefined;
   import { createEventDispatcher, onDestroy, tick } from "svelte";
   import { captureNativePhoto, hasNativeCamera } from "./native-mobile.js";
-  import RefreshCw from "lucide-svelte/icons/refresh-cw";
+  import AlarmDrawer from "./AlarmDrawer.svelte";
+  import type { Alarm as AlarmView } from "../../../../runtime/alarms.ts";
   import Plus from "lucide-svelte/icons/plus";
   import ChevronDown from "lucide-svelte/icons/chevron-down";
   import ArrowUp from "lucide-svelte/icons/arrow-up";
@@ -202,7 +203,6 @@
   let preferencesOpen = false;
   let preferencesButton: HTMLButtonElement;
   let drawerTab: "history" | "diary" | "images" | "alarms" = "history";
-  type AlarmView = { id: string; message: string; nextAt: number; schedule: { kind: 'once'; at: string } | { kind: 'interval'; everyMinutes: number } | { kind: 'daily' | 'weekly'; hour: number; minute: number; timeZone: string; weekday?: number } };
   let alarms: AlarmView[] = [];
   let alarmsLoading = false;
   let alarmsError = false;
@@ -1486,16 +1486,6 @@
     } catch { alarmsError = true; }
     finally { alarmsLoading = false; }
   }
-  function alarmTime(value: number): string { return new Intl.DateTimeFormat(locale === 'zh' ? 'zh-CN' : 'en', { dateStyle: 'medium', timeStyle: 'short' }).format(value); }
-  function alarmSchedule(alarm: AlarmView): string {
-    const schedule = alarm.schedule;
-    if (schedule.kind === 'once') return t('alarm.once');
-    if (schedule.kind === 'interval') return t('alarm.interval', { minutes: schedule.everyMinutes });
-    const time = `${String(schedule.hour).padStart(2, '0')}:${String(schedule.minute).padStart(2, '0')}`;
-    if (schedule.kind === 'daily') return t('alarm.daily', { time, zone: schedule.timeZone });
-    const weekday = new Intl.DateTimeFormat(locale === 'zh' ? 'zh-CN' : 'en', { weekday: 'long', timeZone: 'UTC' }).format(Date.UTC(2024, 0, 7 + (schedule.weekday ?? 0)));
-    return t('alarm.weekly', { weekday, time, zone: schedule.timeZone });
-  }
   async function openGallery(force = false): Promise<void> {
     drawerTab = "images";
     if (galleryLoading || (!force && galleryImages.length)) return;
@@ -2304,13 +2294,7 @@
         aria-labelledby={drawerTab === "history" ? "companion-history-tab" : drawerTab === "diary" ? "companion-diary-tab" : drawerTab === "images" ? "companion-images-tab" : "companion-alarms-tab"}
       >
         {#if drawerTab === 'alarms'}
-          <section class="companion-alarms" aria-label={t('drawer.alarms')}>
-            <div class="companion-alarms-heading"><h3>{t('drawer.alarms')}</h3><button type="button" class="button button-tonal button-round companion-alarm-refresh" disabled={alarmsLoading} aria-busy={alarmsLoading} aria-label={t('alarm.refresh')} title={t('alarm.refresh')} on:click={() => void openAlarms()}><RefreshCw size={18} aria-hidden="true" /></button></div>
-            {#if alarmsLoading}<p class="companion-history-state" role="status">{t('loading')}</p>
-            {:else if alarmsError}<p class="companion-history-state" role="alert">{t('alarm.failed')}</p>
-            {:else if !alarms.length}<p class="companion-history-state">{t('alarm.empty')}</p>
-            {:else}<ul class="list companion-alarm-list">{#each alarms as alarm (alarm.id)}<li class="item-content companion-alarm-item"><time datetime={new Date(alarm.nextAt).toISOString()}>{alarmTime(alarm.nextAt)}</time><span class="companion-alarm-repeat">{alarmSchedule(alarm)}</span><p>{alarm.message}</p></li>{/each}</ul>{/if}
-          </section>
+          <AlarmDrawer {t} {locale} {alarms} loading={alarmsLoading} error={alarmsError} refresh={() => void openAlarms()} />
         {:else if drawerTab === "images"}
           <section class="companion-gallery" aria-label={t("drawer.images")}>
             {#if galleryError}<div class="companion-history-state" role="alert"><p>{t("gallery.failed")}</p><button type="button" class="button button-tonal button-small" on:click={() => void openGallery(true)}>{t("retry")}</button></div>

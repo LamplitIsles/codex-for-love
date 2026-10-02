@@ -23,7 +23,7 @@ Framework7 and framework7-svelte 9.2.0 (MIT, framework7io/framework7) now own
 UI components, theme tokens, routing, Page/Messages/Message, Messagebar and its
 attachment components, Photo Browser/Swiper and Virtual List. Message grouping
 follows the official Svelte Messages demo using first/last/tail props. Message
-timestamps and pending status use the official textFooter slot inside the bubble. CFL adapts
+timestamps use the official footer outside the bubble; pending status uses textFooter. CFL adapts
 the 9.2.0 Svelte Input event to the detail-array shape required by Messagebar;
 textarea resizing and page padding remain Framework7 capabilities. The previous SvelteKit and imported daisyUI themes are removed.
 The Vite/Svelte application entry follows the Framework7 CLI 9.0.2 Svelte
@@ -35,6 +35,12 @@ CFL wires message operations, mouse-only holds and desktop context menus, readin
 a stationary-multitouch guard for Framework7 9.2 taphold. Official
 `@capacitor/clipboard` 8.0.1 (MIT) supplies system clipboard writes in the native
 shell.
+
+The Companion typing indicator retains Framework7 Message markup. Its dot geometry
+and motion are adapted from the original daisyUI 5.7.37 `loading-dots` /
+`loading-sm` (MIT, saadeghi/daisyui): 20px indicator, 5px solid dots, 5px upward
+travel, 1.05s cycle and 100ms stagger. The behavior is expressed as local CSS;
+the daisyUI dependency and themes are not restored. Reduced motion stops the dots.
 
 The optional TOML-configured portrait/landscape chat background, its theme-aware
 overlay and keyboard-stable composition selection are original CFL additions
@@ -48,6 +54,13 @@ history journal.
 The compact/expanded composer interaction follows the owner-supplied Penpot
 `Composer` design package dated 2026-10-02. Its layout is implemented with
 Framework7 tokens and Lucide controls; no exported design PNGs are bundled.
+
+The drawer spacing and automatic-wake list presentation follow the owner-supplied
+Penpot “新版 · 自动唤醒” designs and `LamplitIsles/lamplit-chat`
+`frontend/src/lib/companion/client/WakeDrawer.svelte` / `companion.css` at
+`cc91634ae3c164f4faf9233095e175a9c3c20375` (Apache-2.0). CFL retains its existing
+alarm data contract and uses Framework7 List and Accordion rather than importing
+the wake component or its runtime. No Penpot exports are bundled.
 
 ## Prompt and speech
 

@@ -8,12 +8,15 @@
     KatexRenderer,
   } from "@humanspeak/svelte-markdown/extensions/katex";
 
+  import MarkdownLink from "./MarkdownLink.svelte";
+
   export let text = "";
 
   // Matches Sliqs: render Markdown tokens as Svelte nodes, never via
   // browser-parsed HTML strings. Raw HTML remains unsupported.
   const renderers = {
     ...defaultRenderers,
+    link: MarkdownLink,
     html: buildUnsupportedHTML(),
     inlineKatex: KatexRenderer,
     blockKatex: KatexRenderer,
