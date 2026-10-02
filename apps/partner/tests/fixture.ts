@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -16,7 +16,7 @@ function shellQuote(value: string): string {
 }
 
 export async function fixture() {
-  const directory = await mkdtemp(join(tmpdir(), 'lamplit-partner-test-'));
+  const directory = await realpath(await mkdtemp(join(tmpdir(), 'lamplit-partner-test-')));
   const workspace = join(directory, 'workspace');
   await mkdir(join(directory, 'assets'), { recursive: true });
   await mkdir(workspace, { recursive: true });
@@ -56,6 +56,12 @@ export async function fixture() {
   return {
     directory, workspace, config, credentials, appServer, requests,
     async createPartner(dependencies: Omit<PartnerDependencies, 'appServer'> = {}) { partner = await createPartner(config, credentials, { ...dependencies, appServer }); return partner; },
+    async chatPhase(value: 'partial' | 'message-completed' | 'finish' | 'fail') {
+      // The fake provider must never interpret a truncated control file as Finish.
+      const next = `${controlPath}.${crypto.randomUUID()}`;
+      await writeFile(next, JSON.stringify({ chatPhase: value }), { mode: 0o600 });
+      await rename(next, controlPath);
+    },
     holdProvider(value: boolean) { return writeFile(controlPath, JSON.stringify({ hold: value }), { mode: 0o600 }); },
     rejectStart(value: boolean) { return writeFile(controlPath, JSON.stringify({ rejectStart: value }), { mode: 0o600 }); },
     holdCompaction(value: boolean, holdStart = false) { return writeFile(controlPath, JSON.stringify({ holdCompact: value, holdCompactStart: holdStart }), { mode: 0o600 }); },

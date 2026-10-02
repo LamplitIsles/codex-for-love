@@ -1,3 +1,6 @@
+import { createChatSocket } from './chat.ts';
+import { createVoiceHost, type VoiceDependencies } from './voice.ts';
+import { VOICE_CAPABILITY_PATH, VOICE_STREAM_PATH } from '@lamplit/contracts/voice';
 import { MAX_MESSAGE_LENGTH } from "../src/lib/message-input.ts";
 import { InvalidImageInput, imageInputSchema, messageBodyLimit } from './images.ts';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
@@ -29,7 +32,7 @@ export function isLoopbackPeer(peer: string | undefined): boolean {
   return peer === '127.0.0.1' || peer === '::1' || peer === '::ffff:127.0.0.1';
 }
 
-export function createWebServer(partner: Partner, assets: string, options: { heartbeatMs?: number; conversationSearch?: ConversationSearch } = {}) {
+export function createWebServer(partner: Partner, assets: string, options: { voice?: VoiceDependencies; heartbeatMs?: number; chatAssets?: string; conversationSearch?: ConversationSearch } = {}) {
   const serve = sirv(assets, {
     single: true,
     setHeaders(response, pathname) {
@@ -39,14 +42,19 @@ export function createWebServer(partner: Partner, assets: string, options: { hea
         response.setHeader('cache-control', 'no-cache');
     },
   });
+  const serveChat = options.chatAssets ? sirv(options.chatAssets, { single: true, setHeaders(response) { response.setHeader("cache-control", "no-store") } }) : undefined;
   const streams = new Set<ServerResponse>();
+  const voice = createVoiceHost(() => partner.voiceCredential(), options.voice);
   const server = createServer(async (request, response) => {
     response.setHeader('x-content-type-options', 'nosniff');
     response.setHeader('referrer-policy', 'no-referrer');
     response.setHeader('x-frame-options', 'DENY');
     try {
       const path = new URL(request.url ?? '/', 'http://localhost').pathname;
+      if (serveChat && (path === '/slice' || path.startsWith('/slice/'))) { request.url = request.url!.slice('/slice'.length) || '/'; return serveChat(request, response); }
       if (!path.startsWith('/api/')) return serve(request, response);
+      if (path === VOICE_CAPABILITY_PATH) return json(response, request.method === 'GET' ? { available: voice.available() } : { code: 'method_not_allowed' }, request.method === 'GET' ? 200 : 405);
+      if (path === VOICE_STREAM_PATH) return json(response, { code: 'upgrade_required' }, 426);
       if (path === '/api/keet/events' && request.method === 'POST') {
         if (!partner.keetEnabled) return json(response, { error: 'Keet ingress unavailable' }, 404);
         const peer = request.socket.remoteAddress;
@@ -198,7 +206,20 @@ export function createWebServer(partner: Partner, assets: string, options: { hea
       else response.end();
     }
   });
+  const chat = createChatSocket(partner);
+  server.on('upgrade', (request, socket, head) => {
+    const path = new URL(request.url ?? '/', 'http://localhost').pathname;
+    const origin = request.headers.origin;
+    const authority = request.headers.host;
+    const sameOrigin = origin === `http://${authority}` || origin === `https://${authority}`;
+    const allowed = sameOrigin || (path === '/api/chat/socket' && !origin && isLoopbackPeer(request.socket.remoteAddress));
+    const target = path === '/api/chat/socket' ? chat.sockets : path === VOICE_STREAM_PATH ? voice.sockets : undefined;
+    if (request.method !== 'GET' || !target || !allowed) { socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n'); return; }
+    target.handleUpgrade(request, socket, head, ws => target.emit('connection', ws, request));
+  });
   return { server, async close() {
+    voice.close();
+    await chat.close();
     for (const response of streams) response.end();
     server.closeAllConnections();
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));

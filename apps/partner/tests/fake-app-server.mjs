@@ -152,6 +152,33 @@ async function waitForTool(id) {
 }
 
 async function runTurn(turn) {
+  if (process.env.FAKE_CHAT_PHASE_FIXTURE === 'true') {
+    const commentary = { type: 'agentMessage', id: `commentary-${state.next++}`, text: 'unfinished commentary', phase: 'commentary', memoryCitation: null, delivery: null, questions: null };
+    turn.items.push(commentary); save();
+    send({ method: 'item/started', params: { threadId: state.threadId, turnId: turn.id, startedAtMs: Date.now(), item: commentary } });
+    while (control().chatPhase === 'partial' && state.active === turn.id) await new Promise(resolve => setTimeout(resolve, 15));
+    if (state.active !== turn.id) return;
+    commentary.text = 'completed commentary'; save();
+    send({ method: 'item/completed', params: { threadId: state.threadId, turnId: turn.id, completedAtMs: Date.now(), item: commentary } });
+    const image = { type: 'imageGeneration', id: `failed-image-${state.next++}`, status: 'failed', revisedPrompt: 'fixture image', result: '', failure: null, savedPath: null };
+    turn.items.push(image); save();
+    send({ method: 'item/completed', params: { threadId: state.threadId, turnId: turn.id, completedAtMs: Date.now(), item: image } });
+    const answer = { ...commentary, id: `answer-${state.next++}`, text: 'unfinished final answer', phase: 'final_answer' };
+    turn.items.push(answer); save();
+    send({ method: 'item/started', params: { threadId: state.threadId, turnId: turn.id, startedAtMs: Date.now(), item: answer } });
+    while (control().chatPhase === 'message-completed' && state.active === turn.id) await new Promise(resolve => setTimeout(resolve, 15));
+    if (state.active !== turn.id) return;
+    if (control().chatPhase === 'fail') {
+      turn.status = 'failed'; turn.error = { message: 'fixture failed after commentary' };
+    } else {
+      answer.text = 'completed final answer'; save();
+      send({ method: 'item/completed', params: { threadId: state.threadId, turnId: turn.id, completedAtMs: Date.now(), item: answer } });
+      turn.status = 'completed';
+    }
+    turn.completedAt = nowSeconds(); state.active = null; save();
+    send({ method: 'turn/completed', params: { threadId: state.threadId, turn } });
+    return;
+  }
   const wait = () => {
     if (control().hold) return setTimeout(wait, 15);
     const text = textOf(turn.items.filter((item) => item.type === 'userMessage').flatMap((item) => item.content ?? []));

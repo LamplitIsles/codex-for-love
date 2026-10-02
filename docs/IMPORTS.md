@@ -204,3 +204,26 @@ the same File intake used by browser uploads. Keyboard layout was informed by Ah
 (FlickNote #2971), especially the CSS keyboard-height chat grid, and the
 [W3C VirtualKeyboard specification](https://www.w3.org/TR/virtual-keyboard/).
 No article/demo source or artwork was copied; existing upstream licenses remain.
+
+## Shared chat contract
+
+The new `runtime/chat.ts` adapter is original CFL integration code. It consumes
+`@lamplit/contracts` from the Apache-2.0 `LamplitIsles/lamplit-app` repository.
+That package uses Chord 1.0.0 for RPC and replicated presentation state and
+TypeBox for runtime validation. It does not import private frontend source.
+The shared frontend imports the Framework7 Companion presentation from this
+repository at `17a786271f5498bf5a188f421e9ce02adf7262f9`; attribution lives in
+`lamplit-app/docs/IMPORTS.md`. The existing frontend and native execution owner
+remain in place during this development slice.
+
+### Shared streaming voice relay
+
+`apps/partner/runtime/voice.ts` adapts the bounded Qwen streaming relay from
+Apache-2.0 `LamplitIsles/lamplit-chat/src/server/voice.ts` at
+`0f1ad1e28b6de5b86fef1cfcb401515625e603f9`. Node `ws` supplies server-side
+authorization and connection teardown in place of workerd's WebSocket transport.
+The relay consumes the compiled public `@lamplit/contracts/voice` constants,
+validators and types from `LamplitIsles/lamplit-app` at
+`f56f1259c2af71e3c59f7cd644b2721ffd8c63a6`. It does not import private frontend
+definitions. Provider sentence ordering/replacement and final-only behavior follow
+the Lamplit implementation; no audio or transcript store is added.

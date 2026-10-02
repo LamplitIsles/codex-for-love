@@ -1,3 +1,4 @@
+import type { Receipt } from '@lamplit/contracts';
 import { createHash, randomUUID } from 'node:crypto';
 import { access, mkdir, readFile, writeFile, readdir, lstat, unlink } from 'node:fs/promises';
 import { basename, extname, isAbsolute, join, relative, resolve, sep as pathSeparator } from 'node:path';
@@ -1264,6 +1265,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
         const item = record(params.item);
         pet?.itemCompleted(item);
         const turnId = typeof params.turnId === 'string' ? params.turnId : '';
+        if (turnId && item.type === 'agentMessage' && typeof item.id === 'string') await store.markChatItemCompleted(turnId, item.id);
         if (turnId) mergeItem(turnId, item);
         if (turnId && ['userMessage', 'agentMessage', 'imageGeneration', 'mcpToolCall', 'mcpToolResult'].includes(typeof item.type === 'string' ? item.type : '')) {
           const turn = await reconcileTurn(turnId, undefined, typeof item.id !== 'string' || typeof item.type !== 'string');
@@ -1531,6 +1533,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
       }
     },
     async audio(id: string) { try { return await readFile(join(paths.audio, `${id}.mp3`)); } catch { return undefined; } },
+    voiceCredential() { return config.speech ? credentials.speech ?? null : null; },
     async transcribe(data: Uint8Array, mediaType: string, signal: AbortSignal) {
       if (!config.speech || !credentials.speech) throw new Error('Speech is unavailable');
       return transcribeAudio(config.speech.endpoint, credentials.speech, data, mediaType, signal);
@@ -1599,12 +1602,24 @@ export async function createPartner(config: Config, credentials: Credentials, de
           inputImages: delivery === 'replaced' ? [] : inputMeta.filter((image) => image.operation_id === meta.id).map(({ id, name }) => ({ id, name, url: `/api/images/${id}` })),
         });
       }
+      const chatMessages = new Map(await Promise.all(pageTurns.map(async result => {
+        const turn = turns.get(result.turnId);
+        const completed = await store.completedChatItems(result.turnId);
+        const messages = (turn?.items ?? []).flatMap(item => {
+          if (item.type !== 'agentMessage' || typeof item.id !== 'string' || typeof item.text !== 'string' || !item.text.trim()) return [];
+          if (turn?.status !== 'completed' && !completed.has(item.id)) return [];
+          return [{ id: item.id, text: item.text }];
+        });
+        return [result.turnId, messages] as const;
+      })));
       const results = pageTurns.map((result) => ({
         id: resultOperationId(result.turnId),
         turnId: result.turnId,
         sourceIds: result.sourceIds,
         sequence: result.sequence,
         revision: result.revision,
+        completedMessages: chatMessages.get(result.turnId) ?? [],
+        chatStatus: turnStatus(turns.get(result.turnId)),
         answers: result.status === 'failed' || result.status === 'interrupted' || result.status === 'cancelled' ? [] : result.answers,
         error: result.error,
         status: result.status,
@@ -1622,6 +1637,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
       for (const intent of rejectedSteers) for (const id of intent.ids) pendingIds.add(id);
       return {
         ...page,
+        sessionId: threadId,
         name: config.name,
         avatars: {
           ...(avatars.companion ? { companion: '/api/avatars/companion' } : {}),
@@ -1648,6 +1664,25 @@ export async function createPartner(config: Config, credentials: Credentials, de
           images: restoredDraft.images.map(({ id, name }) => ({ id, name, url: `/api/images/${id}` })),
         } : undefined,
       };
+    },
+    async chatReceipt(id: string): Promise<Receipt> {
+      const meta = await store.messageMeta(id);
+      if (!meta) return { operationId: id, state: 'missing', messageId: null, turnId: null, error: null };
+      await eventChain;
+      const turn = operationTurn(id);
+      const outcome = await store.outcome(id);
+      const consumed = observedInputIds.has(id);
+      return { operationId: id, state: consumed ? 'consumed' : unresolvedInputIds.has(id) ? 'uncertain' : outcome?.status === 'attachment-error' || outcome?.status === 'replaced' ? 'rejected' : 'accepted', messageId: id, turnId: turn?.id ?? null, error: outcome?.error ?? null };
+    },
+    async chatStop(id: string) {
+      if (!activeTurnId || activeTurnId !== id) return { stopped: false };
+      // The shared protocol targets a specific turn. Never follow a mismatch to a newer turn.
+      try { await appServer!.call('turn/interrupt', { threadId, turnId: id }); }
+      catch (error) { if (activeTurnInterruptMismatch(error) || noActiveInterrupt(error)) return { stopped: false }; throw error; }
+      turnControllers.get(id)?.abort();
+      await eventChain; await restoreUnconsumed(id);
+      if (activeTurnId === id) { activeTurnId = null; activeOperationId = null; }
+      syncActiveTurn(); notify(); return { stopped: true };
     },
     submit(id: string, input: string, values: readonly z.infer<typeof imageInputSchema>[] = [], replaces: readonly string[] = []) {
       const task = admission.then(async () => {

@@ -322,3 +322,42 @@ Development and tests must use fresh, test-owned workspaces. Do not point them a
 ## License
 
 [Apache License 2.0](LICENSE). Imported components and their retained licenses are listed in [`docs/IMPORTS.md`](docs/IMPORTS.md).
+
+## Shared Lamplit App development slice
+
+The optional shared frontend is served at `/slice/` when `LAMPLIT_APP_ASSETS`
+points to `lamplit-app/apps/web/build`. The existing frontend remains at `/`.
+The common `/api/chat/socket` protocol uses `@lamplit/contracts`, installed from
+the adjacent `lamplit-app/packages/contracts` checkout after its build. Refresh
+the pnpm file dependency after changing contracts. This is a development slice,
+not a production cutover or published-package release workflow.
+
+The official app-server remains the sole execution/history owner. Completed
+message IDs are presentation metadata; no reply text is duplicated in a new
+transcript. Each completed agent message, including commentary, becomes visible
+while the turn continues; unfinished text stays hidden. Input delivery follows
+the native consumption receipt. Completion, failure and stop each produce an
+independent timeline notice, and completed messages survive reconnect and restart.
+Browser origins must match the host; existing gateway authentication
+still applies. Use an independent development instance and do not publicly expose
+an unauthenticated host. See `lamplit-app/docs/integration.md` for build and
+connection commands.
+
+### Streaming voice input
+
+The shared app reads `/api/voice/capability` and records through the same-origin
+`/api/voice/stream` WebSocket. Enable the existing `[speech]` configuration and
+CLI-managed `speech` credential; no new credential is required. Missing speech
+configuration or credentials disables recording while text chat remains usable.
+The existing `speech.endpoint` configures batch transcription for the native UI;
+streaming uses DashScope's fixed WebSocket endpoint with
+`qwen-audio-3.1-asr-flash-streaming` instead.
+
+Audio streams as mono PCM16 LE at 16 kHz, up to five minutes/9,600,000 bytes,
+with frames up to 16 KiB and bounded provider buffering. Only finalized sentences
+are returned after Finish, ordered by sentence ID with replacement of duplicate
+finals. The result enters an editable draft; it creates no Codex turn until Send.
+Cancel, disconnect, errors, timeouts and server shutdown release the provider
+connection. Audio and unsent transcripts are transient. Shared runtime validation
+comes from `@lamplit/contracts/voice`. The retained native UI's batch transcription
+endpoint remains independent.

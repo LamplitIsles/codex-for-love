@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
-import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -33,7 +33,7 @@ test('a repeated message is identified by source record rather than matching tex
 });
 
 test('conversation search uses the Partner workspace and expands only its records', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'cfl-search-test-'));
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'cfl-search-test-')));
   const workspace = join(root, 'workspace');
   const calls = join(root, 'calls.jsonl');
   const binary = join(root, 'flicklog-fake');
@@ -73,7 +73,7 @@ console.log(JSON.stringify(command === 'search'
 });
 
 test('an unreadable optional FlickLog credential fails search without blocking construction', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'cfl-search-test-'));
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'cfl-search-test-')));
   const workspace = join(root, 'workspace');
   const credentials = join(root, 'credentials');
   await mkdir(workspace);

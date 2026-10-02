@@ -66,6 +66,7 @@ export class Store {
       // not a model journal; it contains only presentation/domain metadata.
       this.db.exec('PRAGMA locking_mode=EXCLUSIVE; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;');
       this.db.exec(`
+        CREATE TABLE IF NOT EXISTS chat_completed_items (turn_id TEXT NOT NULL, item_id TEXT PRIMARY KEY);
         CREATE TABLE IF NOT EXISTS message_meta (
           sequence INTEGER PRIMARY KEY AUTOINCREMENT,
           id TEXT NOT NULL UNIQUE,
@@ -155,6 +156,13 @@ export class Store {
     });
     this.writes = result.catch(() => undefined);
     return result;
+  }
+
+  async markChatItemCompleted(turnId: string, itemId: string): Promise<void> {
+    await this.transaction(() => { this.db.prepare('INSERT OR IGNORE INTO chat_completed_items(turn_id,item_id) VALUES(?,?)').run(turnId,itemId); });
+  }
+  async completedChatItems(turnId: string): Promise<Set<string>> {
+    return this.transaction(() => new Set(this.db.prepare('SELECT item_id FROM chat_completed_items WHERE turn_id=?').all(turnId).map(row => String((row as { item_id: string }).item_id))));
   }
 
   private async revision(): Promise<number> {
