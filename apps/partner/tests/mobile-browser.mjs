@@ -26,7 +26,7 @@ const monotonic = (previous, current, opening) => {
 };
 const settle = async () => await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 60))))');
 try {
-  await cp(new URL('../build/', import.meta.url), join(f.directory, 'assets'), { recursive: true });
+  await cp(process.env.CFL_TEST_BUILD_DIR ?? new URL('../build/', import.meta.url), join(f.directory, 'assets'), { recursive: true });
   const partner = await f.createPartner();
   for (let i = 0; i < 12; i++) {
     await partner.submit(crypto.randomUUID(), `Fixture round ${i}: ${'A mobile conversation for reading and following. '.repeat(8)}`);
@@ -48,7 +48,7 @@ try {
   await browser('--init-script', init, 'open', url);
   await browser('set', 'viewport', '390', '844');
   await browser('reload');
-  await browser('wait', '.companion-textarea');
+  await browser('wait', '#companion-textarea');
   // Copy a test-owned message through the real UI, without touching the OS clipboard.
   await evaluate(`(() => {
     window.fixtureCopies=[];
@@ -56,17 +56,18 @@ try {
       writeText:async text=>window.fixtureCopies.push(text)
     }});
   })()`);
-  await browser('click', '.companion-message-copy'); await settle();
-  const copied = await evaluate(`({text:fixtureCopies[0],label:document.querySelector('.companion-copy-toast').textContent.trim(),rect:(()=>{const r=document.querySelector('.companion-message-copy').getBoundingClientRect();return {width:r.width,height:r.height}})()})`);
-  assert.match(copied.text, /^fixture reply /);
-  assert.equal(await evaluate(`document.querySelectorAll('.companion-row.outgoing .companion-message-copy').length`), 0);
-  assert.ok(await evaluate(`document.querySelectorAll('.companion-row.incoming .companion-message-copy').length`) > 0);
-  assert.equal(copied.label, 'Copied');
-  assert.equal(await evaluate(`document.querySelector('.companion-copy-toast').getBoundingClientRect().bottom < document.querySelector('.companion-composer').getBoundingClientRect().top`), true);
-  assert.equal(await evaluate(`document.querySelector('.companion-message-copy').textContent.trim()`), '');
-  assert.ok(copied.rect.width >= 44 && copied.rect.height >= 44);
+  assert.equal(await evaluate(`document.querySelectorAll('.companion-message-copy').length`), 0);
+  await evaluate(`[...document.querySelectorAll('.incoming .companion-text-bubble')].at(-1).dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,button:2}))`);
+  await browser('wait', '.companion-action-menu.modal-in'); await settle();
+  await browser('click', '.companion-action-menu .actions-button'); await settle();
+  assert.match(await evaluate(`fixtureCopies[0]`), /^fixture reply /);
+  assert.equal(await evaluate(`document.querySelector('.companion-copy-toast').textContent.trim()`), 'Copied');
+
+  await evaluate(`new Promise(resolve=>setTimeout(resolve,350))`);
   await evaluate(`navigator.clipboard.writeText=async()=>{throw new Error('denied')}`);
-  await browser('click', '.companion-message-copy'); await settle();
+  await evaluate(`[...document.querySelectorAll('.incoming .companion-text-bubble')].at(-1).dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,button:2}))`);
+  await browser('wait', '.companion-action-menu.modal-in'); await settle();
+  await browser('click', '.companion-action-menu .actions-button'); await settle();
   assert.equal(await evaluate(`document.querySelector('.companion-copy-toast').textContent.trim()`), 'Copy failed. Try again.');
   await evaluate(`new Promise(resolve=>setTimeout(resolve,2100))`);
   assert.equal(await evaluate(`document.querySelector('.companion-copy-toast')===null`), true);
@@ -94,12 +95,12 @@ try {
       const timeline=document.querySelector('.companion-timeline');
       const probe=document.createElement('span'); probe.style.cssText='position:absolute;visibility:hidden;padding-bottom:var(--companion-bottom-safe-area)'; root.append(probe);
       const safe=parseFloat(getComputedStyle(probe).paddingBottom); probe.remove();
-      return {header:rect('.companion-header'), composer:rect('.companion-composer'), input:rect('.companion-textarea'), controls:[...document.querySelectorAll('.companion-compose-row button')].map(button=>button.getBoundingClientRect().bottom), timeline:rect('.companion-timeline'), safe, padding:parseFloat(getComputedStyle(document.querySelector('.companion-composer')).paddingBottom), gap:timeline.scrollHeight-timeline.clientHeight-timeline.scrollTop, scroll:timeline.scrollTop};
+      return {header:rect('.companion-header'), composer:rect('.companion-composer'), input:rect('#companion-textarea'), controls:[...document.querySelectorAll('.companion-compose-row button')].map(button=>button.getBoundingClientRect().bottom), timeline:rect('.companion-timeline'), safe, padding:parseFloat(getComputedStyle(document.querySelector('.companion-composer')).paddingBottom), gap:timeline.scrollHeight-timeline.clientHeight-timeline.scrollTop, scroll:timeline.scrollTop};
     };
   })()`);
-  await evaluate('document.querySelector(".companion-textarea").focus()'); await settle();
+  await evaluate('document.querySelector("#companion-textarea").focus()'); await settle();
   const closed = await evaluate('fixtureMeasure()'); assert.equal(closed.safe, 40);
-  assert.equal(closed.padding, 40); assert.equal(closed.header.top, 0);
+  const composerGutter=closed.padding-closed.safe; assert.ok(composerGutter>=0 && composerGutter<=12); assert.equal(closed.header.top, 0);
   let previous = closed, previousHeight = 0;
   for (const height of [0, 1, 4, 12, 24, 40, 80, 160, 240, 364, 240, 160, 80, 40, 24, 12, 4, 1, 0]) {
     // Before geometrychange, CSS alone must already move composer + safe area.
@@ -108,7 +109,7 @@ try {
     assert.equal(measure.composer.bottom, 844-height);
     assert.equal(measure.header.top, 0);
     assert.equal(measure.safe, Math.max(0, 40-height));
-    assert.equal(measure.padding, Math.max(14, 40-height));
+    assert.equal(measure.padding, composerGutter+Math.max(0, 40-height));
     assert.ok(measure.timeline.height > 0); assert.ok(Math.abs(measure.gap) < 2);
     await evaluate("fixtureKeyboard.dispatchEvent(new Event('geometrychange'))"); await settle();
     assert.deepEqual(await evaluate('fixtureMeasure()'), measure);
@@ -126,7 +127,10 @@ try {
   await settle(); assert.equal(await evaluate('fixtureMeasure().scroll'),160);
   const latest = await evaluate(`(() => { const b=document.querySelector('.companion-return-latest'); return b ? {width:b.getBoundingClientRect().width,height:b.getBoundingClientRect().height} : null; })()`);
   assert.ok(latest && latest.width >= 44 && latest.height >= 44);
-  await browser('click', '.companion-return-latest'); await settle(); assert.ok(Math.abs(await evaluate('fixtureMeasure().gap')) < 2);
+  await evaluate(`document.querySelector('textarea').focus()`);
+  assert.equal(await evaluate(`document.querySelector('.companion-return-latest').dispatchEvent(new PointerEvent('pointerdown',{pointerId:1,pointerType:'touch',isPrimary:true,button:0,bubbles:true,cancelable:true}))`),true,'latest must allow normal focus transfer');
+  assert.equal(await evaluate(`(()=>{const b=document.querySelector('.companion-return-latest'),r=b.getBoundingClientRect(),hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return hit===b||b.contains(hit)})()`),true,'latest button must remain above the composer after safe-area changes');
+  await browser('click', '.companion-return-latest'); await settle(); assert.equal(await evaluate(`document.activeElement===document.querySelector('textarea')`),false,'latest must end editing'); assert.ok(Math.abs(await evaluate('fixtureMeasure().gap')) < 2);
   await evaluate('fixtureSet(200,400,60,250)'); await settle();
   assert.equal(await evaluate('fixtureMeasure().composer.bottom'),400);
   await evaluate('fixtureSet(200,400,400,250)'); await settle();
@@ -166,7 +170,7 @@ try {
   assert.equal(await evaluate('document.querySelectorAll(".companion-image-draft").length'),1);
   assert.equal((await partner.snapshot()).messages.length,before);
   if(process.argv[2]) await browser('screenshot', process.argv[2]);
-  for(const [width,height] of [[320,700],[1280,900]]) {
+  for(const [width,height] of [[320,700],[844,390],[1280,900]]) {
     await browser('set','viewport',String(width),String(height)); await settle();
     const m=await evaluate('fixtureMeasure()'); assert.equal(m.header.top,0); assert.equal(m.composer.bottom,height); assert.ok(m.timeline.height>0);
     assert.equal(await evaluate('document.documentElement.scrollWidth<=innerWidth'),true);
@@ -175,23 +179,23 @@ try {
       for(const inset of [0,1,4,12,24,40,80,40,24,12,4,1,0]) {
         await evaluate(`fixtureSet(${inset})`); await settle();
         const measure=await evaluate('fixtureMeasure()');
-        assert.equal(measure.composer.bottom,height-inset); assert.equal(measure.padding,Math.max(24,40-inset));
+        assert.equal(measure.composer.bottom,height-inset); assert.equal(measure.padding,composerGutter+Math.max(0,40-inset));
         monotonic(previous,measure,inset>=previousHeight); previous=measure; previousHeight=inset;
       }
     }
   }
   await browser('screenshot', join(f.directory,'mobile.png'));
-  await browser('set','viewport','390','844'); await browser('open',url+'/?native'); await browser('wait','.companion-textarea');
-  await evaluate(`document.querySelector('#dsh-companion').style.setProperty('--companion-system-safe-area','40px'); document.querySelector('.companion-textarea').focus();`); await settle();
+  await browser('set','viewport','390','844'); await browser('open',url+'/?native'); await browser('wait','#companion-textarea');
+  await evaluate(`document.querySelector('#dsh-companion').style.setProperty('--companion-system-safe-area','40px'); document.querySelector('#companion-textarea').focus();`); await settle();
   previous = undefined; previousHeight = 0;
   for(const covered of [0,1,4,12,24,40,80,364,80,40,24,12,4,1,0]) {
     await evaluate(`fixtureViewport.height=${844-covered}; fixtureViewport.dispatchEvent(new Event('resize'))`); await settle();
-    const measure=await evaluate(`({composer:{bottom:document.querySelector('.companion-composer').getBoundingClientRect().bottom},input:{bottom:document.querySelector('.companion-textarea').getBoundingClientRect().bottom},controls:[...document.querySelectorAll('.companion-compose-row button')].map(button=>button.getBoundingClientRect().bottom),padding:parseFloat(getComputedStyle(document.querySelector('.companion-composer')).paddingBottom)})`);
-    assert.equal(measure.composer.bottom,844-covered); assert.equal(measure.padding,Math.max(14,40-covered));
+    const measure=await evaluate(`({composer:{bottom:document.querySelector('.companion-composer').getBoundingClientRect().bottom},input:{bottom:document.querySelector('#companion-textarea').getBoundingClientRect().bottom},controls:[...document.querySelectorAll('.companion-compose-row button')].map(button=>button.getBoundingClientRect().bottom),padding:parseFloat(getComputedStyle(document.querySelector('.companion-composer')).paddingBottom)})`);
+    assert.equal(measure.composer.bottom,844-covered); assert.equal(measure.padding,composerGutter+Math.max(0,40-covered));
     if(previous) monotonic(previous,measure,covered>=previousHeight);
     console.log('NATIVE-INSET',covered,JSON.stringify(measure)); previous=measure; previousHeight=covered;
   }
-  console.log('PASS: built UI 390×844 / 320×700 / desktop, CSS env equivalents before geometry notification, floating/out-of-chat, focused close, native fallback, follow/read/return, capture/cancel/File preview. Synthetic geometry only; OS animation/install/permissions unverified.');
+  console.log('PASS: built UI 390×844 / 320×700 / 844×390 / desktop, CSS env equivalents before geometry notification, floating/out-of-chat, focused close, native fallback, follow/read/return, capture/cancel/File preview. Synthetic geometry only; OS animation/install/permissions unverified.');
 } finally {
   try { await browser('close'); } finally { await app?.close(); await f.close(); }
 }

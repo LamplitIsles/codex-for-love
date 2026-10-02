@@ -1,7 +1,7 @@
 <script lang="ts">
   import { visibleViewport, followTimelineResize } from "./viewport.js";
   import { MAX_MESSAGE_LENGTH } from "../../message-input.ts";
-  import { formatVoiceTurn } from "./voice-input.js";
+  import { normalizeVoiceTranscription } from "./voice-input.js";
   import {
     english,
     type CompanionLocaleKey,
@@ -11,10 +11,14 @@
   export let t: CompanionTranslate = english;
   export let locale = "en";
   export let backgrounds: { landscape: string; portrait: string } | undefined = undefined;
-  import { createEventDispatcher, onDestroy, onMount, tick } from "svelte";
-  import { captureNativePhoto, hasNativeCamera, dismissNativeKeyboardOnTimelineTap } from "./native-mobile.js";
-  import ImagePlus from "lucide-svelte/icons/image-plus";
-  import Copy from "lucide-svelte/icons/copy";
+  import { createEventDispatcher, onDestroy, tick } from "svelte";
+  import { captureNativePhoto, hasNativeCamera } from "./native-mobile.js";
+  import RefreshCw from "lucide-svelte/icons/refresh-cw";
+  import Plus from "lucide-svelte/icons/plus";
+  import ChevronDown from "lucide-svelte/icons/chevron-down";
+  import ArrowUp from "lucide-svelte/icons/arrow-up";
+  import { f7, f7ready, Preloader, Panel, Popover, Block, List, ListItem, Navbar, Page, PageContent, Messages, Message, Messagebar, MessagebarAttachments, MessagebarAttachment } from "framework7-svelte";
+  import { syncSystemBars } from "./native-navigation.ts";
   import Menu from "lucide-svelte/icons/menu";
   import Settings from "lucide-svelte/icons/settings";
   import Search from "lucide-svelte/icons/search";
@@ -27,7 +31,17 @@
   import Heart from "lucide-svelte/icons/heart";
   import BookOpen from "lucide-svelte/icons/book-open";
   import AlarmClock from "lucide-svelte/icons/alarm-clock";
-  import { createVirtualizer } from "@tanstack/svelte-virtual";
+  import Gallery from "./Gallery.svelte";
+  import { longPress } from "./long-press.ts";
+  import { overlayOpened, overlayClosed, overlayOpening } from "./overlay-focus.ts";
+  import { captureReadingFocus, dismissComposerOnTimelineTap } from "./reading-focus.ts";
+  import { messageMenu, dismissMessageMenu, messageMenuOpen } from "./message-menu.ts";
+  import { Capacitor } from "@capacitor/core";
+  import { Clipboard } from "@capacitor/clipboard";
+  import { App } from "@capacitor/app";
+  import { saveImage } from "./save-image.ts";
+  type Swiper = ReturnType<typeof f7.swiper.create>;
+  import type { PhotoBrowser } from "framework7/components/photo-browser";
   import { galleryRows, type GalleryGrouping, type GalleryImage } from "./gallery.js";
   import {
     COMPACTION_STATUS_DURATION_MS,
@@ -52,12 +66,9 @@
   import type { PendingSubmissionRetirement } from "./contracts.js";
   import { CompanionPreControllerError } from "./admission.js";
   import {
-    COMPOSER_MAX_HEIGHT,
-    COMPOSER_MIN_HEIGHT,
     createComposerState,
     findComposerCommand,
     reduceComposer,
-    resolveComposerHeight,
     shouldSubmitEnter,
     type ComposerCommand,
   } from "./composer.js";
@@ -76,11 +87,8 @@
   import Markdown from "./Markdown.svelte";
   import ConversationSearch from "./ConversationSearch.svelte";
   import {
-    isPlainTextMessage,
     formatMessageTime,
     messageTimeDateTime,
-    messageTimeFitsInline,
-    messageTimePlacement,
   } from "../message-time.js";
   import { resolveImageDisplaySize } from "../media.js";
   import {
@@ -164,9 +172,6 @@
   export let appearance: CompanionAppearance = "system";
   export let onAppearanceChange: (appearance: CompanionAppearance) => void = () => undefined;
   export let onLanguageChange: (language: CompanionLanguage) => void = () => undefined;
-  export let notificationPermission: NotificationPermission | "unsupported" = "unsupported";
-  export let onEnableNotifications: () => void | Promise<void> = () => undefined;
-  export let onFirstMessageSend: () => void = () => undefined;
 
   const dispatch = createEventDispatcher<{ advanced: void; recovery: void }>();
   const LONG_WAIT_DELAY_MS = 12_000;
@@ -192,6 +197,7 @@
   let timeline: HTMLDivElement;
   let timelineReady = false;
   let timelineRevealFrame = 0;
+  let timelineGeometry = { height: 0, viewport: 0 };
   let detailOpen = false;
   let preferencesOpen = false;
   let preferencesButton: HTMLButtonElement;
@@ -205,19 +211,7 @@
   let galleryCursor: string | undefined;
   let galleryLoading = false;
   let galleryError = false;
-  let galleryViewport: HTMLDivElement;
   $: galleryRowsValue = galleryRows(galleryImages, locale, galleryGrouping);
-  const galleryVirtualizer = createVirtualizer({ count: 0, getScrollElement: () => galleryViewport, estimateSize: () => 132, overscan: 5 });
-  $: $galleryVirtualizer.setOptions({ count: galleryRowsValue.length, getScrollElement: () => galleryViewport, estimateSize: (index) => galleryRowsValue[index]?.kind === "group" ? 38 : 132, overscan: 5 });
-  $: { const lastGalleryRow = $galleryVirtualizer.getVirtualItems().at(-1)?.index; if (galleryCursor && !galleryLoading && lastGalleryRow !== undefined && lastGalleryRow >= galleryRowsValue.length - 3) void openGallery(true); }
-  function measureGalleryRow(node: HTMLElement, index: number) {
-    const measure = (next: number) => { node.dataset.index = String(next); $galleryVirtualizer.measureElement(node); };
-    measure(index);
-    return {
-      update: measure,
-      destroy: () => $galleryVirtualizer.measureElement(null)
-    };
-  }
   let diaryEntries: string[] = [];
   let diaryEntry: { name: string; text: string } | undefined;
   let diaryLoading = false;
@@ -255,13 +249,13 @@
   let copyToast: CompanionLocaleKey | undefined;
   let copyToastTimer: ReturnType<typeof setTimeout> | undefined;
   let liveAnnouncement: string | CompanionMessage = "";
-  let detailReturnFocus: HTMLElement | undefined;
+
   let lightboxReturnFocus: HTMLElement | undefined;
   let relationshipDrawer: HTMLElement;
-  let lightboxDialog: HTMLDialogElement;
-  let overlayHistory = false;
+  let photoBrowser: PhotoBrowser.PhotoBrowser | undefined;
+  let preferencesPanel: HTMLElement;
   let searchOpen = false;
-  let lightboxCloseFromHistory = false;
+
   let statusText = "";
   let imageGenerationRunning = false;
   let typingVisible = false;
@@ -272,7 +266,6 @@
   let contextMeterOpen = false;
   let contextMeterButton: HTMLButtonElement;
   let contextMeterPopover: HTMLElement;
-  let contextMeterReturnFocus: HTMLElement | undefined;
   let continuityStatus: CompactionLifecycleState | undefined;
   let continuityStatusKey = "";
   let continuityStatusTimer: ReturnType<typeof setTimeout> | undefined;
@@ -286,19 +279,18 @@
   let submissionToken = 0;
   let imagePickerPointer: { id: number; startedAt: number } | undefined;
   let suppressImagePickerClick = false;
-  let composerResizeToken = 0;
+  let messagebarComponent: Messagebar;
+  let messagesComponent: Messages;
+  let voiceInsertion = { start: 0, end: 0 };
+  let voiceOriginDraft = "";
   let voiceStatus: VoiceRecordingStatus = "idle";
   const voiceCaptureAvailable = canCaptureVoice();
-  let voiceElapsedMs = 0;
-  let voiceClock: ReturnType<typeof setInterval> | undefined;
   let voiceFailure: CompanionLocaleKey | "" = "";
   let voiceController = new VoiceRecordingController({
     onStatus: (status) => {
       voiceStatus = status;
     },
     onError: (error) => {
-      clearVoiceClock();
-      voiceElapsedMs = 0;
       if (error.code !== "cancelled") {
         voiceFailure = voiceErrorKey(error);
         liveAnnouncement = { key: voiceFailure };
@@ -330,6 +322,8 @@
   $: commandSuggestion = imageDrafts.length
     ? undefined
     : findComposerCommand(composer.draft, t);
+  $: voiceBusy = voiceStatus === "recording" || voiceStatus === "stopping" || voiceStatus === "transcribing";
+  $: if (imageDrafts) void scheduleComposerResize();
   $: contextCapacity = resolveContextCapacity(continuity?.contextPressure);
   $: latestContinuityLifecycle = latestLifecycle(continuity?.lifecycle);
   $: syncContinuityStatus(latestContinuityLifecycle);
@@ -362,19 +356,49 @@
     void restoreRecoveredDraft(recoveredDraft);
 
   async function scheduleComposerResize(): Promise<void> {
-    const token = ++composerResizeToken;
     await tick();
-    if (token !== composerResizeToken || !composerInput) return;
-    // Reset before measuring so deletion and rejected-send restoration shrink
-    // just as reliably as typing grows the draft.
-    composerInput.style.height = "auto";
-    const resolved = resolveComposerHeight(
-      composerInput.scrollHeight,
-      COMPOSER_MIN_HEIGHT,
-      COMPOSER_MAX_HEIGHT,
-    );
-    composerInput.style.height = `${resolved.height}px`;
-    composerInput.style.overflowY = resolved.scrollable ? "auto" : "hidden";
+    if (!composerInput?.isConnected) return;
+    f7.input.resizeTextarea(composerInput);
+    messagebarComponent?.instance()?.resizePage();
+  }
+
+  function connectMessagebar(node: HTMLElement, options: { label: string; suggestions: boolean }) {
+    const bar = node.parentElement!;
+    const input = bar.querySelector<HTMLTextAreaElement>("textarea")!;
+    composerInput = input;
+    const update = (value: typeof options) => {
+      input.setAttribute("aria-label", value.label);
+      if (value.suggestions) {
+        input.setAttribute("aria-autocomplete", "list");
+        input.setAttribute("aria-controls", "companion-command-suggestions");
+      } else {
+        input.removeAttribute("aria-autocomplete");
+        input.removeAttribute("aria-controls");
+      }
+    };
+    update(options);
+    // Framework7 Svelte 9.2 Messagebar expects Input callbacks wrapped in detail[0].
+    // Its Input currently forwards a native event, so adapt that boundary before it runs.
+    const wrapInput = (event: Event) => Object.defineProperty(event, "detail", { value: [event], configurable: true });
+    input.addEventListener("input", wrapInput, true);
+    input.addEventListener("paste", onPaste);
+    input.addEventListener("keydown", onKeydown);
+    input.addEventListener("compositionstart", onCompositionStart);
+    input.addEventListener("compositionend", onCompositionEnd);
+    const observer = new ResizeObserver(() => {
+      messagebarComponent?.instance()?.resizePage();
+      bar.closest<HTMLElement>(".page")?.style.setProperty("--companion-messagebar-height", `${bar.offsetHeight}px`);
+    });
+    observer.observe(bar, { box: "border-box" });
+    void scheduleComposerResize();
+    return { update, destroy() {
+      observer.disconnect();
+      input.removeEventListener("input", wrapInput, true);
+      input.removeEventListener("paste", onPaste);
+      input.removeEventListener("keydown", onKeydown);
+      input.removeEventListener("compositionstart", onCompositionStart);
+      input.removeEventListener("compositionend", onCompositionEnd);
+    } };
   }
 
   async function restoreRecoveredDraft(draft: CompanionRecoveredDraft): Promise<void> {
@@ -417,16 +441,14 @@
       );
       const rest = content.filter((item) => item.kind !== "image");
       return [
-        ...(images.length ? [{ kind: "images" as const, items: images }] : []),
+        ...images.map(image => ({ kind: "images" as const, items: [image] })),
         ...rest.map((item) => ({ kind: "item" as const, item })),
       ];
     }
     const parts: MessageContentPart[] = [];
     for (const item of content) {
       if (item.kind === "image") {
-        const previous = parts.at(-1);
-        if (previous?.kind === "images") previous.items.push(item);
-        else parts.push({ kind: "images", items: [item] });
+        parts.push({ kind: "images", items: [item] });
       } else parts.push({ kind: "item", item });
     }
     return parts;
@@ -475,49 +497,6 @@
       (item): item is TimelineVoice => item.kind === "voice",
     );
     return voice ? `voice-${voice.id}` : `message-${unit.id}`;
-  }
-
-  function canMeasureInlineMessageTime(unit: TimelineMessageUnit): boolean {
-    return unit.time !== undefined && unit.items.length === 1 &&
-      unit.items[0]?.kind === "text" && isPlainTextMessage(unit.items[0].text);
-  }
-
-  function hasTrailingTextBubble(parts: readonly MessageContentPart[]): boolean {
-    const last = parts.at(-1);
-    return last?.kind === "item" && last.item.kind === "text";
-  }
-
-  function placeMessageTime(node: HTMLElement): { destroy(): void } {
-    let frame = 0;
-    const update = () => {
-      frame = 0;
-      node.dataset.placement = "inline";
-      const markdown = node.previousElementSibling;
-      const walker = document.createTreeWalker(markdown ?? node, NodeFilter.SHOW_TEXT);
-      let lastText: Text | undefined;
-      for (let next = walker.nextNode(); next; next = walker.nextNode()) {
-        if (next.textContent?.trim()) lastText = next as Text;
-      }
-      if (!lastText) return;
-      const range = document.createRange();
-      range.selectNodeContents(lastText);
-      const rectangles = range.getClientRects();
-      const lastLine = rectangles.item(rectangles.length - 1);
-      const time = node.getBoundingClientRect();
-      const sharesOnlyLine = lastLine
-        ? time.bottom > lastLine.top && time.top < lastLine.bottom
-        : false;
-      if (!messageTimeFitsInline(rectangles.length, sharesOnlyLine)) {
-        node.dataset.placement = "fallback";
-      }
-    };
-    const schedule = () => {
-      if (!frame) frame = requestAnimationFrame(update);
-    };
-    const observer = new ResizeObserver(schedule);
-    observer.observe(node.parentElement!);
-    schedule();
-    return { destroy: () => { observer.disconnect(); if (frame) cancelAnimationFrame(frame); } };
   }
 
   function messengerRecoveryMessage(
@@ -672,29 +651,26 @@
     }, remaining);
   }
 
+  function closePopover(node: HTMLElement | undefined): boolean {
+    const popover = node && f7.popover.get(node);
+    if (!popover) return false;
+    popover.close();
+    return true;
+  }
+
   function openContextMeter(): void {
     if (!contextCapacity) return;
-    contextMeterReturnFocus = document.activeElement as HTMLElement;
     contextMeterOpen = true;
-    void tick().then(() => contextMeterPopover?.focus());
   }
 
   function closeContextMeter(restoreFocus = true): void {
+    if (restoreFocus && closePopover(contextMeterPopover)) return;
     contextMeterOpen = false;
-    const target = contextMeterReturnFocus;
-    contextMeterReturnFocus = undefined;
-    if (restoreFocus) target?.focus();
   }
 
   function toggleContextMeter(): void {
     if (contextMeterOpen) closeContextMeter();
     else openContextMeter();
-  }
-
-  function onWindowPointerDown(event: PointerEvent): void {
-    const target = event.target as Node | null;
-    if (contextMeterOpen && (!target || !(target as Element).closest?.(".companion-context-meter-wrap"))) closeContextMeter(false);
-    if (preferencesOpen && (!target || !(target as Element).closest?.(".companion-preferences"))) preferencesOpen = false;
   }
 
   function rotateWaitingCopy(): void {
@@ -733,21 +709,16 @@
       timelineReady = false;
       return;
     }
-    const distance =
-      timeline.scrollHeight - timeline.clientHeight - timeline.scrollTop;
-    const nearBottom = wasNearBottom || distance < 96;
-    if (nearBottom && !value.loadingOlder)
-      timeline.scrollTop = timeline.scrollHeight;
     if (!timelineReady) {
       if (timelineRevealFrame) cancelAnimationFrame(timelineRevealFrame);
       timelineRevealFrame = requestAnimationFrame(() => {
         if (!timeline) return;
+        wasNearBottom = true;
         timeline.scrollTop = timeline.scrollHeight;
         timelineReady = true;
         timelineRevealFrame = 0;
       });
     }
-    wasNearBottom = nearBottom;
     liveAnnouncement = value.promptError
       ? messengerRecoveryMessage(value.promptError, value.promptErrorOp)
       : (value.lastAgentError ?? "");
@@ -815,6 +786,7 @@
         if (lightbox?.id === item.id) {
           const previous = lightboxUrl;
           lightboxUrl = url;
+    if (photoBrowser) { photoBrowser.params.photos = [{ url }]; photoBrowser.el?.querySelector(".swiper-slide-active img")?.setAttribute("src", url); }
           if (previous && previous !== url) {
             deferredImageUrls.delete(previous);
             releaseImageUrl(previous);
@@ -1017,22 +989,44 @@
 
   function onScroll(): void {
     if (!timeline) return;
-    wasNearBottom =
-      timeline.scrollHeight - timeline.clientHeight - timeline.scrollTop < 96;
+    const geometry = { height: timeline.scrollHeight, viewport: timeline.clientHeight };
+    const resized = geometry.height !== timelineGeometry.height || geometry.viewport !== timelineGeometry.viewport;
+    timelineGeometry = geometry;
+    // Layout-driven scroll events must not turn a follower into a history reader.
+    if (!timelineReady || (resized && wasNearBottom)) return;
+    wasNearBottom = geometry.height - geometry.viewport - timeline.scrollTop < 96;
   }
 
-  function keepBottomOnResize(node: HTMLElement): { destroy(): void } {
-    return followTimelineResize(node, node.parentElement!, () => timelineReady && wasNearBottom);
+  function connectViewport(node: HTMLElement): { destroy(): void } {
+    return visibleViewport(node.parentElement!);
+  }
+
+  function connectTimeline(node: HTMLElement): { destroy(): void } {
+    timeline = node.parentElement as HTMLDivElement;
+    const reading = dismissComposerOnTimelineTap(timeline, () => composerInput);
+    const follow = followTimelineResize(node, timeline, () => timelineReady && wasNearBottom);
+    let disposed = false;
+    const foreground = App.addListener("resume", () => {
+      if (!disposed && timelineReady) returnToLatest();
+    }).catch(error => console.warn("Could not watch application resume", error));
+    void reconcileProjection(displayedProjection);
+    return { destroy() {
+      disposed = true;
+      reading.destroy(); follow.destroy();
+      void foreground.then(listener => listener?.remove())
+        .catch(error => console.warn("Could not release foreground scrolling", error));
+    } };
   }
 
   function returnToLatest(): void {
     wasNearBottom = true;
-    timeline.scrollTop = timeline.scrollHeight;
+    messagesComponent?.instance()?.scroll(0, timeline.scrollHeight - timeline.clientHeight);
   }
 
   async function copyMessage(item: TimelineText): Promise<void> {
     try {
-      await navigator.clipboard.writeText(item.text);
+      if (Capacitor.isNativePlatform()) await Clipboard.write({ string: item.text });
+      else await navigator.clipboard.writeText(item.text);
       copyToast = "messages.copied";
     } catch {
       copyToast = "messages.copyFailed";
@@ -1041,17 +1035,12 @@
     copyToastTimer = setTimeout(() => { copyToast = undefined; copyToastTimer = undefined; }, 2000);
   }
 
-  function keepComposerFocus(event: PointerEvent): void {
-    if (document.activeElement === composerInput) event.preventDefault();
-  }
-
   function submit(): void {
-    if (projection.canSubmit === false) return;
+    if (projection.canSubmit === false || voiceBusy) return;
     const restoreText = composer.draft;
     const text = restoreText.trim();
     if (text.length > MAX_MESSAGE_LENGTH) return;
     if ((!text && imageDrafts.length === 0) || composer.composing) return;
-    if (text !== "/compact" || imageDrafts.length > 0) onFirstMessageSend();
     const submittedDrafts = [...imageDrafts];
     const originSessionId = sessionId;
     composer = {
@@ -1060,6 +1049,8 @@
       composing: false,
     };
     imageDrafts = [];
+    returnToLatest();
+    void tick().then(returnToLatest);
     void scheduleComposerResize();
     const token = ++submissionToken;
     const onRetire = (retirement: PendingSubmissionRetirement): void => {
@@ -1099,14 +1090,6 @@
       });
   }
 
-  function formatVoiceElapsed(value: number): string {
-    const seconds = Math.max(0, Math.floor(value / 1000));
-    const minutes = Math.floor(seconds / 60)
-      .toString()
-      .padStart(2, "0");
-    return `${minutes}:${(seconds % 60).toString().padStart(2, "0")}`;
-  }
-
   function voiceErrorKey(error: unknown): CompanionLocaleKey {
     if (error instanceof VoiceRecordingError) {
       if (error.code === "insecure-context") return "voice.secure";
@@ -1125,13 +1108,7 @@
     return voiceCaptureAvailable ? t("voice.install") : t("voice.unavailable");
   }
 
-  function clearVoiceClock(): void {
-    if (voiceClock !== undefined) clearInterval(voiceClock);
-    voiceClock = undefined;
-  }
-
   async function cancelVoiceInput(): Promise<void> {
-    clearVoiceClock();
     voiceTranscriptionAbort?.abort();
     voiceTranscriptionAbort = undefined;
     try {
@@ -1139,22 +1116,19 @@
     } catch {
       /* cleanup is best effort; the controller stops every known track */
     }
-    voiceElapsedMs = 0;
     voiceFailure = "";
   }
 
   async function stopVoiceAndTranscribe(): Promise<void> {
-    clearVoiceClock();
     let recording: VoiceRecording | undefined;
     try {
       recording = await voiceController.stopAndGet();
     } catch (error) {
+      if (error instanceof VoiceRecordingError && error.code === "cancelled") return;
       voiceFailure = voiceErrorKey(error);
       liveAnnouncement = { key: voiceFailure };
-      voiceElapsedMs = 0;
       return;
     }
-    voiceElapsedMs = 0;
     voiceFailure = "";
     if (
       !recording ||
@@ -1171,10 +1145,15 @@
         abort.signal,
       );
       if (abort.signal.aborted || sessionId !== originSessionId) return;
-      const text = formatVoiceTurn(transcription);
-      await actions.send(text, []);
-      liveAnnouncement = { key: "voice.sent" };
+      const text = normalizeVoiceTranscription(transcription).text;
+      if (composer.draft !== voiceOriginDraft) return;
+      voiceController.finishTranscribing();
+      setDraft(voiceOriginDraft.slice(0, voiceInsertion.start) + text + voiceOriginDraft.slice(voiceInsertion.end));
+      await tick();
+      composerInput?.setSelectionRange(voiceInsertion.start + text.length, voiceInsertion.start + text.length);
+      liveAnnouncement = { key: "voice.ready" };
     } catch (error) {
+      if (abort.signal.aborted) return;
       voiceFailure = voiceErrorKey(error);
       liveAnnouncement = { key: voiceFailure };
     } finally {
@@ -1205,16 +1184,13 @@
       };
       return;
     }
-    voiceElapsedMs = 0;
     voiceFailure = "";
-    clearVoiceClock();
     try {
+      voiceOriginDraft = composer.draft;
+      voiceInsertion = { start: composerInput?.selectionStart ?? composer.draft.length, end: composerInput?.selectionEnd ?? composer.draft.length };
       await voiceController.start();
-      voiceClock = setInterval(() => {
-        voiceElapsedMs = voiceController.elapsedMs;
-      }, 250);
     } catch (error) {
-      clearVoiceClock();
+      if (error instanceof VoiceRecordingError && error.code === "cancelled") return;
       voiceFailure = voiceErrorKey(error);
       liveAnnouncement = { key: voiceFailure };
     }
@@ -1233,6 +1209,7 @@
   }
 
   function onKeydown(event: KeyboardEvent): void {
+    if (voiceBusy) return;
     if (
       commandSuggestion &&
       (event.key === "Tab" || event.key === "Enter") &&
@@ -1260,7 +1237,7 @@
     void tick().then(() => composerInput?.focus());
   }
   function onInput(event: Event): void {
-    setDraft((event.currentTarget as HTMLTextAreaElement).value);
+    setDraft((event.target as HTMLTextAreaElement).value);
   }
   function onCompositionEnd(event: CompositionEvent): void {
     composer = reduceComposer(composer, {
@@ -1306,7 +1283,7 @@
     imageDrafts = imageDrafts.filter((candidate) => candidate !== draft);
   }
   function onImagePickerPointerDown(event: PointerEvent): void {
-    if (event.pointerType !== "touch") return;
+    if (voiceBusy || event.pointerType !== "touch") return;
     imagePickerPointer = { id: event.pointerId, startedAt: Date.now() };
   }
   function onImagePickerPointerUp(event: PointerEvent): void {
@@ -1381,160 +1358,91 @@
       // rejection while leaving the retry action available in the drawer.
     }
   }
-  function focusFirst(dialog: () => HTMLElement | undefined): void {
-    void tick().then(() => {
-      const target = dialog();
-      (
-        target?.querySelector<HTMLElement>(
-          "button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])",
-        ) ?? target
-      )?.focus();
-    });
-  }
-  function trapFocus(event: KeyboardEvent, dialog: HTMLElement): void {
-    if (event.key !== "Tab") return;
-    const focusable = [
-      ...dialog.querySelectorAll<HTMLElement>(
-        "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])",
-      ),
-    ].filter((node) => !node.hasAttribute("hidden"));
-    if (!focusable.length) {
-      event.preventDefault();
-      dialog.focus();
-      return;
-    }
-    const first = focusable[0]!;
-    const last = focusable[focusable.length - 1]!;
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
-  }
-  function closeHistory(): void {
-    if (overlayHistory) {
-      overlayHistory = false;
-      globalThis.history.back();
-    }
-  }
   function openSearch(): void {
-    if (detailOpen) closeDetail(false);
-    preferencesOpen = false;
+    if (detailOpen) closeDetail();
+    closePopover(preferencesPanel);
     searchOpen = true;
-    pushOverlayHistory();
   }
-  function closeSearch(): void {
-    if (!searchOpen) return;
-    searchOpen = false;
-    closeHistory();
-  }
+  function closeSearch(): void { searchOpen = false; }
   function openDetail(): void {
-    detailReturnFocus = document.activeElement as HTMLElement;
     detailOpen = true;
     if (drawerTab === 'alarms') void openAlarms();
     onHistoryOpenChange?.(true);
-    void tick().then(() => {
-      focusFirst(() => relationshipDrawer);
-    });
   }
-  function finishDetailClose(restoreFocus = true): void {
-    detailOpen = false;
-    onHistoryOpenChange?.(false);
-    const target = detailReturnFocus;
-    detailReturnFocus = undefined;
-    if (restoreFocus) target?.focus();
-  }
-  function closeDetail(restoreFocus = true): void {
-    diaryRequest?.abort();
-    diaryRequest = undefined;
-    finishDetailClose(restoreFocus);
+  function finishDetailClose(_restoreFocus = true): void { detailOpen = false; onHistoryOpenChange?.(false); }
+  function closeDetail(_restoreFocus = true): void {
+    diaryRequest?.abort(); diaryRequest = undefined;
+    const panel = relationshipDrawer && f7.panel.get(relationshipDrawer);
+    if (panel) panel.close(false);
+    else finishDetailClose();
   }
   function openLightbox(item: ImagePreviewTarget): void {
-    lightboxReturnFocus = document.activeElement as HTMLElement;
+    lightboxReturnFocus = captureReadingFocus(document);
     lightbox = item;
-    lightboxUrl = item.previewUrl ?? imageUrls[item.id] ?? "";
-    void tick().then(() => {
-      if (lightboxDialog && !lightboxDialog.open) lightboxDialog.showModal();
-      focusFirst(() => lightboxDialog);
-    });
+    lightboxUrl = item.previewUrl ?? imageUrls[item.id] ?? '';
+    const params = {
+      photos: [{ url: lightboxUrl }],
+      type: 'popup' as const, theme: 'dark' as const, toolbar: false, navbar: true,
+      navbarShowCount: false, popupCloseLinkText: t('close'), exposition: false, swipeToClose: false,
+      routableModals: true, url: '/image/', view: f7.views.main,
+      swiper: { zoom: { enabled: true, maxRatio: 4 }, spaceBetween: 0 },
+      on: {
+        open() {
+          syncSystemBars(true);
+          browser.el.setAttribute('role', 'dialog'); browser.el.setAttribute('aria-modal', 'true'); browser.el.setAttribute('aria-label', item.alt);
+          browser.el.addEventListener('keydown', photoKeydown);
+          const closeLink = browser.el.querySelector<HTMLElement>('.popup-close');
+          if (closeLink) { closeLink.setAttribute('aria-label', t('image.close')); closeLink.tabIndex = 0; closeLink.focus(); }
+          const image = browser.el.querySelector<HTMLImageElement>('.swiper-slide-active img');
+          if (image) imagePress = longPress(image, { run: node => showImageMenu(lightboxUrl, item.alt, node) });
+          (browser.swiper as Swiper).on('click', (_swiper: Swiper, event: MouseEvent | PointerEvent | TouchEvent) => {
+            if (messageMenuOpen()) return;
+            const image = browser.el.querySelector<HTMLImageElement>('.swiper-slide-active img');
+            const rect = image?.getBoundingClientRect();
+            const point = "changedTouches" in event ? event.changedTouches[0] : event;
+            if (rect && point && (point.clientX < rect.left || point.clientX > rect.right || point.clientY < rect.top || point.clientY > rect.bottom)) browser.close();
+          });
+        },
+        closed() {
+          syncSystemBars(document.documentElement.classList.contains("dark"));
+          browser.el.removeEventListener('keydown', photoKeydown);
+          imagePress?.destroy(); imagePress = undefined;
+          photoBrowser = undefined; lightbox = undefined; lightboxUrl = '';
+          releaseDeferredPreviewReleases(); lightboxReturnFocus?.focus(); lightboxReturnFocus = undefined;
+          queueMicrotask(() => browser.destroy());
+        },
+      },
+    };
+    const browser = f7.photoBrowser.create(params);
+    const photoKeydown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !messageMenuOpen()) { event.preventDefault(); browser.close(); }
+      if (event.key === 'Tab') { event.preventDefault(); browser.el.querySelector<HTMLElement>('.popup-close')?.focus(); }
+    };
+    photoBrowser = browser;
+    browser.open();
   }
-  function finishLightboxClose(fromHistory: boolean): void {
-    const target = lightboxReturnFocus;
-    const hadHistory = overlayHistory;
-    lightbox = undefined;
-    lightboxUrl = "";
-    lightboxReturnFocus = undefined;
-    releaseDeferredPreviewReleases();
-    if (target) target.focus();
-    if (!fromHistory && hadHistory) closeHistory();
-  }
-  function closeLightbox(fromHistory = false): void {
-    if (!lightbox) return;
-    lightboxCloseFromHistory = fromHistory;
-    if (lightboxDialog?.open) {
-      lightboxDialog.close();
-      return;
-    }
-    finishLightboxClose(fromHistory);
-  }
-  function onLightboxClose(): void {
-    const fromHistory = lightboxCloseFromHistory;
-    lightboxCloseFromHistory = false;
-    finishLightboxClose(fromHistory);
-  }
-  function onWindowKeydown(event: KeyboardEvent): void {
-    if (event.key === "Escape") {
-      if (preferencesOpen) { event.preventDefault(); preferencesOpen = false; preferencesButton?.focus(); return; }
-      if (contextMeterOpen) {
-        event.preventDefault();
-        closeContextMeter();
-        return;
-      }
-      if (detailOpen) {
-        event.preventDefault();
-        closeDetail();
-        return;
-      }
-      return;
-    }
-    if (detailOpen && relationshipDrawer) {
-      trapFocus(event, relationshipDrawer);
-      return;
-    }
-    if (lightbox && lightboxDialog) trapFocus(event, lightboxDialog);
-  }
-  function onPopState(): void {
-    overlayHistory = false;
-    searchOpen = false;
-    if (lightbox) closeLightbox(true);
-  }
-  function pushOverlayHistory(): void {
-    if (!overlayHistory) {
-      globalThis.history.pushState({ companionOverlay: true }, "");
-      overlayHistory = true;
-    }
-  }
-  function toggleDetail(): void {
-    if (detailOpen) closeDetail();
-    else openDetail();
-  }
+  let imagePress: ReturnType<typeof longPress> | undefined;
+  function toggleDetail(): void { if (detailOpen) closeDetail(); else openDetail(); }
   function showLightbox(item: TimelineImage): void {
-    pushOverlayHistory();
-    openLightbox({
-      id: item.id,
-      alt: item.alt || t("image.preview"),
-      previewUrl: item.previewUrl ?? imageUrls[item.id],
-    });
+    openLightbox({ id: item.id, alt: item.alt || t('image.preview'), previewUrl: item.previewUrl ?? imageUrls[item.id] });
   }
   function showDraftLightbox(draft: CompanionImageDraft): void {
-    pushOverlayHistory();
-    openLightbox({
-      id: `draft:${draft.id}`,
-      alt: draft.file.name || t("image.pending"),
-      previewUrl: draft.previewUrl,
-    });
+    openLightbox({ id: `draft:${draft.id}`, alt: draft.file.name || t('image.pending'), previewUrl: draft.previewUrl });
+  }
+  function showTextMenu(item: TimelineText, target: HTMLElement): void {
+    if (item.pending || !item.text.trim()) return;
+    messageMenu(target, [{ text: t('messages.copy'), run: () => copyMessage(item) }], t('actions.cancel'));
+  }
+  function showToast(text: string): void {
+    const toast = f7.toast.create({ text, closeTimeout: 2500 });
+    toast.on('closed', () => toast.destroy()); toast.open();
+  }
+  function showImageMenu(url: string, name: string, target: HTMLElement): void {
+    if (!url) return;
+    messageMenu(target, [{ text: t('image.save'), run: async () => {
+      try { await saveImage(url, name); showToast(t('image.saved')); }
+      catch { showToast(t('image.saveFailed')); }
+    } }], t('actions.cancel'));
   }
   async function loadOlder(): Promise<void> {
     if (!actions.loadOlder || projection.loadingOlder) return;
@@ -1619,19 +1527,14 @@
     }
   }
 
-  onMount(() => {
-    void scheduleComposerResize();
-
-  });
-
   onDestroy(() => {
+    dismissMessageMenu(); imagePress?.destroy(); photoBrowser?.destroy();
     if (copyToastTimer) clearTimeout(copyToastTimer);
     if (timelineRevealFrame) cancelAnimationFrame(timelineRevealFrame);
     releaseDeferredPreviewReleases();
     releaseSubmissionImages(imageDrafts);
     clearWaitingTimers();
     clearContinuityStatusTimer();
-    clearVoiceClock();
     voiceTranscriptionAbort?.abort();
     diaryRequest?.abort();
     voiceTranscriptionAbort = undefined;
@@ -1645,26 +1548,15 @@
   });
 </script>
 
-<svelte:window
-  on:keydown={onWindowKeydown}
-  on:pointerdown={onWindowPointerDown}
-  on:popstate={onPopState}
-/>
 
-<div
-  id="dsh-companion"
-  class="companion-shell"
-  use:visibleViewport
-  data-testid="companion-root"
->
-  <div class="companion-app">
-    <div class="companion-content">
-      <main class="companion-main" aria-label={t("chat.label")}>
-        <header class="companion-header">
+
+<Page name="companion" pageContent={false} id="dsh-companion" class="companion-shell" data-testid="companion-root">
+  {#snippet fixedContent()}
+        <Navbar class="companion-header">
           <div>
             <button
               type="button"
-              class="cmp-btn cmp-btn-ghost cmp-btn-circle companion-history-toggle"
+              class="button button-tonal button-round companion-history-toggle"
               aria-label={t("relationship.view")}
               aria-controls="companion-relationship-drawer"
               aria-expanded={detailOpen}
@@ -1677,8 +1569,8 @@
             >
           </div>
           <div class="companion-avatar-anchor" aria-hidden="true">
-            <div class="cmp-avatar cmp-avatar-placeholder companion-avatar">
-              <div class="companion-avatar-crop cmp-mask cmp-mask-circle">
+            <div class="companion-avatar  companion-avatar">
+              <div class="companion-avatar-crop  ">
                 {#if identity.companionAvatar}<img
                     src={identity.companionAvatar}
                     alt=""
@@ -1690,39 +1582,287 @@
             <div class="companion-name">{identity.companionName}</div>
             <div class="companion-presence" aria-live="polite">
               <span
-                class="cmp-status {projection.status === 'offline'
-                  ? 'cmp-status-error'
+                class="companion-status {projection.status === 'offline'
+                  ? 'color-red'
                   : projection.status === 'working'
-                  ? 'cmp-status-warning'
-                  : 'cmp-status-success'}"
+                  ? 'color-orange'
+                  : 'color-green'}"
               ></span>{statusText} · {identity.moodLabel}
             </div>
           </div>
-          <button type="button" class="cmp-btn cmp-btn-ghost cmp-btn-circle companion-search-trigger" aria-label={t('search.open')} aria-haspopup="dialog" on:click={openSearch}><Search size={19} strokeWidth={1.8} aria-hidden="true" /></button>
-          <div class="companion-preferences">
-            <button bind:this={preferencesButton} type="button" class="cmp-btn cmp-btn-ghost cmp-btn-circle companion-preferences-trigger" aria-label={t("preferences.open")} aria-controls="companion-preferences-panel" aria-expanded={preferencesOpen} on:click={() => preferencesOpen = !preferencesOpen}><Settings size={18} strokeWidth={1.8} aria-hidden="true" /></button>
-            {#if preferencesOpen}
-              <section id="companion-preferences-panel" class="companion-preferences-panel" aria-label={t("preferences.open")}>
-                <fieldset><legend>{t("preferences.theme")}</legend>
-                  {#each [["light", "preferences.light"], ["dark", "preferences.dark"], ["system", "preferences.system"]] as option}
-                    <label><input class="cmp-radio cmp-radio-primary" type="radio" name="companion-appearance" checked={appearance === option[0]} on:change={() => onAppearanceChange(option[0] as CompanionAppearance)} /><span>{t(option[1] as CompanionLocaleKey)}</span></label>
-                  {/each}
-                </fieldset>
-                <fieldset><legend>{t("preferences.language")}</legend>
-                  {#each [["zh", "中文"], ["en", "English"]] as option}
-                    <label><input class="cmp-radio cmp-radio-primary" type="radio" name="companion-language" checked={locale === option[0]} on:change={() => onLanguageChange(option[0] as CompanionLanguage)} /><span>{option[1]}</span></label>
-                  {/each}
-                </fieldset>
-                <fieldset><legend>{t("notifications.title")}</legend>
-                  <button type="button" class="cmp-btn cmp-btn-sm" disabled={notificationPermission !== "default"} on:click={() => void onEnableNotifications()}>
-                    {t(notificationPermission === "granted" ? "notifications.enabled" : notificationPermission === "denied" ? "notifications.blocked" : notificationPermission === "unsupported" ? "notifications.unsupported" : "notifications.enable")}
+          {#if projection.running && actions.stop}<button class="button button-tonal companion-reply-stop" data-testid="companion-stop" aria-label={t("reply.stop")} on:click={() => void stop()} disabled={stopping}><Square size={16} fill="currentColor" aria-hidden="true" /></button>{/if}
+              {#if contextCapacity}
+                <div class="companion-context-meter-wrap">
+                  <button
+                    bind:this={contextMeterButton}
+                    class="button button-tonal button-round companion-context-meter"
+                    class:companion-context-meter-open={contextMeterOpen}
+                    data-state={continuityStatus?.status === "running"
+                      ? "active"
+                      : continuityStatus?.status === "complete"
+                        ? "complete"
+                        : continuityStatus?.status === "failed"
+                          ? "failed"
+                          : contextCapacity.percentage >= 80
+                            ? "warning"
+                            : "idle"}
+                    type="button"
+                    aria-label={t("context.percentage", {
+                      percentage: contextCapacity.percentage,
+                    })}
+                    aria-haspopup="dialog"
+                    aria-expanded={contextMeterOpen}
+                    aria-controls="companion-context-popover"
+                    on:click={toggleContextMeter}
+                  >
+                    <svg viewBox="0 0 28 28" aria-hidden="true"
+                      ><circle
+                        class="companion-context-meter-track"
+                        cx="14"
+                        cy="14"
+                        r="11"
+                      ></circle><circle
+                        class="companion-context-meter-value"
+                        cx="14"
+                        cy="14"
+                        r="11"
+                        pathLength="100"
+                        style={`stroke-dashoffset:${100 - contextCapacity.percentage}`}
+                      ></circle></svg
+                    >
                   </button>
-                </fieldset>
-              </section>
-            {/if}
+                    <Popover
+                      opened={contextMeterOpen}
+                      targetEl={contextMeterButton}
+                      closeOnEscape
+                      onPopoverOpen={(instance) => { if (instance) { contextMeterPopover = instance.el; overlayOpening(instance); } }}
+                      onPopoverOpened={overlayOpened}
+                      onPopoverClosed={(instance) => { contextMeterOpen = false; overlayClosed(instance); }}
+                      id="companion-context-popover"
+                      class="popover companion-context-popover"
+                      role="dialog"
+                      aria-labelledby="companion-context-popover-title"
+                      tabindex={-1}
+                    >
+                      <Block>
+                      <p id="companion-context-popover-title" class="companion-context-summary" aria-label={t("context.label")}>
+                        {formatTokenCount(contextCapacity.usedTokens)} / {formatTokenCount(contextCapacity.contextWindow)} ({contextCapacity.percentage}%)
+                      </p>
+                      </Block>
+                    </Popover>
+                </div>
+              {/if}
+          <button type="button" class="button button-tonal button-round companion-search-trigger" aria-label={t('search.open')} aria-haspopup="dialog" on:click={openSearch}><Search size={19} strokeWidth={1.8} aria-hidden="true" /></button>
+          <div class="companion-preferences">
+            <button bind:this={preferencesButton} type="button" class="button button-tonal button-round companion-preferences-trigger" aria-label={t("preferences.open")} aria-controls="companion-preferences-panel" aria-haspopup="dialog" aria-expanded={preferencesOpen} on:click={() => { if (preferencesOpen) closePopover(preferencesPanel); else preferencesOpen = true; }}><Settings size={18} strokeWidth={1.8} aria-hidden="true" /></button>
+              <Popover opened={preferencesOpen} targetEl={preferencesButton} closeOnEscape
+                onPopoverOpen={(instance) => { if (instance) { preferencesPanel = instance.el; overlayOpening(instance); } }}
+                onPopoverOpened={overlayOpened}
+                onPopoverClosed={(instance) => { preferencesOpen = false; overlayClosed(instance); }}
+                id="companion-preferences-panel" class="companion-preferences-panel" role="dialog" aria-label={t("preferences.open")}>
+                <List>
+                  <ListItem groupTitle title={t("preferences.theme")} />
+                  {#each [["light", "preferences.light"], ["dark", "preferences.dark"], ["system", "preferences.system"]] as option}
+                    <ListItem radio radioIcon="end" name="companion-appearance" value={option[0]} title={t(option[1] as CompanionLocaleKey)} checked={appearance === option[0]} onChange={() => onAppearanceChange(option[0] as CompanionAppearance)} />
+                  {/each}
+                  <ListItem groupTitle title={t("preferences.language")} />
+                  {#each [["zh", "中文"], ["en", "English"]] as option}
+                    <ListItem radio radioIcon="end" name="companion-language" value={option[0]} title={option[1]} checked={locale === option[0]} onChange={() => onLanguageChange(option[0] as CompanionLanguage)} />
+                  {/each}
+                </List>
+              </Popover>
           </div>
 
-        </header>
+        </Navbar>
+    {#if effectiveWorkspaceReadiness === "ready" && effectiveRelationshipReadiness === "ready" && effectiveSessionReadiness === "ready" && projection.openState !== "error"}
+          <Messagebar textareaId="companion-textarea" bind:this={messagebarComponent} class="companion-composer companion-compose-row" value={composer.draft} readonly={voiceBusy} maxHeight={144} attachmentsVisible={imageDrafts.length > 0}
+            placeholder={t("composer.placeholder", {name: identity.companionName})}
+            onInput={(event) => onInput(event.detail[0])}>
+            {#snippet beforeInner()}
+            {#if copyToast}
+              <div class="companion-copy-toast" role="status">
+                <div class="companion-copy-toast-message">{t(copyToast)}</div>
+              </div>
+            {/if}
+            {#if commandSuggestion}
+              <div
+                id="companion-command-suggestions"
+                class="companion-command-suggestions"
+                role="listbox"
+                aria-label={t("command.label")}
+              >
+                <button
+                  id="companion-command-compact"
+                  class="button button-tonal companion-command-suggestion"
+                  type="button"
+                  role="option"
+                  aria-selected="true"
+                  on:click={acceptCommandSuggestion}
+                >
+                  <span class="companion-command-name"
+                    >{commandSuggestion.command}</span
+                  >
+                  <span class="companion-command-description"
+                    >{commandSuggestion.description}</span
+                  >
+                  <span class="companion-command-tab" aria-hidden="true"
+                    >Tab</span
+                  >
+                </button>
+              </div>
+            {/if}
+            {#if continuityStatus}
+              <div
+                class="companion-continuity-status"
+                data-testid="companion-continuity-status"
+                data-state={continuityStatus.status}
+                role={continuityStatus.status === "failed" ? "alert" : "status"}
+                aria-live="polite"
+              >
+                {#if continuityStatus.status === "running"}{t(
+                    "compact.running",
+                  )}{:else if continuityStatus.status === "failed"}{t(
+                    "compact.failed",
+                  )}{:else}{t("compact.done")}{/if}
+              </div>
+            {/if}
+
+            {/snippet}
+            {#snippet innerStart()}
+              <button
+                class="button button-tonal button-round companion-attach"
+                type="button"
+                aria-label={t(voiceBusy ? "voice.cancel" : "image.choose")}
+                title={t(voiceBusy ? "voice.cancel" : "image.choose")}
+                disabled={!voiceBusy && !imageLimits}
+                on:pointerdown={onImagePickerPointerDown}
+                on:pointerup={onImagePickerPointerUp}
+                on:pointercancel={clearImagePickerPointer}
+                on:contextmenu|preventDefault
+                on:click={() => voiceBusy ? void cancelVoiceInput() : choosePhoto()}
+                >{#if voiceBusy}<X size={20} aria-hidden="true" />{:else}<Plus
+                  size={19}
+                  strokeWidth={2}
+                  aria-hidden="true"
+                />{/if}</button
+              >
+
+            {/snippet}
+            {#snippet beforeArea()}
+              <input
+                bind:this={photoLibraryInput}
+                id="companion-image-library"
+                class="companion-image-input"
+                type="file"
+                accept={IMAGE_ACCEPT}
+                multiple
+                tabindex="-1"
+                aria-hidden="true"
+                on:change={onImageInput}
+              />
+              <input
+                bind:this={photoCaptureInput}
+                id="companion-image-capture"
+                class="companion-image-input"
+                type="file"
+                accept={IMAGE_ACCEPT}
+                capture="environment"
+                tabindex="-1"
+                aria-hidden="true"
+                on:change={onImageInput}
+              />
+
+              <MessagebarAttachments class="companion-image-drafts" role="group" aria-label={t("image.pending")}>
+                {#each imageDrafts as draft (draft.id)}
+                  <MessagebarAttachment class="companion-image-draft" deletable={false}>
+                    {#snippet image()}
+                      <button type="button" class="companion-image-draft-preview" aria-label={t("image.view", {name:draft.file.name || t("image.pending")})} on:click={() => showDraftLightbox(draft)}><img src={draft.previewUrl} alt={draft.file.name || t("image.pending")} /></button>
+                    {/snippet}
+                    <button type="button" class="button button-tonal button-round companion-image-draft-remove" aria-label={t("image.remove")} on:click={() => removeImage(draft)}><X size={16} aria-hidden="true" /></button>
+                  </MessagebarAttachment>
+                {/each}
+              </MessagebarAttachments>
+            {/snippet}
+            {#snippet innerEnd()}
+              <button
+                class="button button-tonal button-round companion-microphone"
+                class:companion-microphone-recording={voiceStatus ===
+                  "recording"}
+                class:companion-microphone-stopping={voiceStatus === "stopping"}
+                type="button"
+                data-state={voiceStatus}
+                aria-label={voiceStatus === "recording"
+                  ? t("voice.stop")
+                  : voiceStatus === "transcribing"
+                    ? t("voice.transcribing")
+                    : voiceCapability === "loading"
+                      ? t("voice.preparing")
+                      : voiceCapability === "available" && voiceCaptureAvailable
+                        ? t("voice.start")
+                        : t("voice.micUnavailable")}
+                title={voiceStatus === "recording"
+                  ? t("voice.stop")
+                  : voiceCapability === "available" && voiceCaptureAvailable
+                    ? t("voice.start")
+                    : voiceUnavailableText(t)}
+                disabled={voiceStatus === "stopping" ||
+                  voiceStatus === "transcribing" ||
+                  projection.canSubmit === false ||
+                  voiceCapability !== "available" ||
+                  !actions.transcribeVoice ||
+                  !voiceCaptureAvailable}
+                on:click={() => void toggleVoiceInput()}
+              >
+                {#if voiceStatus === "transcribing" || voiceStatus === "stopping"}<Preloader
+                    class="preloader  "
+                    aria-hidden="true"
+                   />{:else if voiceStatus === "recording"}<Square size={16} fill="currentColor" aria-hidden="true" />{:else}<Mic
+                    size={19}
+                    strokeWidth={2}
+                    aria-hidden="true"
+                  />{/if}
+              </button>
+              <button
+                class="button button-fill button-round companion-send"
+                aria-label={t("message.send")}
+                on:click={submit}
+                disabled={voiceBusy || projection.canSubmit === false || composer.draft.trim().length > MAX_MESSAGE_LENGTH || (!composer.draft.trim() && imageDrafts.length === 0)}
+              ><ArrowUp size={20} aria-hidden="true" /></button>
+
+            {/snippet}
+            {#snippet afterInner()}
+              <div use:connectMessagebar={{ label: t("composer.label"), suggestions: !!commandSuggestion }}></div>
+            {#if composer.draft.trim().length > MAX_MESSAGE_LENGTH}
+              <div class="companion-voice-input-status companion-voice-input-error" role="alert">
+                {t("message.tooLong", { limit: MAX_MESSAGE_LENGTH, count: composer.draft.trim().length })}
+              </div>
+            {/if}
+            {#if voiceCapability === "unavailable" || !voiceCaptureAvailable}
+              <div
+                class="companion-voice-input-status companion-voice-input-unavailable"
+                data-testid="companion-voice-unavailable-status"
+                role="status"
+              >
+                {voiceUnavailableText(t)}
+              </div>
+            {:else if voiceFailure || voiceStatus === "unavailable"}
+              <div
+                class="companion-voice-input-status companion-voice-input-error"
+                data-testid="companion-voice-error-status"
+                role="status"
+              >
+                {t(voiceFailure || "voice.failed")}
+              </div>
+            {/if}
+
+            {/snippet}
+          </Messagebar>
+    {/if}
+  {/snippet}
+  <div class="companion-app" use:connectViewport>
+    <div class="companion-content">
+      <main class="companion-main" aria-label={t("chat.label")}>
+
 
         {#if effectiveWorkspaceReadiness === "loading"}
           <section
@@ -1730,21 +1870,21 @@
             role="status"
             aria-label={t("loading.label")}
           >
-            <span
-              class="cmp-loading cmp-loading-spinner cmp-loading-sm"
+            <Preloader
+              class="preloader  "
               aria-hidden="true"
-            ></span><span>{t("loading.progress")}</span>
+             /><span>{t("loading.progress")}</span>
           </section>
         {:else if effectiveWorkspaceReadiness === "missing"}
           <section class="companion-recovery" role="alert">
             <div
-              class="companion-mood-orb cmp-mask cmp-mask-circle"
+              class="companion-mood-orb  "
               aria-hidden="true"
             ></div>
             <h1>{t("workspace.empty")}</h1>
             <p>{t("workspace.chooseHint")}</p>
             <a
-              class="cmp-btn cmp-btn-primary"
+              class="button button-fill"
               href="/"
               aria-label={t("workspace.settingsLabel")}
               on:click={() => dispatch("recovery")}>{t("settings.open")}</a
@@ -1753,13 +1893,13 @@
         {:else if effectiveWorkspaceReadiness === "error"}
           <section class="companion-recovery" role="alert">
             <div
-              class="companion-mood-orb cmp-mask cmp-mask-circle"
+              class="companion-mood-orb  "
               aria-hidden="true"
             ></div>
             <h1>{t("workspace.failed")}</h1>
             <p>{t("workspace.reconnectHint")}</p>
             <button
-              class="cmp-btn cmp-btn-primary"
+              class="button button-fill"
               on:click={() => dispatch("recovery")}>{t("reconnect")}</button
             >
           </section>
@@ -1769,21 +1909,21 @@
             role="status"
             aria-label={t("loading.label")}
           >
-            <span
-              class="cmp-loading cmp-loading-spinner cmp-loading-sm"
+            <Preloader
+              class="preloader  "
               aria-hidden="true"
-            ></span><span>{t("loading.progress")}</span>
+             /><span>{t("loading.progress")}</span>
           </section>
         {:else if effectiveRelationshipReadiness === "missing"}
           <section class="companion-recovery" role="alert">
             <div
-              class="companion-mood-orb cmp-mask cmp-mask-circle"
+              class="companion-mood-orb  "
               aria-hidden="true"
             ></div>
             <h1>{t("workspace.empty")}</h1>
             <p>{t("workspace.chooseHint")}</p>
             <a
-              class="cmp-btn cmp-btn-primary"
+              class="button button-fill"
               href="/"
               aria-label={t("workspace.settingsLabel")}
               on:click={() => dispatch("recovery")}>{t("settings.open")}</a
@@ -1792,13 +1932,13 @@
         {:else if effectiveRelationshipReadiness === "error"}
           <section class="companion-recovery" role="alert">
             <div
-              class="companion-mood-orb cmp-mask cmp-mask-circle"
+              class="companion-mood-orb  "
               aria-hidden="true"
             ></div>
             <h1>{t("relationship.failed")}</h1>
             <p>{t("relationship.reconnectHint")}</p>
             <button
-              class="cmp-btn cmp-btn-primary"
+              class="button button-fill"
               on:click={() => dispatch("recovery")}>{t("reconnect")}</button
             >
           </section>
@@ -1808,15 +1948,15 @@
             role="status"
             aria-label={t("loading.label")}
           >
-            <span
-              class="cmp-loading cmp-loading-spinner cmp-loading-sm"
+            <Preloader
+              class="preloader  "
               aria-hidden="true"
-            ></span><span>{t("loading.progress")}</span>
+             /><span>{t("loading.progress")}</span>
           </section>
         {:else if effectiveSessionReadiness === "error" || projection.openState === "error"}
           <section class="companion-recovery" role="alert">
             <div
-              class="companion-mood-orb cmp-mask cmp-mask-circle"
+              class="companion-mood-orb  "
               aria-hidden="true"
             ></div>
             <h1>{t("session.failed")}</h1>
@@ -1824,7 +1964,7 @@
               {t("session.reconnectHint")}
             </p>
             <button
-              class="cmp-btn cmp-btn-primary"
+              class="button button-fill"
               on:click={() => dispatch("recovery")}>{t("reconnect")}</button
             >
           </section>
@@ -1836,20 +1976,12 @@
               <img class="companion-background-portrait" src={backgrounds.portrait} alt="" />
             </div>
           {/if}
-          <div
-            bind:this={timeline}
-            use:dismissNativeKeyboardOnTimelineTap={() => composerInput}
-            class="companion-timeline"
-            class:timeline-ready={timelineReady}
-            role="log"
-            aria-live="polite"
-            aria-relevant="additions text"
-            on:scroll={onScroll}
-          >
-            <div class="companion-timeline-content" use:keepBottomOnResize>
+          <PageContent messagesContent class={`companion-timeline ${timelineReady ? "timeline-ready" : ""}`} role="log" aria-live="polite" aria-relevant="additions text" onscroll={onScroll}>
+            <div class="companion-timeline-content" use:connectTimeline>
+            <Messages bind:this={messagesComponent} scrollMessages={false}>
               {#if displayedProjection.hasMore}
                 <button
-                  class="cmp-btn cmp-btn-ghost cmp-btn-sm"
+                  class="button button-tonal button-small"
                   style="display:block;margin:0 auto 18px"
                   on:click={loadOlder}
                   disabled={displayedProjection.loadingOlder}
@@ -1861,7 +1993,7 @@
               {#if displayedProjection.items.length === 0}
                 <div class="companion-recovery">
                   <div
-                    class="companion-mood-orb cmp-mask cmp-mask-circle"
+                    class="companion-mood-orb  "
                     aria-hidden="true"
                   ></div>
                   <h1>
@@ -1889,59 +2021,9 @@
                   </div>
                 {:else}
                   {@const parts = messageContentParts(unit)}
-                  {@const timePlacement = messageTimePlacement(
-                    unit.time !== undefined,
-                    canMeasureInlineMessageTime(unit),
-                    hasTrailingTextBubble(parts),
-                  )}
-                  {@const timeInline = timePlacement === "inline"}
-                  {@const timeInTrailingTextBubble = timePlacement === "bubble-trailing"}
-                  <article
-                    class="cmp-chat companion-row"
-                    class:cmp-chat-start={unit.side === "incoming"}
-                    class:cmp-chat-end={unit.side === "outgoing"}
-                    class:outgoing={unit.side === "outgoing"}
-                    class:incoming={unit.side === "incoming"}
-                    class:companion-row-keet={!!unit.keet}
-                    class:companion-row-alarm={!!unit.alarm}
-                    class:companion-row-pending={unit.pending}
-                    data-pending={unit.pending || undefined}
-                    data-testid={unitTestId(unit)}
-                  >
-                    <div
-                      class="cmp-chat-image cmp-avatar cmp-avatar-placeholder message-avatar"
-                    >
-                      <div
-                        class="companion-avatar-crop cmp-mask cmp-mask-circle"
-                      >
-                        {#if unit.keet}<span aria-hidden="true">K</span>{:else if unit.alarm}<AlarmClock size={16} aria-hidden="true" />{:else if unit.side === "incoming" && identity.companionAvatar}<img
-                            src={identity.companionAvatar}
-                            alt=""
-                          />{:else if unit.side === "outgoing" && identity.userAvatar}<img
-                            src={identity.userAvatar}
-                            alt=""
-                          />{:else}<span aria-hidden="true"
-                            >{unit.side === "incoming" ? "✦" : t("you")}</span
-                          >{/if}
-                      </div>
-                    </div>
-                    <div class="companion-message-stack">
-                      {#if unit.keet}
-                        <div class="cmp-chat-header companion-keet-source" data-testid={`keet-source-${unit.id}`}>
-                          <span class="cmp-badge cmp-badge-soft cmp-badge-sm">Keet {unit.keet.kind === 'dm' ? 'DM' : 'Group'}</span>
-                          <span>{unit.keet.senderLabel} · {unit.keet.destination}</span>
-                        </div>
-                      {:else if unit.alarm}
-                        <div class="cmp-chat-header companion-alarm-source"><span class="cmp-badge cmp-badge-soft cmp-badge-sm">{t('alarm.source')}</span></div>
-                      {/if}
-                      {#each parts as part}
-                        {#if part.kind === "images"}
-                          <div
-                            class="companion-image-group"
-                            class:companion-image-group-many={part.items
-                              .length > 1}
-                            data-testid={`image-group-${unit.id}`}
-                          >
+                  {#each parts as part, partIndex (part.kind === "images" ? part.items[0].id : part.item.id)}
+                    {#snippet imageContent()}{#if part.kind === "images"}
+                          <div class="companion-image-bubble companion-image-group" data-testid={`image-group-${unit.id}`}>
                             {#each part.items as image (image.id)}
                               <div
                                 class="companion-image-entry"
@@ -1958,7 +2040,7 @@
                                 >
                                   {#if image.state === "running" || image.state === "loading"}
                                     <div
-                                      class="cmp-skeleton companion-media-loading"
+                                      class="skeleton-block companion-media-loading"
                                       aria-hidden="true"
                                     ></div>
                                     <div
@@ -1974,6 +2056,7 @@
                                         name: image.alt || t("image.preview"),
                                       })}
                                       on:click={() => showLightbox(image)}
+                                      use:longPress={{ run: node => showImageMenu(imageUrls[image.id] || image.previewUrl || "", image.alt || t("image.preview"), node) }}
                                       ><img
                                         src={image.previewUrl ??
                                           imageUrls[image.id]}
@@ -1996,7 +2079,7 @@
                                       )}
                                     >
                                       <span>{t("error.image")}</span><button
-                                        class="cmp-btn cmp-btn-ghost cmp-btn-sm"
+                                        class="button button-tonal button-small"
                                         type="button"
                                         on:click={() => retryImage(image)}
                                         >{t("retry")}</button
@@ -2014,60 +2097,24 @@
                                       <span>{t("image.failed")}</span>
                                     </div>
                                   {:else}
-                                    <div
-                                      class="cmp-loading cmp-loading-spinner companion-media-spinner"
+                                    <Preloader
+                                      class="preloader  companion-media-spinner"
                                       role="status"
                                       aria-label={t("loading.progress")}
-                                    ></div>
+                                     />
                                   {/if}
                                 </div>
                               </div>
                             {/each}
                           </div>
-                        {:else if part.item.kind === "text"}
-                          <div
-                            class="cmp-chat-bubble companion-bubble companion-text-bubble"
-                            class:cmp-skeleton={part.item.pending &&
-                              !part.item.text}
-                            class:companion-bubble-inline-time={timeInline}
-                          >
-                            <Markdown text={part.item.text} />{#if timeInline}<time
-                                class="companion-message-time companion-message-time-inline"
-                                data-placement="inline"
-                                datetime={messageTimeDateTime(unit.time!)}
-                                data-testid={`message-time-${unit.id}`}
-                                use:placeMessageTime
-                                >{formatMessageTime(unit.time!)}</time
-                              >{:else if timeInTrailingTextBubble &&
-                              part === parts.at(-1)}<time
-                                class="companion-message-time"
-                                datetime={messageTimeDateTime(unit.time!)}
-                                data-testid={`message-time-${unit.id}`}
-                                >{formatMessageTime(unit.time!)}</time
-                              >{/if}
-                          </div>
-                          {#if unit.side === "incoming" && !unit.keet && !unit.alarm && part.item.text && !part.item.pending}
-                            <button
-                              type="button"
-                              class="cmp-btn cmp-btn-ghost companion-message-copy"
-                              aria-label={t("messages.copy")}
-                              title={t("messages.copy")}
-                              on:pointerdown={keepComposerFocus}
-                              on:click={() => copyMessage(part.item as TimelineText)}
-                            >
-                              <Copy size={16} aria-hidden="true" />
-                            </button>
-                          {/if}
-
-                        {:else if part.item.kind === "voice"}
-                          {@const item = part.item}
-                          {@const playback =
-                            voicePlayback[item.id] ?? EMPTY_VOICE_PLAYBACK}
-                          <div
-                            class="cmp-chat-bubble companion-bubble companion-voice"
-                            role="region"
-                            aria-label={t("voice.player")}
-                          >
+                        {/if}{/snippet}
+                    {#snippet textContent()}{#if part.kind !== "images"}
+                          {#if part.item.kind === "text"}
+                            <div class="companion-text-bubble" use:longPress={{ run: node => showTextMenu(part.item as TimelineText, node) }}><Markdown text={part.item.text} /></div>
+                          {:else if part.item.kind === "voice"}
+                            {@const item = part.item}
+                            {@const playback = voicePlayback[item.id] ?? EMPTY_VOICE_PLAYBACK}
+                            <div class="companion-voice" role="region" aria-label={t("voice.player")}>
                             {#if voiceUrls[item.id]}
                               <audio
                                 class="companion-audio"
@@ -2078,7 +2125,7 @@
                                 use:trackVoiceAudio={item.id}
                               ></audio>
                               <button
-                                class="cmp-btn cmp-btn-ghost cmp-btn-circle companion-voice-control"
+                                class="button button-tonal button-round companion-voice-control"
                                 aria-label={playback.playing
                                   ? t("voice.pause")
                                   : t("voice.play")}
@@ -2133,403 +2180,80 @@
                                 </div>
                               </div>
                             {/if}
-                          </div>
-                        {/if}
-                      {/each}
-                      {#if timePlacement === "stack-trailing"}
-                        <time
-                          class="companion-message-time"
-                          datetime={messageTimeDateTime(unit.time!)}
-                          data-testid={`message-time-${unit.id}`}
-                          >{formatMessageTime(unit.time!)}</time
-                        >
-                      {/if}
+
+                            </div>
+                          {/if}
+                        {/if}{/snippet}
+                    {#snippet messageMetadata()}
+                      {#if unit.time !== undefined}<time class="companion-message-time" datetime={messageTimeDateTime(unit.time)} data-testid={`message-time-${unit.id}`}>{formatMessageTime(unit.time)}</time>{/if}
                       {#if unit.pendingLabel}<div class="companion-meta" role="status">{unit.pendingLabel}</div>{/if}
-                    </div>
-                  </article>
+                    {/snippet}
+                    {#snippet messageSource()}
+                        {#if partIndex === 0}
+                          {#if unit.keet}<div class="companion-keet-source" data-testid={`keet-source-${unit.id}`}><span class="badge">Keet {unit.keet.kind === 'dm' ? 'DM' : 'Group'}</span><span>{unit.keet.senderLabel} · {unit.keet.destination}</span></div>
+                          {:else if unit.alarm}<span class="badge companion-alarm-source">{t('alarm.source')}</span>{/if}
+                        {/if}
+                      {/snippet}
+                    <Message header={partIndex === 0 && (unit.keet || unit.alarm) ? messageSource : undefined} footer={partIndex === parts.length - 1 && (unit.time !== undefined || unit.pendingLabel) ? messageMetadata : undefined} first={partIndex === 0} last={partIndex === parts.length - 1} tail={partIndex === parts.length - 1} type={unit.side === "incoming" ? "received" : "sent"} image={part.kind === "images" ? imageContent : undefined} text={part.kind !== "images" ? textContent : undefined}
+                      class={`companion-row ${unit.side === "incoming" ? "incoming" : "outgoing"} ${unit.keet ? "companion-row-keet" : ""} ${unit.alarm ? "companion-row-alarm" : ""} ${unit.pending ? "companion-row-pending" : ""} ${part.kind === "images" ? "companion-image-message" : ""}`}
+                      data-pending={unit.pending || undefined}
+                      data-testid={partIndex === 0 ? unitTestId(unit) : undefined}>
+                      {#snippet avatar()}
+                      <div
+                        class="companion-avatar-crop  "
+                      >
+                        {#if unit.keet}<span aria-hidden="true">K</span>{:else if unit.alarm}<AlarmClock size={16} aria-hidden="true" />{:else if unit.side === "incoming" && identity.companionAvatar}<img
+                            src={identity.companionAvatar}
+                            alt=""
+                          />{:else if unit.side === "outgoing" && identity.userAvatar}<img
+                            src={identity.userAvatar}
+                            alt=""
+                          />{:else}<span aria-hidden="true"
+                            >{unit.side === "incoming" ? "✦" : t("you")}</span
+                          >{/if}
+                      </div>
+
+                      {/snippet}
+
+
+                    </Message>
+                  {/each}
                 {/if}
               {/each}
               {#if typingVisible}
-                <article
-                  class="cmp-chat cmp-chat-start companion-row incoming"
-                  data-testid="companion-typing-indicator"
-                  role="status"
-                  aria-label={t("status.namedTyping", {
-                    name: identity.companionName,
-                  })}
-                >
-                  <div
-                    class="cmp-chat-image cmp-avatar cmp-avatar-placeholder message-avatar"
-                  >
-                    <div class="companion-avatar-crop cmp-mask cmp-mask-circle">
-                      {#if identity.companionAvatar}<img
-                          src={identity.companionAvatar}
-                          alt=""
-                        />{:else}<span aria-hidden="true">✦</span>{/if}
+                <Message type="received" first last tail typing class="companion-row incoming" data-testid="companion-typing-indicator" role="status" aria-label={t("status.namedTyping", {name: identity.companionName})} textFooter={waitingCopy ? t(waitingCopy) : undefined}>
+                  {#snippet avatar()}
+                    <div class="companion-avatar-crop">
+                      {#if identity.companionAvatar}<img src={identity.companionAvatar} alt="" />{:else}<span aria-hidden="true">✦</span>{/if}
                     </div>
-                  </div>
-                  <div
-                    class="cmp-chat-bubble companion-bubble companion-typing-bubble"
-                  >
-                    <span
-                      class="cmp-loading cmp-loading-dots cmp-loading-sm"
-                      aria-hidden="true"
-                    ></span>{#if waitingCopy}<span
-                        class="companion-waiting-copy"
-                        >{waitingCopy ? t(waitingCopy) : ""}</span
-                      >{/if}
-                  </div>
-                </article>
+                  {/snippet}
+                </Message>
               {/if}
+            </Messages>
             </div>
-          </div>
+          </PageContent>
           {#if !wasNearBottom && displayedProjection.items.length > 0}
             <button
               type="button"
-              class="cmp-btn cmp-btn-primary cmp-btn-sm companion-return-latest"
-              on:pointerdown={keepComposerFocus}
-              on:click={returnToLatest}
-            >{t("messages.latest")} <span aria-hidden="true">↓</span></button>
+              class="button button-tonal button-round companion-return-latest"
+              aria-label={t("messages.latest")}
+              title={t("messages.latest")}
+              on:click={() => { composerInput?.blur(); returnToLatest(); }}
+            ><ChevronDown size={22} aria-hidden="true" /></button>
           {/if}
           </div>
-          <div class="companion-composer">
-            {#if copyToast}
-              <div class="cmp-toast cmp-toast-center companion-copy-toast" role="status">
-                <div class="companion-copy-toast-message">{t(copyToast)}</div>
-              </div>
-            {/if}
-            {#if commandSuggestion}
-              <div
-                id="companion-command-suggestions"
-                class="companion-command-suggestions"
-                role="listbox"
-                aria-label={t("command.label")}
-              >
-                <button
-                  id="companion-command-compact"
-                  class="cmp-btn cmp-btn-ghost companion-command-suggestion"
-                  type="button"
-                  role="option"
-                  aria-selected="true"
-                  on:click={acceptCommandSuggestion}
-                >
-                  <span class="companion-command-name"
-                    >{commandSuggestion.command}</span
-                  >
-                  <span class="companion-command-description"
-                    >{commandSuggestion.description}</span
-                  >
-                  <span class="companion-command-tab" aria-hidden="true"
-                    >Tab</span
-                  >
-                </button>
-              </div>
-            {/if}
-            {#if continuityStatus}
-              <div
-                class="companion-continuity-status"
-                data-testid="companion-continuity-status"
-                data-state={continuityStatus.status}
-                role={continuityStatus.status === "failed" ? "alert" : "status"}
-                aria-live="polite"
-              >
-                {#if continuityStatus.status === "running"}{t(
-                    "compact.running",
-                  )}{:else if continuityStatus.status === "failed"}{t(
-                    "compact.failed",
-                  )}{:else}{t("compact.done")}{/if}
-              </div>
-            {/if}
-            {#if imageDrafts.length > 0}
-              <div
-                class="companion-image-drafts"
-                role="group"
-                aria-label={t("image.pending")}
-              >
-                {#each imageDrafts as draft (draft.id)}
-                  <div class="companion-image-draft">
-                    <button
-                      class="companion-image-draft-preview"
-                      type="button"
-                      aria-label={t("image.view", {
-                        name: draft.file.name || t("image.pending"),
-                      })}
-                      on:click={() => showDraftLightbox(draft)}
-                      ><img
-                        src={draft.previewUrl}
-                        alt={draft.file.name || t("image.pending")}
-                      /></button
-                    >
-                    <button
-                      class="cmp-btn cmp-btn-neutral cmp-btn-circle cmp-btn-xs companion-image-draft-remove"
-                      type="button"
-                      aria-label={t("image.remove")}
-                      on:click={() => removeImage(draft)}
-                      ><X
-                        size={13}
-                        strokeWidth={2.5}
-                        aria-hidden="true"
-                      /></button
-                    >
-                  </div>
-                {/each}
-              </div>
-            {/if}
-            <div class="companion-compose-row">
-              <input
-                bind:this={photoLibraryInput}
-                id="companion-image-library"
-                class="companion-image-input"
-                type="file"
-                accept={IMAGE_ACCEPT}
-                multiple
-                tabindex="-1"
-                aria-hidden="true"
-                on:change={onImageInput}
-              />
-              <input
-                bind:this={photoCaptureInput}
-                id="companion-image-capture"
-                class="companion-image-input"
-                type="file"
-                accept={IMAGE_ACCEPT}
-                capture="environment"
-                tabindex="-1"
-                aria-hidden="true"
-                on:change={onImageInput}
-              />
-              <button
-                class="cmp-btn cmp-btn-ghost cmp-btn-circle companion-attach"
-                type="button"
-                aria-label={t("image.choose")}
-                title={t("image.choose")}
-                disabled={!imageLimits}
-                on:pointerdown={onImagePickerPointerDown}
-                on:pointerup={onImagePickerPointerUp}
-                on:pointercancel={clearImagePickerPointer}
-                on:contextmenu|preventDefault
-                on:click={choosePhoto}
-                ><ImagePlus
-                  size={19}
-                  strokeWidth={2}
-                  aria-hidden="true"
-                /></button
-              >
-              <textarea
-                bind:this={composerInput}
-                class="companion-textarea"
-                aria-label={t("composer.label")}
-                aria-autocomplete={commandSuggestion ? "list" : undefined}
-                aria-controls={commandSuggestion
-                  ? "companion-command-suggestions"
-                  : undefined}
-                placeholder={t("composer.placeholder", {
-                  name: identity.companionName,
-                })}
-                rows="1"
-                value={composer.draft}
-                on:input={onInput}
-                on:paste={onPaste}
-                on:compositionstart={onCompositionStart}
-                on:compositionend={onCompositionEnd}
-                on:keydown={onKeydown}></textarea>
-              <button
-                class="cmp-btn cmp-btn-ghost cmp-btn-circle companion-microphone"
-                class:companion-microphone-recording={voiceStatus ===
-                  "recording"}
-                class:companion-microphone-stopping={voiceStatus === "stopping"}
-                type="button"
-                data-state={voiceStatus}
-                aria-label={voiceStatus === "recording"
-                  ? t("voice.stop")
-                  : voiceStatus === "transcribing"
-                    ? t("voice.transcribing")
-                    : voiceCapability === "loading"
-                      ? t("voice.preparing")
-                      : voiceCapability === "available" && voiceCaptureAvailable
-                        ? t("voice.start")
-                        : t("voice.micUnavailable")}
-                title={voiceStatus === "recording"
-                  ? t("voice.stop")
-                  : voiceCapability === "available" && voiceCaptureAvailable
-                    ? t("voice.start")
-                    : voiceUnavailableText(t)}
-                disabled={voiceStatus === "stopping" ||
-                  voiceStatus === "transcribing" ||
-                  projection.canSubmit === false ||
-                  voiceCapability !== "available" ||
-                  !actions.transcribeVoice ||
-                  !voiceCaptureAvailable}
-                on:click={() => void toggleVoiceInput()}
-              >
-                {#if voiceStatus === "transcribing" || voiceStatus === "stopping"}<span
-                    class="cmp-loading cmp-loading-spinner cmp-loading-sm"
-                    aria-hidden="true"
-                  ></span>{:else}<Mic
-                    size={19}
-                    strokeWidth={voiceStatus === "recording" ? 2.6 : 2}
-                    aria-hidden="true"
-                  />{/if}
-              </button>
-              {#if contextCapacity}
-                <div class="companion-context-meter-wrap">
-                  <button
-                    bind:this={contextMeterButton}
-                    class="cmp-btn cmp-btn-ghost cmp-btn-circle companion-context-meter"
-                    class:companion-context-meter-open={contextMeterOpen}
-                    data-state={continuityStatus?.status === "running"
-                      ? "active"
-                      : continuityStatus?.status === "complete"
-                        ? "complete"
-                        : continuityStatus?.status === "failed"
-                          ? "failed"
-                          : contextCapacity.percentage >= 80
-                            ? "warning"
-                            : "idle"}
-                    type="button"
-                    aria-label={t("context.percentage", {
-                      percentage: contextCapacity.percentage,
-                    })}
-                    aria-expanded={contextMeterOpen}
-                    aria-controls="companion-context-popover"
-                    on:click={toggleContextMeter}
-                  >
-                    <svg viewBox="0 0 28 28" aria-hidden="true"
-                      ><circle
-                        class="companion-context-meter-track"
-                        cx="14"
-                        cy="14"
-                        r="11"
-                      ></circle><circle
-                        class="companion-context-meter-value"
-                        cx="14"
-                        cy="14"
-                        r="11"
-                        pathLength="100"
-                        style={`stroke-dashoffset:${100 - contextCapacity.percentage}`}
-                      ></circle></svg
-                    >
-                  </button>
-                  {#if contextMeterOpen}
-                    <div
-                      bind:this={contextMeterPopover}
-                      id="companion-context-popover"
-                      class="cmp-card companion-context-popover"
-                      role="dialog"
-                      aria-labelledby="companion-context-popover-title"
-                      tabindex="-1"
-                    >
-                      <h2 id="companion-context-popover-title">
-                        {t("context.label")}
-                      </h2>
-                      <p class="companion-context-percent">
-                        {contextCapacity.percentage}%
-                      </p>
-                      <p>
-                        {formatTokenCount(contextCapacity.usedTokens)} / {formatTokenCount(
-                          contextCapacity.contextWindow,
-                        )}
-                      </p>
-                    </div>
-                  {/if}
-                </div>
-              {/if}
-              {#if projection.running && !composer.draft.trim() && imageDrafts.length === 0}
-                <button
-                  class="cmp-btn cmp-btn-primary cmp-btn-circle companion-send"
-                  aria-label={t("reply.stop")}
-                  on:click={() => void stop()}
-                  disabled={!actions.stop || stopping}
-                  ><Square
-                    size={15}
-                    fill="currentColor"
-                    aria-hidden="true"
-                  /></button
-                >
-              {:else}
-                <button
-                  class="cmp-btn cmp-btn-primary cmp-btn-circle companion-send"
-                  aria-label={t("message.send")}
-                  on:click={submit}
-                  disabled={projection.canSubmit === false || composer.draft.trim().length > MAX_MESSAGE_LENGTH || (!composer.draft.trim() && imageDrafts.length === 0)}
-                  ><span aria-hidden="true">↑</span></button
-                >
-              {/if}
-              {#if projection.running && (composer.draft.trim() || imageDrafts.length > 0) && actions.stop}
-                <button
-                  class="cmp-btn cmp-btn-neutral cmp-btn-circle companion-stop-inline"
-                  data-testid="companion-stop"
-                  aria-label={t("reply.stop")}
-                  on:click={() => void stop()}
-                  disabled={stopping}
-                  ><Square size={13} fill="currentColor" aria-hidden="true" /></button
-                >
-              {/if}
-            </div>
-            {#if composer.draft.trim().length > MAX_MESSAGE_LENGTH}
-              <div class="companion-voice-input-status companion-voice-input-error" role="alert">
-                {t("message.tooLong", { limit: MAX_MESSAGE_LENGTH, count: composer.draft.trim().length })}
-              </div>
-            {/if}
-            {#if voiceStatus === "recording" || voiceStatus === "stopping"}
-              <div
-                class="companion-voice-input-status"
-                data-testid="companion-voice-recording-status"
-                role="status"
-                aria-live="polite"
-              >
-                {voiceStatus === "stopping"
-                  ? t("voice.stopping")
-                  : t("voice.recording", {
-                      elapsed: formatVoiceElapsed(voiceElapsedMs),
-                    })}
-              </div>
-            {:else if voiceStatus === "transcribing"}
-              <div
-                class="companion-voice-input-status"
-                data-testid="companion-voice-transcribing-status"
-                role="status"
-                aria-live="polite"
-              >
-                {t("voice.transcribingProgress")}
-              </div>
-            {:else if voiceCapability === "unavailable" || !voiceCaptureAvailable}
-              <div
-                class="companion-voice-input-status companion-voice-input-unavailable"
-                data-testid="companion-voice-unavailable-status"
-                role="status"
-              >
-                {voiceUnavailableText(t)}
-              </div>
-            {:else if voiceFailure || voiceStatus === "unavailable"}
-              <div
-                class="companion-voice-input-status companion-voice-input-error"
-                data-testid="companion-voice-error-status"
-                role="status"
-              >
-                {t(voiceFailure || "voice.failed")}
-              </div>
-            {/if}
-            <div class="companion-compose-hint">
-              {t("composer.shortcut")}
-            </div>
-          </div>
+
         {/if}
       </main>
     </div>
 
   </div>
-  {#if detailOpen}
-    <div class="companion-history-backdrop">
-      <button
-        type="button"
-        tabindex="-1"
-        aria-label={t("relationship.close")}
-        on:click={() => closeDetail()}
-      ></button>
-    </div>
-    <div
-      bind:this={relationshipDrawer}
+    <Panel left cover swipe swipeOnlyClose opened={detailOpen} closeByBackdropClick={false}
+      onPanelOpen={(args) => { relationshipDrawer = args[0].el; overlayOpening(args[0]); }}
+      onPanelOpened={(args) => overlayOpened(args[0])}
+      onPanelClosed={(args) => { finishDetailClose(); overlayClosed(args[0]); }}
+      onPanelBackdropClick={() => closeDetail()}
+      onkeydown={(event) => { if (event.key === "Escape") closeDetail(); }}
       id="companion-relationship-drawer"
       class="companion-history-drawer"
       role="dialog"
@@ -2538,9 +2262,10 @@
       data-testid="companion-relationship-drawer"
     >
       <div class="companion-history-controls">
+        <h2>{identity.companionName}</h2>
         <button
           type="button"
-          class="cmp-btn cmp-btn-ghost cmp-btn-circle cmp-btn-sm"
+          class="button button-tonal button-round button-small"
           aria-label={t("relationship.close")}
           on:click={() => closeDetail()}
           ><X size={16} strokeWidth={2} aria-hidden="true" /></button
@@ -2553,10 +2278,10 @@
           id="companion-history-tab"
           aria-controls="companion-drawer-panel"
           aria-selected={drawerTab === "history"}
-          class="cmp-btn cmp-btn-ghost cmp-btn-sm cmp-btn-circle"
-          class:cmp-btn-active={drawerTab === "history"}
+          class="button"
+          class:button-tonal={drawerTab === "history"}
           aria-label={t("drawer.history")}
-          on:click={() => drawerTab = "history"}><Heart size={16} aria-hidden="true" /></button
+          on:click={() => drawerTab = "history"}><Heart size={20} aria-hidden="true" /><span>{t("drawer.history")}</span></button
         >
         <button
           type="button"
@@ -2564,13 +2289,13 @@
           id="companion-diary-tab"
           aria-controls="companion-drawer-panel"
           aria-selected={drawerTab === "diary"}
-          class="cmp-btn cmp-btn-ghost cmp-btn-sm cmp-btn-circle"
-          class:cmp-btn-active={drawerTab === "diary"}
+          class="button"
+          class:button-tonal={drawerTab === "diary"}
           aria-label={t("drawer.diary")}
-          on:click={() => void openDiary()}><BookOpen size={16} aria-hidden="true" /></button
+          on:click={() => void openDiary()}><BookOpen size={20} aria-hidden="true" /><span>{t("drawer.diary")}</span></button
         >
-        <button type="button" role="tab" id="companion-images-tab" aria-controls="companion-drawer-panel" aria-selected={drawerTab === "images"} aria-label={t("drawer.images")} class="cmp-btn cmp-btn-ghost cmp-btn-sm cmp-btn-circle" class:cmp-btn-active={drawerTab === "images"} on:click={() => void openGallery()}><Images size={16} aria-hidden="true" /></button>
-        <button type="button" role="tab" id="companion-alarms-tab" aria-controls="companion-drawer-panel" aria-selected={drawerTab === "alarms"} aria-label={t('drawer.alarms')} class="cmp-btn cmp-btn-ghost cmp-btn-sm cmp-btn-circle" class:cmp-btn-active={drawerTab === "alarms"} on:click={() => void openAlarms()}><AlarmClock size={16} aria-hidden="true" /></button>
+        <button type="button" role="tab" id="companion-images-tab" aria-controls="companion-drawer-panel" aria-selected={drawerTab === "images"} aria-label={t("drawer.images")} class="button" class:button-tonal={drawerTab === "images"} on:click={() => void openGallery()}><Images size={20} aria-hidden="true" /><span>{t("drawer.images")}</span></button>
+        <button type="button" role="tab" id="companion-alarms-tab" aria-controls="companion-drawer-panel" aria-selected={drawerTab === "alarms"} aria-label={t('drawer.alarms')} class="button" class:button-tonal={drawerTab === "alarms"} on:click={() => void openAlarms()}><AlarmClock size={20} aria-hidden="true" /><span>{t("drawer.alarms")}</span></button>
       </div>
       <div
         id="companion-drawer-panel"
@@ -2580,25 +2305,25 @@
       >
         {#if drawerTab === 'alarms'}
           <section class="companion-alarms" aria-label={t('drawer.alarms')}>
-            <div class="companion-alarms-heading"><h3>{t('drawer.alarms')}</h3><button type="button" class="cmp-btn cmp-btn-ghost cmp-btn-sm" on:click={() => void openAlarms()}>{t('alarm.refresh')}</button></div>
+            <div class="companion-alarms-heading"><h3>{t('drawer.alarms')}</h3><button type="button" class="button button-tonal button-round companion-alarm-refresh" disabled={alarmsLoading} aria-busy={alarmsLoading} aria-label={t('alarm.refresh')} title={t('alarm.refresh')} on:click={() => void openAlarms()}><RefreshCw size={18} aria-hidden="true" /></button></div>
             {#if alarmsLoading}<p class="companion-history-state" role="status">{t('loading')}</p>
             {:else if alarmsError}<p class="companion-history-state" role="alert">{t('alarm.failed')}</p>
             {:else if !alarms.length}<p class="companion-history-state">{t('alarm.empty')}</p>
-            {:else}<ul class="cmp-list companion-alarm-list">{#each alarms as alarm (alarm.id)}<li class="cmp-list-row companion-alarm-item"><time datetime={new Date(alarm.nextAt).toISOString()}>{alarmTime(alarm.nextAt)}</time><span class="companion-alarm-repeat">{alarmSchedule(alarm)}</span><p>{alarm.message}</p></li>{/each}</ul>{/if}
+            {:else}<ul class="list companion-alarm-list">{#each alarms as alarm (alarm.id)}<li class="item-content companion-alarm-item"><time datetime={new Date(alarm.nextAt).toISOString()}>{alarmTime(alarm.nextAt)}</time><span class="companion-alarm-repeat">{alarmSchedule(alarm)}</span><p>{alarm.message}</p></li>{/each}</ul>{/if}
           </section>
         {:else if drawerTab === "images"}
           <section class="companion-gallery" aria-label={t("drawer.images")}>
-            {#if galleryError}<div class="companion-history-state" role="alert"><p>{t("gallery.failed")}</p><button type="button" class="cmp-btn cmp-btn-ghost cmp-btn-sm" on:click={() => void openGallery(true)}>{t("retry")}</button></div>
+            {#if galleryError}<div class="companion-history-state" role="alert"><p>{t("gallery.failed")}</p><button type="button" class="button button-tonal button-small" on:click={() => void openGallery(true)}>{t("retry")}</button></div>
             {:else if galleryLoading && !galleryImages.length}<p class="companion-history-state" role="status">{t("loading")}</p>
             {:else if !galleryImages.length}<p class="companion-history-state">{t("gallery.empty")}</p>
-            {:else}<div class="companion-gallery-toolbar"><span>{t("gallery.grouping")}</span><div class="companion-gallery-grouping" role="group" aria-label={t("gallery.grouping")}><button type="button" class="cmp-btn cmp-btn-ghost cmp-btn-xs" class:cmp-btn-active={galleryGrouping === "day"} aria-pressed={galleryGrouping === "day"} on:click={() => galleryGrouping = "day"}>{t("gallery.group.day")}</button><button type="button" class="cmp-btn cmp-btn-ghost cmp-btn-xs" class:cmp-btn-active={galleryGrouping === "week"} aria-pressed={galleryGrouping === "week"} on:click={() => galleryGrouping = "week"}>{t("gallery.group.week")}</button></div></div><div bind:this={galleryViewport} class="companion-gallery-viewport"><div class="companion-gallery-virtual" style={`height:${$galleryVirtualizer.getTotalSize()}px`}>{#each $galleryVirtualizer.getVirtualItems() as virtual (virtual.key)}{@const row = galleryRowsValue[virtual.index]}<div use:measureGalleryRow={virtual.index} class:companion-gallery-group={row?.kind === "group"} class:companion-gallery-grid={row?.kind === "images"} style={`position:absolute;top:0;left:0;width:100%;transform:translateY(${virtual.start}px)`}>{#if row?.kind === "group"}<h3>{row.label}</h3>{:else if row?.kind === "images"}{#each row.images as image}<button type="button" class="companion-gallery-tile" aria-label={image.filename} disabled={!image.available} on:click={() => { if (!image.available) return; pushOverlayHistory(); openLightbox({ id: image.id, alt: image.filename, previewUrl: image.url }); }}><img src={image.url} alt={image.filename} loading="lazy" decoding="async" /></button>{/each}{/if}</div>{/each}</div></div>{#if galleryLoading}<p class="companion-history-state" role="status">{t("loading")}</p>{/if}{/if}
+            {:else}<div class="companion-gallery-toolbar"><span>{t("gallery.grouping")}</span><div class="segmented companion-gallery-grouping" role="group" aria-label={t("gallery.grouping")}><button type="button" class="button button-tonal button-small" class:button-active={galleryGrouping === "day"} aria-pressed={galleryGrouping === "day"} on:click={() => galleryGrouping = "day"}>{t("gallery.group.day")}</button><button type="button" class="button button-tonal button-small" class:button-active={galleryGrouping === "week"} aria-pressed={galleryGrouping === "week"} on:click={() => galleryGrouping = "week"}>{t("gallery.group.week")}</button></div></div><Gallery rows={galleryRowsValue} hasMore={!!galleryCursor} loading={galleryLoading} loadMore={() => openGallery(true)} pick={(image) => openLightbox({ id: image.id, alt: image.filename, previewUrl: image.url })} />{#if galleryLoading}<p class="companion-history-state" role="status">{t("loading")}</p>{/if}{/if}
           </section>
         {:else if drawerTab === "diary"}
           <section class="companion-diary">
             {#if diaryEntry}
               <button
                 type="button"
-                class="cmp-btn cmp-btn-ghost cmp-btn-sm companion-diary-back"
+                class="button button-tonal button-small companion-diary-back"
                 on:click={() => diaryEntry = undefined}>← {t("diary.back")}</button
               >
               <article class="companion-diary-page">
@@ -2614,14 +2339,14 @@
             {:else if diaryError}
               <div class="companion-history-state" role="alert">
                 <p>{t("diary.failed")}</p>
-                <button type="button" class="cmp-btn cmp-btn-ghost cmp-btn-sm" on:click={() => void openDiary()}>{t("retry")}</button>
+                <button type="button" class="button button-tonal button-small" on:click={() => void openDiary()}>{t("retry")}</button>
               </div>
             {:else if !diaryEntries.length}
               <p class="companion-history-state">{t("diary.empty")}</p>
             {:else}
-              <div class="companion-diary-list">
+              <div class="list companion-diary-list">
                 {#each diaryEntries as entry}
-                  <button type="button" class="companion-diary-list-entry" on:click={() => void openDiaryEntry(entry)}>
+                  <button type="button" class="button button-tonal companion-diary-list-entry" on:click={() => void openDiaryEntry(entry)}>
                     <time datetime={entry.slice(0, -3)}>{entry.slice(0, -3)}</time>
                     <span aria-hidden="true">›</span>
                   </button>
@@ -2660,10 +2385,10 @@
           <h3 id="companion-history-list-title">{t("history.list")}</h3>
           {#if history.status === "loading"}
             <div class="companion-history-state" role="status">
-              <span
-                class="cmp-loading cmp-loading-spinner cmp-loading-sm"
+              <Preloader
+                class="preloader  "
                 aria-hidden="true"
-              ></span>
+               />
               <span>{t("history.loading")}</span>
             </div>
           {:else if history.status === "error"}
@@ -2671,7 +2396,7 @@
               <p>{t("history.failed")}</p>
               <button
                 type="button"
-                class="cmp-btn cmp-btn-ghost cmp-btn-sm"
+                class="button button-tonal button-small"
                 on:click={() => actions.retryHistory?.()}
                 >{t("history.retry")}</button
               >
@@ -2682,7 +2407,7 @@
             {#if history.hasEarlier}
               <button
                 type="button"
-                class="cmp-btn cmp-btn-ghost cmp-btn-sm companion-history-earlier"
+                class="button button-tonal button-small companion-history-earlier"
                 disabled={history.loadingEarlier}
                 on:click={() => void loadEarlierHistory()}
                 >{history.loadingEarlier
@@ -2729,40 +2454,9 @@
         </section>
         {/if}
       </div>
-    </div>
-  {/if}
-  {#if lightbox}
-    <dialog
-      bind:this={lightboxDialog}
-      id="companion-image-lightbox"
-      class="cmp-modal companion-lightbox"
-      aria-label={t("image.preview")}
-      on:close={onLightboxClose}
-    >
-      <div class="cmp-modal-box companion-lightbox-dialog">
-        {#if lightboxUrl}<img
-            src={lightboxUrl}
-            alt={t("image.previewAlt")}
-          />{:else}<div class="cmp-loading cmp-loading-spinner"></div>{/if}
-      </div>
-      <button
-        class="cmp-btn cmp-btn-circle companion-lightbox-close"
-        aria-label={t("image.close")}
-        on:click={() => closeLightbox()}
-        ><X size={16} strokeWidth={2} aria-hidden="true" /></button
-      >
-      <form
-        method="dialog"
-        class="cmp-modal-backdrop companion-lightbox-backdrop"
-      >
-        <button type="submit" aria-label={t("image.closeBackdrop")}
-          >{t("close")}</button
-        >
-      </form>
-    </dialog>
-  {/if}
+    </Panel>
   {#if searchOpen}<ConversationSearch {t} {locale} companionName={identity.companionName} onClose={closeSearch} />{/if}
-</div>
+</Page>
 <div class="companion-sr-only" aria-live="assertive">
   {typeof liveAnnouncement === "string"
     ? liveAnnouncement

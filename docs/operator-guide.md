@@ -62,7 +62,10 @@ services, keyboard geometry and clipboard writes to check layout, scrolling,
 agent-only copying and toast feedback. `pnpm test` also covers native bridge
 and event handling. These checks do not establish real OS animation quality.
 
-Pixel checks confirmed keyboard dismissal endpoints and retained composer focus.
+Reading actions now release editable focus instead of hiding the keyboard while
+retaining it. Browser acceptance covers copy-menu and settings close, return to
+latest, and explicit input editing; the revised OS keyboard behavior awaits
+device acceptance.
 Animation quality, text selection, native camera permissions/cancellation/photo
 preview, process-death recovery and iOS behavior remain device acceptance items.
 

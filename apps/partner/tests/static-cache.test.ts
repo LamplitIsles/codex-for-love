@@ -29,7 +29,7 @@ test('built PWA entry, manifest and real icons are served without changing docum
   const assets = await mkdtemp(join(tmpdir(), 'partner-pwa-'));
   let app: ReturnType<typeof createWebServer> | undefined;
   try {
-    await cp(new URL('../build/', import.meta.url), assets, { recursive: true });
+    await cp(process.env.CFL_TEST_BUILD_DIR ?? new URL('../build/', import.meta.url), assets, { recursive: true });
     app = createWebServer({ close: async () => {} } as Partner, assets);
     app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening');
     const url = `http://127.0.0.1:${(app.server.address() as { port: number }).port}`;
@@ -53,7 +53,7 @@ test('built PWA entry, manifest and real icons are served without changing docum
       assert.equal(metadata.width, size); assert.equal(metadata.height, size); assert.equal(metadata.format, 'png');
     }
     assert.deepEqual(manifest.icons.map((icon: { sizes: string }) => icon.sizes), ['192x192', '512x512']);
-    const asset = html.match(/(?:href|src)="([^" ]*\/_app\/immutable\/[^" ]+)"/u)![1];
+    const asset = html.match(/(?:href|src)="([^" ]*\/assets\/[^" ]+\.js)"/u)![1];
     assert.equal((await fetch(new URL(asset, url))).headers.get('cache-control'), 'public, max-age=31536000, immutable');
     assert.equal((await fetch(`${url}/chat`)).headers.get('cache-control'), 'no-cache');
   } finally { await app?.close(); await rm(assets, { recursive: true, force: true }); }

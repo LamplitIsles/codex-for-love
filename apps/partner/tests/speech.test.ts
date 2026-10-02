@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import { spawn } from 'node:child_process';
 import { writeFile, readFile } from 'node:fs/promises';
 
-test('STT forwards bounded audio, preserves recognized emotion and never admits a model turn', async () => {
+test('STT forwards bounded audio, ignores emotion annotations and never admits a model turn', async () => {
   const f = await fixture(); let calls = 0;
   const upstream = createServer(async (request, response) => {
     let text = ''; for await (const chunk of request) text += chunk;
@@ -30,7 +30,7 @@ test('STT forwards bounded audio, preserves recognized emotion and never admits 
   const url = `http://127.0.0.1:${(app.server.address() as { port: number }).port}/api/voice/transcribe`;
   try {
     const response = await fetch(url, { method: 'POST', headers: { 'content-type': 'audio/webm;codecs=opus' }, body: new Uint8Array([1,2,3]) });
-    assert.equal(response.status, 200); assert.deepEqual(await response.json(), { text: '今天下雨了。', expression: 'happy' });
+    assert.equal(response.status, 200); assert.deepEqual(await response.json(), { text: '今天下雨了。' });
     assert.equal((await partner.snapshot()).speech, true);
     assert.equal((await partner.snapshot()).messages.length, 0); assert.equal((await f.requests()).filter(request => request.method === 'turn/start' || request.method === 'turn/steer').length, 0);
     assert.equal((await fetch(url, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: 'invalid' })).status, 415);
@@ -42,13 +42,13 @@ test('STT forwards bounded audio, preserves recognized emotion and never admits 
   } finally { await app.close(); upstream.closeAllConnections(); await new Promise<void>(resolve => upstream.close(() => resolve())); await f.close(); }
 });
 
-test('voice drafts preserve transcript and allowlisted expression without inventing unknown emotions', async () => {
-  const { formatVoiceTurn } = await import('../src/lib/companion/client/voice-input.ts');
-  for (const [emotion, expected] of [[' HAPPY ', 'happy'], ['unknown', undefined], [null, undefined]]) {
+test('voice transcription returns only text regardless of provider emotion', async () => {
+  const { normalizeVoiceTranscription } = await import('../src/lib/companion/client/voice-input.ts');
+  for (const emotion of [' HAPPY ', 'unknown', null]) {
     const result = await transcribeAudio('http://fixture.invalid', 'fixture', new Uint8Array([1]), 'audio/wav', new AbortController().signal,
       async () => Response.json({ output: { choices: [{ message: { content: [{ text: '你好' }], annotations: [{ emotion }] } }] } }));
-    assert.equal(result.expression, expected);
-    assert.equal(formatVoiceTurn(result), expected ? '🎙️ 你好 [happy]' : '🎙️ 你好');
+    assert.deepEqual(result, { text: '你好' });
+    assert.deepEqual(normalizeVoiceTranscription({ text: ' 你好 ', expression: emotion }), { text: '你好' });
   }
 });
 

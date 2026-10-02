@@ -3,9 +3,7 @@ import {
   MAX_VOICE_DURATION_MS,
   isVoiceAudioWithinDataUrlLimit,
   maxVoiceAudioBytesForMediaType,
-  normalizeVoiceExpression,
   normalizeVoiceMediaType,
-  type VoiceExpression,
 } from "../voice-contract.ts";
 
 export {
@@ -16,7 +14,6 @@ export {
 } from "../voice-contract.ts";
 export type {
   VoiceAudioMediaType,
-  VoiceExpression,
 } from "../voice-contract.ts";
 
 export const VOICE_TRANSCRIPT_MAX_CHARS = 20_000;
@@ -37,7 +34,6 @@ export interface VoiceRecording {
 
 export interface CompanionVoiceTranscription {
   text: string;
-  expression?: VoiceExpression;
 }
 
 export class VoiceRecordingError extends Error {
@@ -264,27 +260,7 @@ export async function voiceBlobToBase64(
   return output;
 }
 
-function expressionFromRaw(value: unknown): VoiceExpression | undefined {
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      const expression = expressionFromRaw(item);
-      if (expression) return expression;
-    }
-    return undefined;
-  }
-  if (typeof value === "object" && value !== null) {
-    const record = value as Record<string, unknown>;
-    return normalizeVoiceExpression(
-      record.expression ??
-        record.speechExpression ??
-        record.speech_expression ??
-        record.emotion,
-    );
-  }
-  return normalizeVoiceExpression(value);
-}
-
-/** Keep only the provider-neutral text and first recognized expression label. */
+/** Keep only recognized text; provider emotion annotations are ignored. */
 export function normalizeVoiceTranscription(
   raw: unknown,
 ): CompanionVoiceTranscription {
@@ -299,28 +275,7 @@ export function normalizeVoiceTranscription(
     );
   if (Array.from(text).length > VOICE_TRANSCRIPT_MAX_CHARS)
     throw new VoiceRecordingError("transcript-invalid", "语音转写内容过长。");
-  let expression: VoiceExpression | undefined;
-  for (const candidate of [
-    record.expression,
-    record.speechExpression,
-    record.speech_expression,
-    record.sentences,
-    record.expressions,
-  ]) {
-    expression = expressionFromRaw(candidate);
-    if (expression) break;
-  }
-  return expression ? { text, expression } : { text };
-}
-
-/** The one ordinary text turn emitted for a successful voice transcription. */
-export function formatVoiceTurn(
-  transcription: CompanionVoiceTranscription,
-): string {
-  const normalized = normalizeVoiceTranscription(transcription);
-  return normalized.expression
-    ? `🎙️ ${normalized.text} [${normalized.expression}]`
-    : `🎙️ ${normalized.text}`;
+  return { text };
 }
 
 interface ActiveRecording {

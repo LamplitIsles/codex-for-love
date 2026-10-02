@@ -1,13 +1,10 @@
-@import 'tailwindcss';
-@import './lib/companion/client/daisy.css';
+@import './lib/companion/client/palette.css';
 @import './lib/companion/client/companion.css';
 @import './lib/companion/client/conversation-search.css';
 @import '@fontsource/noto-sans-sc/400.css';
 @import 'katex/dist/katex.min.css';
-html, body { min-height: 100%; background: var(--color-base-200); }
-body { margin: 0; font-family: 'Noto Sans SC', sans-serif; }
-button, textarea, input { font: inherit; }
-
-#dsh-companion .companion-row-pending .companion-bubble,
-#dsh-companion .companion-row-pending .companion-image-group { opacity: 0.6; }
-#dsh-companion .companion-row-pending .companion-bubble { outline: 1px dashed color-mix(in oklch, var(--color-base-content) 30%, transparent); }
+html, body, #app { height: 100%; margin: 0; }
+:root:root { --f7-font-family: 'Noto Sans SC', system-ui, sans-serif; --f7-font-size: 16px; --f7-line-height: 1.55; --f7-message-bubble-font-size: 16px; --f7-message-bubble-line-height: 1.55; }
+body { background: var(--f7-page-bg-color); }
+button { cursor: pointer; }
+button:disabled { cursor: default; }

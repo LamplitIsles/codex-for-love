@@ -5,36 +5,6 @@ export interface ComposerState {
   lastSubmitted?: string;
 }
 
-/** The one-line baseline used by the Companion textarea. */
-export const COMPOSER_MIN_HEIGHT = 43;
-/** Keep unusually long drafts inside the conversation viewport. */
-export const COMPOSER_MAX_HEIGHT = 150;
-
-/**
- * Resolve a measured textarea height without allowing a draft to upscale the
- * one-line baseline or consume the whole conversation viewport.
- */
-export function resolveComposerHeight(
-  scrollHeight: number,
-  minHeight = COMPOSER_MIN_HEIGHT,
-  maxHeight = COMPOSER_MAX_HEIGHT,
-): { height: number; scrollable: boolean } {
-  const minimum =
-    Number.isFinite(minHeight) && minHeight > 0
-      ? minHeight
-      : COMPOSER_MIN_HEIGHT;
-  const maximum =
-    Number.isFinite(maxHeight) && maxHeight >= minimum
-      ? maxHeight
-      : COMPOSER_MAX_HEIGHT;
-  const measured =
-    Number.isFinite(scrollHeight) && scrollHeight > 0 ? scrollHeight : minimum;
-  return {
-    height: Math.min(maximum, Math.max(minimum, measured)),
-    scrollable: measured > maximum,
-  };
-}
-
 export interface ComposerCommand {
   command: string;
   label: string;

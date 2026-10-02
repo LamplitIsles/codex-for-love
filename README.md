@@ -97,9 +97,18 @@ portrait = "./workspace/.lamplit/profile/background-portrait.jpg"
 
 Supply both images or omit `[backgrounds]` to keep the default appearance. Paths resolve relative to the TOML file and must stay inside the workspace. Supported formats are PNG, JPEG, WebP and GIF, up to 20 MiB per file; invalid or missing configured files prevent startup. Restart Partner after changing paths or replacing images. Companion selects the composition from the window shape before the keyboard opens (square windows use portrait), scales it to fill the chat area and crops centrally. The background stays stationary as messages scroll, with a theme-colored soft overlay; message bubbles, attachments, header, composer and drawers retain their own surfaces. Background images do not enter conversation history or the Chat Image Library.
 
+The Companion frontend uses Svelte 5, Vite and Framework7 9.2.0. Framework7 owns
+component styles, theme tokens, its app/view shell and Photo Browser navigation;
+SvelteKit, Tailwind and daisyUI are removed. Sidebar, settings and search use
+the official Svelte Panel, Popover and Popup components. Framework7 owns their
+instances, visibility and backdrops. Sidebar closing uses the supported
+nonanimated path so input remains reachable even without a transition-end event.
+The Node HTTP/SSE host remains the backend. Reloading a transient Photo Browser
+URL opens the chat page.
+
 The Companion header’s settings button changes language and appearance immediately without changing the conversation. These choices are browser-local preferences, not settings stored in the Partner configuration or workspace.
 
-On the first message send, Companion asks the browser directly for notification permission. This requires HTTPS, `http://localhost`, or a `http://*.localhost` address such as `http://prod-lamplit.localhost:17480`; a plain HTTP LAN address cannot show a browser permission request. Chrome may show a permission chip near the address bar rather than a dialog. When permission is granted, an open page that is hidden or unfocused announces each newly completed Partner turn once, including when a PWA window loses focus to another app. Notifications contain the Partner name and a generic new-message notice, never reply content. This is page-local browser notification rather than Web Push: closing or suspending the page, losing its connection, or denying browser permission prevents delivery, and devices do not synchronize notification or read state.
+Browser site settings own notification permission; Companion has no notification switch and does not request permission on sending a message. This requires HTTPS, `http://localhost`, or a `http://*.localhost` address such as `http://prod-lamplit.localhost:17480`; a plain HTTP LAN address cannot use browser notifications. When permission is granted, an open page that is hidden or unfocused announces each newly completed Partner turn once, including when a PWA window loses focus to another app. Notifications contain the Partner name and a generic new-message notice, never reply content. This is page-local browser notification rather than Web Push: closing or suspending the page, losing its connection, or denying browser permission prevents delivery, and devices do not synchronize notification or read state.
 
 ### Install Companion on desktop
 
@@ -124,13 +133,66 @@ window uses the same online API and notification limits as a browser tab.
 
 ### Typing and reading on mobile
 
-Mobile uses the Capacitor app. With its Keyboard plugin installed, tapping
-chat whitespace, message text or copy controls dismisses the keyboard while
-keeping composer focus. Swipes, links and other controls keep their own behavior.
-Completed agent text messages have a copy button below their left edge; it copies
-the original text, including Markdown, and shows brief toast feedback.
+Mobile uses the Capacitor app. Tapping chat whitespace or message text ends
+editing and lets the WebView dismiss its keyboard. Copying, returning to the
+latest message, and closing a reading overlay do not restore input focus.
+Swipes, links and other controls keep their own behavior. Keyboard geometry
+and safe-area adaptation remain independent of focus.
+Companion enables the existing `@capacitor/app` 8.1.1 Back handler while mounted:
+Android Back closes its active menu, popover, popup, Photo Browser or sidebar
+before returning to the chat;
+at the chat root it minimizes the app. Unmount removes the listener and restores
+the shell's disabled handler. Capacitor 8's built-in `SystemBars` synchronizes
+status/navigation icon contrast with the selected appearance; no additional
+status-bar plugin or APK rebuild is needed for this integration.
 
-The timeline follows when you are at the latest messages and preserves your
+The chat uses Framework7's Svelte `Page`, `PageContent`, `Messages` and `Message`
+components. Each text, image and voice segment is a separate message bubble;
+segments retain their business-message identity, source, time and pending state.
+Grouping uses the official Svelte demo's `first`, `last` and `tail` properties.
+Framework7 `Messagebar` owns textarea growth and the scroll area's bottom padding.
+Its attachment components show pending images; toolbar slots contain attachment,
+microphone and send controls. Text grows up to the configured 144-pixel limit
+before scrolling. Voice capture keeps the existing draft and attachments,
+disables send, and offers cancel at the attachment control and stop at the
+microphone. Recognition inserts at the captured selection for review and manual
+sending; it never sends by itself. Recognition inserts only the transcript text;
+provider emotion annotations are ignored. The left sidebar supports Framework7
+swipe-to-close. A small down-arrow button returns readers to the latest message.
+Viewport adaptation retains scroll position while
+reading and follows content or viewport resizing only when already near the end.
+Opening the chat and returning to the foreground show the latest message.
+Capacitor App `resume` covers native activity resumes and browser visibility
+changes; Framework7 Messages performs the scroll without focusing the composer.
+
+Long-press a completed message from either participant to open the official
+Framework7 Actions popover anchored to the message or image on mobile and desktop.
+Desktop supports left-button hold and right-click.
+Framework7 `taphold` owns touch timing, movement cancellation and click suppression;
+a mouse-only adapter opens the same popover and cancels on release or drag. Text
+provides Copy and images provide Save, with a separate Cancel group; the action
+list can grow with future message operations. Copy preserves the original
+Markdown and shows brief feedback; scrolling and multitouch cancel the hold. Capacitor uses
+`@capacitor/clipboard` 8.0.1, including when the server uses a plain HTTP LAN URL;
+web browsers use the secure-context Clipboard API.
+
+Message timestamps and pending status use Framework7 Message `textFooter` inside
+the bubble; avatars retain the framework’s bottom alignment.
+
+Tap an image to open Framework7 Photo Browser. Mobile previews use almost the
+full width and support pinch zoom and panning. Tap outside the displayed image
+to close it. Long-press an image in the chat or preview to save the original:
+browsers download it, and Capacitor saves to the application's **Lamplit** album.
+The native shell must include `@capacitor-community/media` 9.1.0 for Capacitor 8
+and be rebuilt after `cap sync`. Android uses the plugin's default application
+album mode without broad gallery access. An iOS shell also needs
+`NSPhotoLibraryUsageDescription` for album creation/access (and
+`NSPhotoLibraryAddUsageDescription`); denied permission shows an error. CFL does
+not enumerate the user's photos. When a save menu is open, the first outside tap
+closes the menu; a subsequent outside tap closes the preview.
+
+Sending a valid message immediately returns to the latest messages, before the
+network request completes. The timeline follows when you are at the latest messages and preserves your
 place when reading history. The floating **Latest messages ↓** button returns
 to the bottom without changing drafts. Device acceptance limits are recorded in
 the [operator guide](docs/operator-guide.md#mobile-keyboard-validation).

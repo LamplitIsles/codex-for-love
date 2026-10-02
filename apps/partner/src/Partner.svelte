@@ -1,22 +1,24 @@
 <script lang="ts">
-  import { mergeMessages, mergeResults } from '$lib/message-pages.ts';
-  import { serializeImageDrafts } from '$lib/companion/client/image-drafts.ts';
-  import type { ImageAttachmentLimits } from '$lib/companion/client/contracts.ts';
-  import { insertCompactBoundaries, type CompactBoundary } from '$lib/continuity.ts';
-  import type { CompanionContinuitySnapshot } from '$lib/companion/continuity.ts';
+  import { mergeMessages, mergeResults } from './lib/message-pages.ts';
+  import { serializeImageDrafts } from './lib/companion/client/image-drafts.ts';
+  import type { ImageAttachmentLimits } from './lib/companion/client/contracts.ts';
+  import { insertCompactBoundaries, type CompactBoundary } from './lib/continuity.ts';
+  import type { CompanionContinuitySnapshot } from './lib/companion/continuity.ts';
   import { onMount } from 'svelte';
-  import Companion from '$lib/companion/client/Companion.svelte';
-  import { companionTranslate, type CompanionTranslate } from '$lib/companion/client/locale.js';
-  import { APPEARANCE_STORAGE_KEY, LANGUAGE_STORAGE_KEY, initialPreferences, readPreference, resolveScheme, writePreference, type CompanionAppearance, type CompanionLanguage, type CompanionScheme } from '$lib/companion/client/preferences.js';
-  import type { CompanionActions, CompanionRecoveredDraft } from '$lib/companion/client/companion-bridge.js';
-  import type { CompanionProjection, KeetProvenance, TimelineItem, TimelineMessageUnit } from '$lib/companion/projection.js';
-  import type { CompanionStateRecord } from '$lib/companion/domain.js';
-  import { CompanionPreControllerError } from '$lib/companion/client/admission.js';
-  import { CompanionRecovery } from '$lib/companion/client/recovery.js';
-  import { CompanionNotificationObserver, shouldNotifyForPageState } from '$lib/companion/client/notifications.js';
-  import { outgoingDeliveryPresentation, type MessageDelivery } from '$lib/message-delivery.ts';
-  import { affinityStage } from '$lib/companion/domain.ts';
-  import PetDock from '$lib/pet/PetDock.svelte';
+  import { f7 as framework7, f7ready } from 'framework7-svelte';
+  import { nativeNavigation, syncSystemBars } from './lib/companion/client/native-navigation.ts';
+  import Companion from './lib/companion/client/Companion.svelte';
+  import { companionTranslate, type CompanionTranslate } from './lib/companion/client/locale.js';
+  import { APPEARANCE_STORAGE_KEY, LANGUAGE_STORAGE_KEY, initialPreferences, readPreference, resolveScheme, writePreference, type CompanionAppearance, type CompanionLanguage, type CompanionScheme } from './lib/companion/client/preferences.js';
+  import type { CompanionActions, CompanionRecoveredDraft } from './lib/companion/client/companion-bridge.js';
+  import type { CompanionProjection, KeetProvenance, TimelineItem, TimelineMessageUnit } from './lib/companion/projection.js';
+  import type { CompanionStateRecord } from './lib/companion/domain.js';
+  import { CompanionPreControllerError } from './lib/companion/client/admission.js';
+  import { CompanionRecovery } from './lib/companion/client/recovery.js';
+  import { CompanionNotificationObserver, shouldNotifyForPageState } from './lib/companion/client/notifications.js';
+  import { outgoingDeliveryPresentation, type MessageDelivery } from './lib/message-delivery.ts';
+  import { affinityStage } from './lib/companion/domain.ts';
+  import PetDock from './lib/pet/PetDock.svelte';
   type Message = { sequence: number; revision: number; id: string; turnId?: string | null; input: string; delivery: MessageDelivery; inputError: string | null; created: number;
     inputImages: { id: string; name: string; url: string }[]; keet?: KeetProvenance; alarm?: boolean };
   type TurnResult = { id: string; turnId: string; sourceIds: string[]; sequence: number; revision: number; answers: string[]; error: string | null; status: string; completedAt?: number;
@@ -36,10 +38,6 @@
   let refreshTask: Promise<void> | undefined, refreshTaskGeneration = 0;
   let recovery: CompanionRecovery | undefined;
   const notificationObserver = new CompanionNotificationObserver();
-  const NOTIFICATION_REQUESTED_KEY = 'her.companion.notifications.requested';
-  type NotificationPermissionState = NotificationPermission | 'unsupported';
-  let notificationRequestAttempted = false;
-  let notificationPermission = $state<NotificationPermissionState>('unsupported');
   const controller = new AbortController();
   let outgoing = $state<Message[]>([]);
   const retirements = new Map<string, () => void>();
@@ -52,23 +50,11 @@
   let language = $state<CompanionLanguage>(initial.language), appearance = $state<CompanionAppearance>(initial.appearance), systemDark = $state(initial.systemDark);
   let t: CompanionTranslate = $derived(companionTranslate(language));
   let scheme: CompanionScheme = $derived(resolveScheme(appearance, systemDark));
-  $effect(() => { document.documentElement.lang = language === "zh" ? "zh-Hans" : "en"; document.documentElement.dataset.theme = scheme === "dark" ? "night-voyage" : "sticker-messenger"; });
+  $effect(() => { document.documentElement.lang = language === "zh" ? "zh-Hans" : "en"; const dark = scheme === "dark"; f7ready(() => { framework7.setDarkMode(dark); syncSystemBars(dark); }); });
   function selectLanguage(value: CompanionLanguage): void { language = value; writePreference(LANGUAGE_STORAGE_KEY, value); }
   function selectAppearance(value: CompanionAppearance): void { appearance = value; writePreference(APPEARANCE_STORAGE_KEY, value); }
-  function notificationState(): NotificationPermissionState {
+  function notificationState(): NotificationPermission | 'unsupported' {
     return !isSecureContext || typeof Notification === 'undefined' ? 'unsupported' : Notification.permission;
-  }
-  async function enableNotifications(): Promise<void> {
-    if (typeof Notification === 'undefined') return;
-    notificationRequestAttempted = true;
-    writePreference(NOTIFICATION_REQUESTED_KEY, 'true');
-    try { notificationPermission = await Notification.requestPermission(); }
-    catch { /* the browser remains the authority for permission state */ }
-    notificationPermission = notificationState();
-  }
-  function requestNotificationsOnFirstSend(): void {
-    if (notificationRequestAttempted || readPreference(NOTIFICATION_REQUESTED_KEY) === 'true' || notificationState() !== 'default') return;
-    void enableNotifications();
   }
   function observeNotifications(results: readonly TurnResult[]): void {
     const fresh = notificationObserver.observe(results);
@@ -162,9 +148,10 @@
       session = { ...batch, messages: mergeMessages(session.messages, batch.messages), results: mergeResults(session.results ?? [], batch.results ?? []) };
       observeNotifications(session.results ?? []);
       observeOutgoing();
-      cursor = batch.cursor; loaded = true;
+      cursor = batch.cursor;
       if (batch.hasChangesMore) refreshAgain = true;
-    } while (refreshAgain && !disposed); }
+    } while (refreshAgain && !disposed);
+    if (!disposed) loaded = true; }
     catch { throw new Error(t('connection.interrupted')); }
     finally { refreshing = false; } })();
     refreshTask = task; refreshTaskGeneration = generation;
@@ -225,7 +212,7 @@
     async stop() { for (const id of session.cancellable) await post('/api/cancel', { id }); await refresh(); },
   };
   onMount(() => {
-    notificationPermission = notificationState();
+    const releaseNavigation = nativeNavigation();
     const media = matchMedia('(prefers-color-scheme: dark)'); const updateScheme = () => { systemDark = media.matches; }; updateScheme(); media.addEventListener('change', updateScheme);
     recovery = new CompanionRecovery({
       open: () => new EventSource('/api/events'), sync: (signal, generation) => refresh(signal, generation), now: () => Date.now(),
@@ -237,11 +224,11 @@
       },
     });
     recovery.start();
-    return () => { disposed = true; recovery?.close(); controller.abort(); retirements.clear(); media.removeEventListener('change', updateScheme); };
+    return () => { releaseNavigation(); disposed = true; recovery?.close(); controller.abort(); retirements.clear(); media.removeEventListener('change', updateScheme); };
   });
 </script>
 <svelte:head><title>{session.name} · Her</title></svelte:head>
-<Companion backgrounds={session.backgrounds} {projection} {actions} {t} locale={language} {appearance} onLanguageChange={selectLanguage} onAppearanceChange={selectAppearance} {notificationPermission} onEnableNotifications={enableNotifications} onFirstMessageSend={requestNotificationsOnFirstSend} sessionId="partner" voiceCapability={session.speech ? "available" : "unavailable"} imageLimits={session.imageLimits} onHistoryOpenChange={undefined}
+<Companion backgrounds={session.backgrounds} {projection} {actions} {t} locale={language} {appearance} onLanguageChange={selectLanguage} onAppearanceChange={selectAppearance} sessionId="partner" voiceCapability={session.speech ? "available" : "unavailable"} imageLimits={session.imageLimits} onHistoryOpenChange={undefined}
   identity={{ companionName: session.name, userName: '你', preferredAddress: '你', companionAvatar: session.avatars?.companion, userAvatar: session.avatars?.user, signature: session.relationship?.signature ?? '',
     mood: session.relationship?.mood ?? 'neutral', moodLabel: moodText(session.relationship?.mood ?? 'neutral'), moodNote: session.relationship?.note,
     affinity: session.relationship?.affinity, affinityStage: affinityText(session.relationship?.affinity ?? 50) }}

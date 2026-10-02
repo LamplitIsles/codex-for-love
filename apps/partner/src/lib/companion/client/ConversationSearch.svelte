@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { onDestroy, onMount, tick } from 'svelte';
+  import { onDestroy, tick } from 'svelte';
+  import { overlayOpening, overlayOpened, overlayClosed } from './overlay-focus.ts';
+  import { Block, BlockFooter, BlockTitle, Button, List, ListItem, Message, Messages, Navbar, Page, PageContent, Preloader, Popup, Searchbar, Subnavbar, f7 } from 'framework7-svelte';
   import ArrowLeft from 'lucide-svelte/icons/arrow-left';
-  import Search from 'lucide-svelte/icons/search';
   import X from 'lucide-svelte/icons/x';
   import type { CompanionTranslate } from './locale.js';
   import { contextTargetIndex, snippetParts, textParts } from './conversation-search-highlight.js';
@@ -16,8 +17,7 @@
   export let companionName: string;
   export let onClose: () => void;
 
-  let dialog: HTMLDialogElement;
-  let input: HTMLInputElement;
+  let dialog: HTMLElement;
   let reader: HTMLDivElement;
   let query = '';
   let searched = '';
@@ -33,10 +33,9 @@
   let searchRequest: AbortController | undefined;
   let readRequest: AbortController | undefined;
 
-  onMount(() => { dialog.showModal(); requestAnimationFrame(() => input?.focus()); });
   onDestroy(() => { searchRequest?.abort(); readRequest?.abort(); });
 
-  function close() { dialog.close(); }
+  function close() { f7.popup.get(dialog)?.close(); }
   function date(value?: string): string {
     if (!value || Number.isNaN(Date.parse(value))) return '';
     return new Intl.DateTimeFormat(locale === 'zh' ? 'zh-CN' : 'en', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(value));
@@ -45,8 +44,8 @@
     if (item.kind === 'compaction') return t('search.summary');
     return item.role === 'user' ? t('you') : companionName;
   }
-  async function search(event: SubmitEvent) {
-    event.preventDefault();
+  async function search(event?: SubmitEvent) {
+    event?.preventDefault();
     const value = query.trim();
     if (!value) return;
     searchRequest?.abort();
@@ -79,6 +78,7 @@
     } finally { if (readRequest === request) reading = false; }
     if (readRequest !== request || !expanded) return;
     await tick();
+    reader = dialog.querySelector<HTMLDivElement>('.companion-search-reader')!;
     if (readRequest !== request || selected?.id !== card.id) return;
     const target = reader?.querySelector<HTMLElement>('.search-target');
     if (!target) return;
@@ -99,67 +99,83 @@
   function backToResults() { readRequest?.abort(); selected = undefined; expanded = undefined; }
 </script>
 
-<dialog bind:this={dialog} class="cmp-modal companion-search-dialog" aria-label={t('search.title')} on:close={onClose}>
-  <section class="cmp-modal-box companion-search-box" aria-label={t('search.title')}>
-    <header class="companion-search-header">
-      <button type="button" class="cmp-btn cmp-btn-ghost cmp-btn-circle" aria-label={selected ? t('search.back') : t('close')} on:click={selected ? backToResults : close}>
-        {#if selected}<ArrowLeft size={20} aria-hidden="true" />{:else}<X size={20} aria-hidden="true" />{/if}
-      </button>
-      <div class="companion-search-heading"><h2>{t('search.title')}</h2></div>
-    </header>
+<Popup opened closeOnEscape class="companion-search-dialog" role="dialog" aria-modal="true" aria-label={t('search.title')}
+  onPopupOpen={(instance) => { if (instance) { dialog = instance.el; overlayOpening(instance); } }}
+  onPopupOpened={overlayOpened}
+  onPopupClosed={(instance) => { overlayClosed(instance); onClose(); }}>
+  <Page class="companion-search-page" pageContent={false} subnavbar={!selected}>
+    <Navbar class="companion-search-header" title={t('search.title')}>
+      {#snippet navLeft()}
+        <Button type="button" tonal round class="companion-search-back" aria-label={selected ? t('search.back') : t('close')} onClick={selected ? backToResults : close}>
+          {#if selected}<ArrowLeft size={20} aria-hidden="true" />{:else}<X size={20} aria-hidden="true" />{/if}
+        </Button>
+      {/snippet}
+      {#if !selected}
+        <Subnavbar>
+          <Searchbar class="companion-search-form" customSearch backdrop={false} disableButton={false}
+            value={query} placeholder={t('search.placeholder')}
+            onInput={(event: Event) => query = (event.target as HTMLInputElement).value}
+            onChange={(event: Event) => query = (event.target as HTMLInputElement).value}
+            onFocus={(event: FocusEvent) => { const input = event.target as HTMLInputElement; input.maxLength = 500; input.autocomplete = 'off'; input.setAttribute('aria-label', t('search.open')); f7.input.checkEmptyState(input); }}
+            onSearchbarClear={() => query = ''} onSubmit={search} />
+          <Button fill type="button" class="companion-search-submit" disabled={!query.trim() || searching} onClick={() => void search()}>{t('search.submit')}</Button>
+        </Subnavbar>
+      {/if}
+    </Navbar>
 
     {#if selected}
-      <div bind:this={reader} class="companion-search-reader" role="region" aria-label={t('search.reader')}>
-        {#if reading}<p class="companion-search-state" role="status"><span class="cmp-loading cmp-loading-spinner cmp-loading-sm"></span>{t('loading')}</p>
-        {:else if readError}<div class="companion-search-state" role="alert"><p>{t('search.readFailed')}</p><button type="button" class="cmp-btn cmp-btn-ghost cmp-btn-sm" on:click={() => void openRecord(selected!)}>{t('retry')}</button></div>
+      <PageContent class="companion-search-reader" messagesContent role="region" aria-label={t('search.reader')}>
+        {#if reading}
+          <Block class="companion-search-state" role="status"><Preloader size={24} /><span>{t('loading')}</span></Block>
+        {:else if readError}
+          <Block class="text-align-center" role="alert"><p>{t('search.readFailed')}</p><Button type="button" tonal onClick={() => void openRecord(selected!)}>{t('retry')}</Button></Block>
         {:else if expanded}
+          {@const record = expanded.record}
           {@const targetIndex = contextTargetIndex(expanded.context.targetSourceRecordIndex, expanded.context.items)}
-          <div class="companion-search-dayline">{date(expanded.record.createdAt)}</div>
-          {#if targetIndex < 0}
-            <article class="companion-search-message" class:from-human={expanded.record.role === 'user'} class:search-target={true}>
-              <div class="companion-search-sender">{sender(expanded.record)}</div>
-              <div class="companion-search-bubble">{#each textParts(expanded.record.content, searched) as part}{#if part.matched}<mark>{part.text}</mark>{:else}{part.text}{/if}{/each}</div>
-            </article>
-          {/if}
-          {#each expanded.context.items as item, index (item.sourceRecordIndex)}
-            {@const active = index === targetIndex}
-            <article class="companion-search-message" class:from-human={item.role === 'user'} class:search-target={active}>
-              <div class="companion-search-sender">{sender(item)}</div>
-              <div class="companion-search-bubble">{#each textParts(active ? expanded.record.content : item.content, active ? searched : '') as part}{#if part.matched}<mark>{part.text}</mark>{:else}{part.text}{/if}{/each}</div>
-            </article>
-          {/each}
-          {#if expanded.context.truncated}<p class="companion-search-truncated">{t('search.contextTruncated')}</p>{/if}
-        {/if}
-      </div>
-    {:else}
-      <form class="companion-search-form" role="search" on:submit={search}>
-        <label class="companion-search-input-wrap">
-          <Search size={19} strokeWidth={2} aria-hidden="true" />
-          <input bind:this={input} bind:value={query} type="search" class="cmp-input cmp-input-ghost" aria-label={t('search.open')} placeholder={t('search.placeholder')} maxlength="500" autocomplete="off" />
-        </label>
-        <button type="submit" class="cmp-btn cmp-btn-primary" disabled={!query.trim() || searching}>{t('search.submit')}</button>
-      </form>
-      <div class="companion-search-results" role="region" aria-label={t('search.results')}>
-        {#if searching}<p class="companion-search-state" role="status"><span class="cmp-loading cmp-loading-spinner cmp-loading-sm"></span>{t('search.searching')}</p>
-        {:else if searchError}<div class="companion-search-state" role="alert"><p>{t('search.failed')}</p><button type="button" class="cmp-btn cmp-btn-ghost cmp-btn-sm" on:click={() => input?.form?.requestSubmit()}>{t('retry')}</button></div>
-        {:else if !searchedOnce}<div class="companion-search-welcome"><p>{t('search.prompt')}</p></div>
-        {:else if results.length === 0}<p class="companion-search-state">{t('search.empty')}</p>
-        {:else}
-          <div class="companion-search-count" aria-live="polite">{t('search.count', { count: estimatedTotal })}{#if estimatedTotal > results.length} · {t('search.limit')}{/if}</div>
-          <div class="companion-search-list">
-            {#each results as card (card.id)}
-              <button type="button" class="cmp-btn cmp-btn-ghost companion-search-result" on:click={() => void openRecord(card)}>
-                <span class="companion-search-avatar" class:human={card.role === 'user'} aria-hidden="true">{card.role === 'user' ? t('you').slice(0, 1) : '✦'}</span>
-                <span class="companion-search-result-body">
-                  <span class="companion-search-result-top"><strong>{sender(card)}</strong><time datetime={card.createdAt ?? undefined}>{date(card.createdAt)}</time></span>
-                  <span class="companion-search-snippet">{#each snippetParts(card.snippet) as part}{#if part.matched}<mark>{part.text}</mark>{:else}{part.text}{/if}{/each}</span>
-                </span>
-              </button>
+          <Messages scrollMessages={false}>
+            <div class="messages-title">{date(expanded.record.createdAt)}</div>
+            {#if targetIndex < 0}
+              <Message type={expanded.record.role === 'user' ? 'sent' : 'received'} name={sender(expanded.record)} first last tail class="companion-search-message search-target">
+                {#snippet text()}
+                  <span class="companion-search-bubble">{#each textParts(record.content, searched) as part}{#if part.matched}<mark>{part.text}</mark>{:else}{part.text}{/if}{/each}</span>
+                {/snippet}
+              </Message>
+            {/if}
+            {#each expanded.context.items as item, index (item.sourceRecordIndex)}
+              {@const active = index === targetIndex}
+              <Message type={item.role === 'user' ? 'sent' : 'received'} name={sender(item)} first last tail class={active ? 'companion-search-message search-target' : 'companion-search-message'}>
+                {#snippet text()}
+                  <span class="companion-search-bubble">{#each textParts(active ? record.content : item.content, active ? searched : '') as part}{#if part.matched}<mark>{part.text}</mark>{:else}{part.text}{/if}{/each}</span>
+                {/snippet}
+              </Message>
             {/each}
-          </div>
+          </Messages>
+          {#if expanded.context.truncated}<BlockFooter>{t('search.contextTruncated')}</BlockFooter>{/if}
         {/if}
-      </div>
+      </PageContent>
+    {:else}
+      <PageContent class="companion-search-results" role="region" aria-label={t('search.results')}>
+        {#if searching}
+          <Block class="companion-search-state" role="status"><Preloader size={24} /><span>{t('search.searching')}</span></Block>
+        {:else if searchError}
+          <Block class="text-align-center" role="alert"><p>{t('search.failed')}</p><Button type="button" tonal onClick={() => void search()}>{t('retry')}</Button></Block>
+        {:else if !searchedOnce}
+          <Block class="text-align-center"><p>{t('search.prompt')}</p></Block>
+        {:else if results.length === 0}
+          <Block class="text-align-center"><p>{t('search.empty')}</p></Block>
+        {:else}
+          <BlockTitle aria-live="polite">{t('search.count', { count: estimatedTotal })}{#if estimatedTotal > results.length} · {t('search.limit')}{/if}</BlockTitle>
+          <List mediaList strong inset dividers class="companion-search-list">
+            {#each results as card (card.id)}
+              <ListItem link="#" title={sender(card)} subtitle={date(card.createdAt)} class="companion-search-result" onClick={() => void openRecord(card)}>
+                {#snippet text()}
+                  {#each snippetParts(card.snippet) as part}{#if part.matched}<mark>{part.text}</mark>{:else}{part.text}{/if}{/each}
+                {/snippet}
+              </ListItem>
+            {/each}
+          </List>
+        {/if}
+      </PageContent>
     {/if}
-  </section>
-  <form method="dialog" class="cmp-modal-backdrop"><button type="submit" aria-label={t('close')}>{t('close')}</button></form>
-</dialog>
+  </Page>
+</Popup>

@@ -11,13 +11,30 @@ The Svelte Companion UI and its pure client/domain modules under
 `apps/partner/src/lib/companion/` were imported from
 `LamplitIsles/dsh-plugins` revision `29ed11a`, primarily
 `packages/dsh-companion/src`. This includes the Companion presentation,
-markdown rendering, themes, locale, image drafts, voice input,
+markdown rendering, locale, image drafts, voice input,
 relationship-history view and pure continuity/media/domain definitions. The
 DSH controller and view-registry integration were removed; the page now binds
 the projection to this repository's HTTP/SSE host.
-The Keet message header and accent-edge styling in the Companion component
+The Keet message header in the Companion component
 adapt `LamplitIsles/lamplit-cloudflare`'s `frontend/src/lib/companion/client/`
 presentation at revision `2381cfc3e916130beb14c95c1078bd6c2479b1f3`.
+
+Framework7 and framework7-svelte 9.2.0 (MIT, framework7io/framework7) now own
+UI components, theme tokens, routing, Page/Messages/Message, Messagebar and its
+attachment components, Photo Browser/Swiper and Virtual List. Message grouping
+follows the official Svelte Messages demo using first/last/tail props. Message
+timestamps and pending status use the official textFooter slot inside the bubble. CFL adapts
+the 9.2.0 Svelte Input event to the detail-array shape required by Messagebar;
+textarea resizing and page padding remain Framework7 capabilities. The previous SvelteKit and imported daisyUI themes are removed.
+The Vite/Svelte application entry follows the Framework7 CLI 9.0.2 Svelte
+starter's mount pattern without running its generator over this repository.
+`@capacitor-community/media` 9.1.0 (MIT) supplies native album saving. Framework7
+Touch taphold and Actions own long-press recognition and target-anchored action
+popovers on mobile and desktop;
+CFL wires message operations, mouse-only holds and desktop context menus, reading-focus handling and
+a stationary-multitouch guard for Framework7 9.2 taphold. Official
+`@capacitor/clipboard` 8.0.1 (MIT) supplies system clipboard writes in the native
+shell.
 
 The optional TOML-configured portrait/landscape chat background, its theme-aware
 overlay and keyboard-stable composition selection are original CFL additions
@@ -27,6 +44,10 @@ The application-owned relationship validation/domain behavior is retained and
 the runtime persistence is implemented in `apps/partner/runtime/store.ts`.
 The store contains UI/domain metadata only. It is not an imported model
 history journal.
+
+The compact/expanded composer interaction follows the owner-supplied Penpot
+`Composer` design package dated 2026-10-02. Its layout is implemented with
+Framework7 tokens and Lucide controls; no exported design PNGs are bundled.
 
 ## Prompt and speech
 
@@ -159,8 +180,12 @@ build, GitHub Release, npm token fallback, or automatic native publication.
 ## Desktop installation and mobile keyboard reference
 
 The desktop installation manifest, heart/code icons and browser file capture
-are original CFL work. Native mobile camera capture and keyboard dismissal use
-the official Capacitor Camera and Keyboard plugins. Camera media converts into
+are original CFL work. Native mobile camera capture uses
+the official Capacitor Camera plugin. Reading actions release editable focus;
+keyboard dismissal follows browser/WebView focus behavior without a Keyboard
+plugin. Native Android navigation
+uses Capacitor App 8.1.1 (MIT); system icon appearance uses the built-in
+Capacitor 8 SystemBars API, without an additional status-bar dependency. Camera media converts into
 the same File intake used by browser uploads. Keyboard layout was informed by Ahmad Shadeed's
 [VirtualKeyboard article](https://ishadeed.com/article/virtual-keyboard-api/)
 (FlickNote #2971), especially the CSS keyboard-height chat grid, and the

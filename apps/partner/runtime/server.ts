@@ -33,7 +33,7 @@ export function createWebServer(partner: Partner, assets: string, options: { hea
   const serve = sirv(assets, {
     single: true,
     setHeaders(response, pathname) {
-      if (pathname.includes('/_app/immutable/'))
+      if (/\/assets\/[^/]+-[\w-]{8,}\.[\w.]+$/u.test(pathname))
         response.setHeader('cache-control', 'public, max-age=31536000, immutable');
       else if (pathname === '/' || pathname.endsWith('.html') || extname(pathname) === '')
         response.setHeader('cache-control', 'no-cache');

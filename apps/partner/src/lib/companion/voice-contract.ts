@@ -29,19 +29,6 @@ export const VOICE_AUDIO_MEDIA_TYPES = [
 
 export type VoiceAudioMediaType = (typeof VOICE_AUDIO_MEDIA_TYPES)[number];
 
-/** Labels normalized by DSH Speech from Qwen's model-derived speech expression. */
-export const VOICE_EXPRESSIONS = [
-  "surprised",
-  "neutral",
-  "happy",
-  "sad",
-  "disgusted",
-  "angry",
-  "fearful",
-] as const;
-
-export type VoiceExpression = (typeof VOICE_EXPRESSIONS)[number];
-
 const PARAM_TOKEN = "[a-z0-9!#$&^_.+-]+";
 const AUDIO_MEDIA_TYPE_PATTERN = new RegExp(
   `^audio\\/[a-z0-9][a-z0-9.+-]*(?:\\s*;\\s*${PARAM_TOKEN}=${PARAM_TOKEN})*$`,
@@ -74,22 +61,6 @@ export function voiceMediaBaseType(
   const normalized = normalizeVoiceMediaType(value);
   if (!normalized) return undefined;
   return normalized.split(";", 1)[0] as VoiceAudioMediaType;
-}
-
-export function isVoiceExpression(value: unknown): value is VoiceExpression {
-  return (
-    typeof value === "string" &&
-    (VOICE_EXPRESSIONS as readonly string[]).includes(
-      value.trim().toLowerCase(),
-    )
-  );
-}
-
-export function normalizeVoiceExpression(
-  value: unknown,
-): VoiceExpression | undefined {
-  if (!isVoiceExpression(value)) return undefined;
-  return value.trim().toLowerCase() as VoiceExpression;
 }
 
 /** Return the normalized Data URL prefix sent to the synchronous ASR service. */

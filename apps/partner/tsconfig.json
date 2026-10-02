@@ -1,5 +1,14 @@
 {
-  "extends": "./.svelte-kit/tsconfig.json",
-  "compilerOptions": { "strict": true, "allowImportingTsExtensions": true, "skipLibCheck": true },
-  "include": ["src/**/*", "runtime/**/*.ts", "tests/**/*.ts", ".svelte-kit/**/*.ts"]
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "strict": true,
+    "allowImportingTsExtensions": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "types": ["vite/client", "node"]
+  },
+  "include": ["src/**/*", "runtime/**/*.ts", "tests/**/*.ts"]
 }
