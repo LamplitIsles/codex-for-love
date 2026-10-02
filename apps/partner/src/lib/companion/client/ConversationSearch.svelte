@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy, tick } from 'svelte';
-  import { overlayOpening, overlayOpened, overlayClosed } from './overlay-focus.ts';
+  import { overlayOpening, overlayOpened, overlayClosed, overlayDestroyed } from './overlay-focus.ts';
   import { Block, BlockFooter, BlockTitle, Button, List, ListItem, Message, Messages, Navbar, Page, PageContent, Preloader, Popup, Searchbar, Subnavbar, f7 } from 'framework7-svelte';
   import ArrowLeft from 'lucide-svelte/icons/arrow-left';
   import X from 'lucide-svelte/icons/x';
@@ -33,7 +33,7 @@
   let searchRequest: AbortController | undefined;
   let readRequest: AbortController | undefined;
 
-  onDestroy(() => { searchRequest?.abort(); readRequest?.abort(); });
+  onDestroy(() => { searchRequest?.abort(); readRequest?.abort(); if (dialog) overlayDestroyed({ el: dialog }); });
 
   function close() { f7.popup.get(dialog)?.close(); }
   function date(value?: string): string {

@@ -10,20 +10,21 @@ import { fixture, eventually } from "./fixture.ts";
 import { createWebServer } from "../runtime/server.ts";
 const f = await fixture();
 const session = `cfl-framework7-${process.pid}`;
-const partner = await f.createPartner();
-await partner.submit(crypto.randomUUID(), "Framework7 acceptance fixture");
-await eventually(async () => (await partner.snapshot()).results.length > 0);
-await cp(
-  process.env.CFL_TEST_BUILD_DIR ?? new URL("../build/", import.meta.url),
-  join(f.directory, "assets"),
-  { recursive: true },
-);
-const app = createWebServer(partner, join(f.directory, "assets"));
-app.server.listen(0, "127.0.0.1");
-await once(app.server, "listening");
-const url = `http://127.0.0.1:${app.server.address().port}`;
+let app;
 let ws;
 try {
+  const partner = await f.createPartner();
+  await partner.submit(crypto.randomUUID(), "Framework7 acceptance fixture");
+  await eventually(async () => (await partner.snapshot()).results.length > 0);
+  await cp(
+    process.env.CFL_TEST_BUILD_DIR ?? new URL("../build/", import.meta.url),
+    join(f.directory, "assets"),
+    { recursive: true },
+  );
+  app = createWebServer(partner, join(f.directory, "assets"));
+  app.server.listen(0, "127.0.0.1");
+  await once(app.server, "listening");
+  const url = `http://127.0.0.1:${app.server.address().port}`;
   await execute("agent-browser", ["--session", session, "open", url]);
   await execute("agent-browser", [
     "--session",
@@ -407,7 +408,6 @@ try {
   try {
     await execute("agent-browser", ["--session", session, "close"]);
   } finally {
-    await app.close();
-    await f.close();
+    try { await app?.close(); } finally { await f.close(); }
   }
 }

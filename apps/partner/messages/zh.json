@@ -259,6 +259,7 @@
   "delivery.unresolved": "尚未确认送达…",
   "image.save": "保存图片",
   "image.saved": "图片已保存",
+  "image.saveUnavailable": "当前应用版本暂不支持保存到相册",
   "image.saveFailed": "无法保存图片",
   "voice.cancel": "取消录音",
   "voice.ready": "识别结果已加入草稿。",

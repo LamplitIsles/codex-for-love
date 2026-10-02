@@ -34,6 +34,7 @@ export function messageMenu(
           button.setAttribute("role", "button");
           button.tabIndex = 0;
           button.addEventListener("keydown", event => {
+            if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); close(); }
             if (event.key === "Enter" || event.key === " ") { event.preventDefault(); button.click(); }
             if (event.key === "Tab") {
               event.preventDefault();

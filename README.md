@@ -223,7 +223,7 @@ second session or automatically send to the Keet conversation where it was
 discussed. Its trigger appears on the left of the Companion timeline with a
 distinct self-set alarm label, followed by the Partner's ordinary reply.
 
-The top-left drawer has a read-only Alarms tab showing each current alarm and
+The top-left drawer has a read-only Auto wake tab showing each current alarm and
 its next due time. Ask the Partner in chat to edit an alarm's message or cancel
 it. Editing preserves its schedule and next due time; already admitted
 reminders keep their original message. On restart, an overdue one-time alarm is

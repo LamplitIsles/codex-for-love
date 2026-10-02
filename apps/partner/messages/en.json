@@ -259,6 +259,7 @@
   "delivery.unresolved": "Delivery not yet confirmed…",
   "image.save": "Save image",
   "image.saved": "Image saved",
+  "image.saveUnavailable": "Saving to the photo library is unavailable in this app version",
   "image.saveFailed": "Unable to save image",
   "voice.cancel": "Cancel recording",
   "voice.ready": "Transcript added to your draft.",

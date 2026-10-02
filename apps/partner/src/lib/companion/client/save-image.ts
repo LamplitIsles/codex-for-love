@@ -1,9 +1,13 @@
 import { Capacitor } from "@capacitor/core";
 import { Media } from "@capacitor-community/media";
+export class ImageSaveUnavailableError extends Error {}
 const ALBUM = "Lamplit";
 
 /** Fetch through the authenticated web session, then save original bytes. */
 export async function saveImage(url: string, filename: string): Promise<void> {
+  if (Capacitor.isNativePlatform() && !Capacitor.isPluginAvailable("Media")) {
+    throw new ImageSaveUnavailableError("Media plugin unavailable");
+  }
   const response = await fetch(url);
   if (!response.ok) throw new Error("Image unavailable");
   const blob = await response.blob();

@@ -34,13 +34,13 @@
   import AlarmClock from "lucide-svelte/icons/alarm-clock";
   import Gallery from "./Gallery.svelte";
   import { longPress } from "./long-press.ts";
-  import { overlayOpened, overlayClosed, overlayOpening } from "./overlay-focus.ts";
+  import { overlayOpened, overlayClosed, overlayOpening, overlayDestroyed } from "./overlay-focus.ts";
   import { captureReadingFocus, dismissComposerOnTimelineTap } from "./reading-focus.ts";
   import { messageMenu, dismissMessageMenu, messageMenuOpen } from "./message-menu.ts";
   import { Capacitor } from "@capacitor/core";
   import { Clipboard } from "@capacitor/clipboard";
   import { App } from "@capacitor/app";
-  import { saveImage } from "./save-image.ts";
+  import { saveImage, ImageSaveUnavailableError } from "./save-image.ts";
   type Swiper = ReturnType<typeof f7.swiper.create>;
   import type { PhotoBrowser } from "framework7/components/photo-browser";
   import { galleryRows, type GalleryGrouping, type GalleryImage } from "./gallery.js";
@@ -1404,6 +1404,7 @@
           });
         },
         closed() {
+          dismissMessageMenu();
           syncSystemBars(document.documentElement.classList.contains("dark"));
           browser.el.removeEventListener('keydown', photoKeydown);
           imagePress?.destroy(); imagePress = undefined;
@@ -1416,7 +1417,12 @@
     const browser = f7.photoBrowser.create(params);
     const photoKeydown = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && !messageMenuOpen()) { event.preventDefault(); browser.close(); }
-      if (event.key === 'Tab') { event.preventDefault(); browser.el.querySelector<HTMLElement>('.popup-close')?.focus(); }
+      if (event.key === 'Tab' && !messageMenuOpen()) {
+        const targets = [...browser.el.querySelectorAll<HTMLElement>('.popup-close, .swiper-slide-active img')];
+        const index = targets.indexOf(document.activeElement as HTMLElement);
+        event.preventDefault();
+        targets[(index + (event.shiftKey ? targets.length - 1 : 1)) % targets.length]?.focus({ preventScroll: true });
+      }
     };
     photoBrowser = browser;
     browser.open();
@@ -1441,7 +1447,7 @@
     if (!url) return;
     messageMenu(target, [{ text: t('image.save'), run: async () => {
       try { await saveImage(url, name); showToast(t('image.saved')); }
-      catch { showToast(t('image.saveFailed')); }
+      catch (error) { showToast(t(error instanceof ImageSaveUnavailableError ? 'image.saveUnavailable' : 'image.saveFailed')); }
     } }], t('actions.cancel'));
   }
   async function loadOlder(): Promise<void> {
@@ -1519,6 +1525,7 @@
 
   onDestroy(() => {
     dismissMessageMenu(); imagePress?.destroy(); photoBrowser?.destroy();
+    for (const el of [relationshipDrawer, preferencesPanel, contextMeterPopover]) if (el) overlayDestroyed({ el });
     if (copyToastTimer) clearTimeout(copyToastTimer);
     if (timelineRevealFrame) cancelAnimationFrame(timelineRevealFrame);
     releaseDeferredPreviewReleases();
@@ -2100,7 +2107,8 @@
                         {/if}{/snippet}
                     {#snippet textContent()}{#if part.kind !== "images"}
                           {#if part.item.kind === "text"}
-                            <div class="companion-text-bubble" use:longPress={{ run: node => showTextMenu(part.item as TimelineText, node) }}><Markdown text={part.item.text} /></div>
+                            <!-- svelte-ignore a11y_no_noninteractive_tabindex (focusable message content provides keyboard context-menu access without a button role around nested links) -->
+                            <div class="companion-text-bubble" tabindex={part.item.pending ? -1 : 0} use:longPress={{ run: node => showTextMenu(part.item as TimelineText, node) }}><Markdown text={part.item.text} /></div>
                           {:else if part.item.kind === "voice"}
                             {@const item = part.item}
                             {@const playback = voicePlayback[item.id] ?? EMPTY_VOICE_PLAYBACK}

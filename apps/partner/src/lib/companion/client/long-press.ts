@@ -4,6 +4,14 @@ import { f7 } from "framework7-svelte";
 export function longPress(node: HTMLElement, options: { run(node: HTMLElement): void }) {
   // Framework7 9.2 leaves the first hold pending when a stationary second finger lands.
   // Guard that gap without duplicating its timer or movement recognition.
+  const originalTabIndex = node.getAttribute("tabindex");
+  if (originalTabIndex === null) node.tabIndex = 0;
+  const keyboard = (event: KeyboardEvent) => {
+    if (event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey)) {
+      event.preventDefault(); event.stopPropagation(); options.run(node);
+    }
+  };
+  node.addEventListener("keydown", keyboard);
   let multiTouch = false;
   const start = (event: TouchEvent) => { if (event.touches.length > 1) multiTouch = true; };
   const end = (event: TouchEvent) => { if (!event.touches.length) multiTouch = false; };
@@ -67,6 +75,8 @@ export function longPress(node: HTMLElement, options: { run(node: HTMLElement): 
     update(next: typeof options) { options = next; },
     destroy() {
       clearMouse();
+      node.removeEventListener("keydown", keyboard);
+      if (originalTabIndex === null) node.removeAttribute("tabindex");
       node.removeEventListener("pointerdown", down);
       document.removeEventListener("touchstart", start, true);
       document.removeEventListener("touchend", end, true);
