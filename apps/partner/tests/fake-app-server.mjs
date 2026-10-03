@@ -228,7 +228,7 @@ async function runTurn(turn) {
       turn.items.push(voice); send({ method: 'item/completed', params: { threadId: state.threadId, turnId: turn.id, completedAtMs: Date.now(), item: voice } });
       while (control().holdVoiceFinal) await new Promise(resolve => setTimeout(resolve, 15));
     }
-    const answer = { type: 'agentMessage', id: `answer-${state.next++}`, text: items.length ? `已完成${text.includes('edit') ? '编辑' : '创作'}。` : `fixture reply ${state.next}`, phase: 'final_answer', memoryCitation: null, delivery: null, questions: null };
+    const answer = { type: 'agentMessage', id: `answer-${state.next++}`, text: control().completedText ?? (items.length ? `已完成${text.includes('edit') ? '编辑' : '创作'}。` : `fixture reply ${state.next}`), phase: 'final_answer', memoryCitation: null, delivery: null, questions: null };
     turn.items.push(answer);
     send({ method: 'item/completed', params: { threadId: state.threadId, turnId: turn.id, completedAtMs: Date.now(), item: answer } });
     send({ method: 'thread/tokenUsage/updated', params: { threadId: state.threadId, turnId: turn.id, tokenUsage: { total: { cachedInputTokens: 0, inputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0, totalTokens: state.next * 10 }, last: { cachedInputTokens: 0, inputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0, totalTokens: state.next * 10 }, modelContextWindow: 200000 } } });

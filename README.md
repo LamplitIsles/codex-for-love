@@ -205,7 +205,7 @@ workspace, using the Partner's Codex home. FlickLog owns its rebuildable index;
 CFL does not copy conversation history into its own database. Results are limited
 to that workspace and show highlighted excerpts. Opening a result shows the
 complete message or compaction summary and nearby context in the search panel,
-without changing the active conversation or draft. The shared `/slice/` reader
+without changing the active conversation or draft. The shared `/` reader
 uses authenticated `lamplit.chat.v1.search` and `searchRead` socket methods backed
 by the same configured helper as native HTTP. FlickLog matching, ranking, its
 20-hit limit and estimated total remain unchanged; only `sessions` are scanned,
@@ -334,14 +334,21 @@ Development and tests must use fresh, test-owned workspaces. Do not point them a
 
 [Apache License 2.0](LICENSE). Imported components and their retained licenses are listed in [`docs/IMPORTS.md`](docs/IMPORTS.md).
 
-## Shared Lamplit App development slice
+## Default shared Lamplit App
 
-The optional shared frontend is served at `/slice/` when `LAMPLIT_APP_ASSETS`
-points to an extracted, reviewed Lamplit browser archive. The existing frontend
-remains at `/`. The common `/api/chat/socket` protocol uses the exact compiled
-`@lamplit/contracts` archive pinned in `vendor/lamplit-contracts-search.tgz`.
-Use `pnpm install --frozen-lockfile`; no adjacent source build is required.
-This is a development slice, not a production cutover or published-package release workflow.
+The default standalone entry `/` serves the approved shared Framework7 App.
+`/chat` serves identical HTML with root-relative `/assets/*` and `/icons/*` URLs.
+There is no `/slice` entry, UI fallback or asset-directory environment override.
+Platform owns hosted authentication, manifest, service worker and management;
+CFL does not register a service worker or serve management routes.
+
+`pnpm build` verifies and copies the Owner-approved App artifact vendored in
+`vendor/lamplit-default-shared-frontend.tgz` into `apps/partner/build`. It requires
+no adjacent App checkout or frontend rebuild. Existing main-package preparation
+bundles those assets under `vendor/build`; the standalone installed CLI needs no
+sibling checkout. Compiled contracts remain pinned in
+`vendor/lamplit-contracts-search.tgz`, byte-identical to the approved handoff.
+See [current artifact and isolated acceptance](docs/default-shared-frontend.md).
 
 The official app-server remains the sole execution/history owner. Completed
 message IDs are presentation metadata; no reply text is duplicated in a new
@@ -408,36 +415,12 @@ pnpm test
 node --test apps/partner/tests/panels.test.ts
 ```
 
-For a reviewed app handoff, extract its frozen browser and compiled-contract
-archives into a test-owned directory, verify `identity.json`, archive hashes and
-both expanded manifests before and after acceptance. The repository pins the
-reviewed compiled contracts archive directly; verify its SHA256 against the matching handoff identity. A later contract update must
-use pnpm to install the reviewed archive rather than an adjacent source checkout.
-Do not rebuild or refreeze the app during backend acceptance.
-
-Start an isolated real Node host on port 8952 using the extracted browser assets
-at `/slice/`, test-owned workspace/SQLite/Codex home, fake official app-server and
-fake streaming ASR. Native seeds are in `apps/partner/tests/panels-seed.ts`:
-25 relationship records, 35 diary/image members, all four schedules and the fixture original PNG.
-Seed a persisted application reminder through normal alarm admission. To test a
-missing diary after listing, remove only that test-owned file after the native
-list read. Record the actual host harness command and fake PCM/provider evidence.
-Then run the app's read-only acceptance runner from its checkout:
-
-```sh
-APP_ACCEPTANCE_URL=http://127.0.0.1:8952/slice/ \
-APP_ACCEPTANCE_INTERVAL_SECONDS=300 \
-APP_ACCEPTANCE_EVIDENCE=/absolute/path/to/codex-for-love/.scratch/companion-panels/browser \
-  bun run test:panels-browser
-```
-
-Optional synthetic gateway credentials use `APP_ACCEPTANCE_USERNAME` and
-`APP_ACCEPTANCE_PASSWORD`. Fake providers return `fixture reply` and
-`recognized final`; optional `APP_ACCEPTANCE_REPLY` and
-`APP_ACCEPTANCE_TRANSCRIPT` override those expected values. This runner checks
-390/1280 panels, original bytes, completed text and real PCM-to-draft voice.
-Record browser/contract artifact hashes, the backend HEAD and the acceptance
-runner HEAD separately. Keep all evidence and runtime state outside Git.
+Current six-suite native verification uses the single frozen #3162 artifact,
+actual Node/Partner storage and fake loopback execution/speech, plus unchanged
+FlickLog source and a test-owned Meilisearch index. Follow
+[the current handoff](docs/default-shared-frontend.md) for exact commands,
+manifest checks and limitations. Historical slice artifacts remain evidence;
+they are not the current route or build workflow.
 
 ### Streaming voice input
 
@@ -445,7 +428,7 @@ The shared app reads `/api/voice/capability` and records through the same-origin
 `/api/voice/stream` WebSocket. Enable the existing `[speech]` configuration and
 CLI-managed `speech` credential; no new credential is required. Missing speech
 configuration or credentials disables recording while text chat remains usable.
-The existing `speech.endpoint` configures batch transcription for the native UI;
+The existing `speech.endpoint` configures the retained batch transcription API;
 streaming uses DashScope's fixed WebSocket endpoint with
 `qwen-audio-3.1-asr-flash-streaming` instead.
 
@@ -487,8 +470,7 @@ See [the shared image protocol and isolated acceptance recipe](docs/image-send-r
 
 ### Quiet native compaction
 
-Both `/` and the reviewed shared `/slice/` UI keep manual and automatic successful
-compaction silent: no completed status, toast or timeline boundary. Running and
+The default shared UI keeps manual and automatic successful compaction silent: no completed status, toast or timeline boundary. Running and
 failure feedback remain visible. Official compact records remain available for
 continuation and conversation search. The native Framework7 composer and its
 72px attachments/44px removal targets remain the layout baseline; the earlier
@@ -508,73 +490,17 @@ refused without a compact queue. Exact bare `/compact` uses this operation and
 cannot enter ordinary submit; images refuse and retain the editable selection.
 Lost replies and reconnects reconcile observations without automatic replay.
 
-For isolated acceptance, use the Owner-reviewed App #3119 frozen handoff at
-HEAD `95f0f06fc00fd4e7fa3e664ca2b1fe12fe8d10b8`. Verify all archive and extracted
-manifest hashes, install its compiled contract archive with pnpm, and serve its
-unchanged browser. Do not rebuild the shared App or alter common runners.
-After the normal install/check/build/test sequence:
-
-```sh
-COMPACT_FIXTURE_EVIDENCE="$PWD/.scratch/quiet-compaction/evidence/compact-native" \
-node apps/partner/tests/quiet-compaction-fixture.ts <extracted-web> apps/partner/build
-# Use the printed URLs; the facade owns temporary SQLite, fake Codex home and auth.
-APP_ACCEPTANCE_URL=<printed-origin>/slice/ \
-APP_ACCEPTANCE_CONTROL_URL=<printed-control-url> \
-APP_ACCEPTANCE_EVIDENCE=<test-owned-evidence> bun <acceptance>/compact-browser.mjs
-node apps/partner/tests/quiet-compaction-browser.mjs <acceptance> <native-evidence>
-IMAGE_FIXTURE_EVIDENCE=<native-evidence> \
-node apps/partner/tests/image-send-recovery-fixture.ts <extracted-web>
-node apps/partner/tests/panels-acceptance-host.ts <extracted-web> <native-evidence>
-```
-
-Run the unchanged images runner using its printed control URL. For panels,
-set `APP_ACCEPTANCE_INTERVAL_SECONDS=300` for the native five-minute schedule;
-its actual host also streams voice through a local fake provider. All controls
-are test-only entry points, absent from production routing. Acceptance uses no
-live services, real credentials, paid providers or external messages. Owner
-joint acceptance remains a separate merge gate.
+Current native compaction, image/recovery and panel runners use canonical `/`
+and the approved full artifact. See [current acceptance commands](docs/default-shared-frontend.md).
+Controls are test-only entry points, absent from production routing; native quiet
+compaction behavior and the five-minute reminder interval remain unchanged.
 
 ### Shared conversation-search acceptance
 
-App #3142 HEAD `512ed6656c0564426838b7a82245453e6dd34114` is the
-Owner-approved browser/contracts/runner for CFL spec #3144. Its exact frozen
-artifacts live at
-`/Users/neil/code/projects/LamplitIsles/lamplit-app/.scratch/conversation-search/frozen-512ed66`.
-Read `identity.json`, `owner-approval.json` and the extracted acceptance README;
-verify archive and per-file manifest SHA-256 hashes before and after acceptance.
-Do not rebuild or alter the approved browser, contracts or runner.
-
-Extract into sibling test-owned `browser/`, `contracts/`, `acceptance/` directories
-under `.scratch/conversation-search`; install dependencies with `bun install`
-first in `contracts/package`, then in `acceptance`. The product consumes the exact
-approved contracts archive through pnpm. From the repository root, run Node 24
-and pnpm 11.22.0 in order:
-
-```sh
-pnpm install --frozen-lockfile
-pnpm check
-pnpm build
-pnpm test
-node --test apps/partner/tests/conversation-search*.test.ts
-node apps/partner/tests/conversation-search-acceptance-host.ts \
-  .scratch/conversation-search/browser .scratch/conversation-search/evidence
-```
-
-Use the host's printed origin and control URL in another terminal:
-
-```sh
-APP_ACCEPTANCE_URL=<printed-origin>/slice/ \
-APP_ACCEPTANCE_CONTROL_URL=<printed-control-url> \
-APP_ACCEPTANCE_EVIDENCE="$PWD/.scratch/conversation-search/evidence" \
-  bun .scratch/conversation-search/acceptance/search-browser.mjs
-```
-
-This actual CFL host uses temporary native state, the fake official app-server,
-and `createConversationSearch` invoking a test-owned FlickLog process fixture.
-Controls seed/reset owned data, delay/fail delivery, or expose native IDs/state;
-no browser routes replace public search responses. The unchanged runner checks
-390px/1280px readers, Chinese/English hits, summaries, distinct repeated records,
-import context, truncation, safe marks, stale replies, retry, draft preservation
-and ordinary chat. Stop the fixture host after acceptance to clean its temporary
-workspace. It never uses live services, credentials or real history. Native
-acceptance and joint user review remain merge gates; these commands do not deploy.
+Current search acceptance uses actual `createConversationSearch`, unchanged
+FlickLog source, a test-owned Meilisearch process and seeded test-owned Codex
+rollouts. Controls delay/fail delivery while public responses come from the native
+helper and index. The fake CLI matcher remains a unit-test seam, not native
+acceptance evidence. See [current acceptance commands](docs/default-shared-frontend.md).
+Reading archives preserves the active conversation and draft; native matching,
+workspace/device scope and context limits remain unchanged.

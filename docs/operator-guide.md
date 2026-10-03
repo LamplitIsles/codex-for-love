@@ -533,7 +533,7 @@ repeat the bootstrap.
 The app calls the official `thread/compact/start` operation and projects its
 lifecycle and engine-reported token observations. Running and failure remain
 visible; successful manual/automatic compaction produces no completed status,
-toast or timeline marker in either frontend. Official records are retained.
+toast or timeline marker in the shared frontend. Official records are retained.
 Current usage uses `last.totalTokens` and `modelContextWindow`; completion
 invalidates old tokens, retaining capacity until fresh native usage. Missing
 usage displays zero quietly. The shared compact command rechecks auth/session
@@ -597,9 +597,9 @@ required review, use the repository's `og` tag-push workflow. The Trusted
 Publisher setup is a separate human-only `.scratch` wizard; no npm token or
 GitHub secret is used by this repository.
 
-## Shared-slice image recovery
+## Shared App image recovery
 
-At `/slice/`, select or paste supported images and remove selections before send.
+At the default `/` entry, select or paste supported images and remove selections before send.
 An upload failure keeps editable text and files. Submitted recovery offers inspect,
 restore to edit and dismiss. Current edits prevent restoration from overwriting them.
 Uncertain delivery permits inspection only; a completed turn or socket reconnect is
@@ -608,3 +608,14 @@ Missing originals block image resend until explicitly removed or replaced.
 Clearing restored input returns its offer; discard/dismiss hides it only for this
 page/session and never changes native consumption. See
 [image/recovery protocol](image-send-recovery.md) for limits and isolated acceptance.
+
+## Shared frontend build and acceptance
+
+`pnpm build` installs verified frozen App bytes into `apps/partner/build`; main
+package preparation reuses that directory in the packed CLI. No App checkout is
+needed at runtime. `/` and `/chat` use identical HTML and root-relative assets.
+The former `/slice` route and `LAMPLIT_APP_ASSETS` selection are removed. Platform
+keeps hosted auth/PWA/management ownership. Companion MCP configuration semantics
+remain unchanged. Follow [default shared frontend](default-shared-frontend.md)
+for current artifact identities, isolated fixture commands and verification limits.
+Publication and deployment still require Owner review; merging does not deploy.

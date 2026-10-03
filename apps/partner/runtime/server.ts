@@ -45,9 +45,9 @@ export function isLoopbackPeer(peer: string | undefined): boolean {
   return peer === '127.0.0.1' || peer === '::1' || peer === '::ffff:127.0.0.1';
 }
 
-export function createWebServer(partner: Partner, assets: string, options: { authorize?: (request: IncomingMessage) => Promise<boolean>; voice?: VoiceDependencies; heartbeatMs?: number; chatAssets?: string; conversationSearch?: ConversationSearch } = {}) {
+export function createWebServer(partner: Partner, assets: string, options: { authorize?: (request: IncomingMessage) => Promise<boolean>; voice?: VoiceDependencies; heartbeatMs?: number; conversationSearch?: ConversationSearch } = {}) {
   const serve = sirv(assets, {
-    single: true,
+    single: false,
     setHeaders(response, pathname) {
       if (/\/assets\/[^/]+-[\w-]{8,}\.[\w.]+$/u.test(pathname))
         response.setHeader('cache-control', 'public, max-age=31536000, immutable');
@@ -55,7 +55,6 @@ export function createWebServer(partner: Partner, assets: string, options: { aut
         response.setHeader('cache-control', 'no-cache');
     },
   });
-  const serveChat = options.chatAssets ? sirv(options.chatAssets, { single: true, setHeaders(response) { response.setHeader("cache-control", "no-store") } }) : undefined;
   const authorize = async (request: IncomingMessage) => {
     try { return options.authorize ? await options.authorize(request) : true; } catch { return false; }
   };
@@ -67,8 +66,10 @@ export function createWebServer(partner: Partner, assets: string, options: { aut
     response.setHeader('x-frame-options', 'DENY');
     try {
       const path = new URL(request.url ?? '/', 'http://localhost').pathname;
-      if (serveChat && (path === '/slice' || path.startsWith('/slice/'))) { request.url = request.url!.slice('/slice'.length) || '/'; return serveChat(request, response); }
-      if (!path.startsWith('/api/')) return serve(request, response);
+      if (!path.startsWith('/api/')) {
+        if (path === '/chat') request.url = '/';
+        return serve(request, response, () => json(response, { error: 'Not found' }, 404));
+      }
       if (!await authorize(request)) return json(response, { error: 'Unauthorized' }, 401);
       if (request.headers.origin && ![`http://${request.headers.host}`, `https://${request.headers.host}`].includes(request.headers.origin)) return json(response, { error: 'Forbidden origin' }, 403);
       if (request.headers['sec-fetch-site'] === 'cross-site') return json(response, { error: 'Forbidden origin' }, 403);

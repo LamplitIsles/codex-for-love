@@ -13,8 +13,9 @@ The Svelte Companion UI and its pure client/domain modules under
 `packages/dsh-companion/src`. This includes the Companion presentation,
 markdown rendering, locale, image drafts, voice input,
 relationship-history view and pure continuity/media/domain definitions. The
-DSH controller and view-registry integration were removed; the page now binds
-the projection to this repository's HTTP/SSE host.
+DSH controller and view-registry integration were removed; the former local page bound
+the projection to this repository's HTTP/SSE host. The shared App now owns serving;
+retained native/domain and tested client modules remain in this repository.
 The Keet message header in the Companion component
 adapt `LamplitIsles/lamplit-cloudflare`'s `frontend/src/lib/companion/client/`
 presentation at revision `2381cfc3e916130beb14c95c1078bd6c2479b1f3`.
@@ -215,8 +216,8 @@ That package uses Chord 1.0.0 for RPC and replicated presentation state and
 TypeBox for runtime validation. It does not import private frontend source.
 The shared frontend imports the Framework7 Companion presentation from this
 repository at `17a786271f5498bf5a188f421e9ce02adf7262f9`; attribution lives in
-`lamplit-app/docs/IMPORTS.md`. The existing frontend and native execution owner
-remain in place during this development slice.
+`lamplit-app/docs/IMPORTS.md`. The native execution owner remains in place; the default frontend is now the
+approved shared App described below.
 
 ### Shared streaming voice relay
 
@@ -281,3 +282,19 @@ come from this archive. Approved browser and acceptance bytes are extracted only
 into ignored test-owned scratch; they are not copied into native product source.
 CFL's search adapter, subprocess data fixture and isolated host controls are
 original integration work. FlickLog itself and prompt semantics are unchanged.
+
+### Default shared frontend artifact
+
+`vendor/lamplit-default-shared-frontend.tgz` is the unchanged Owner-approved App
+#3162 archive from `LamplitIsles/lamplit-app` HEAD
+`d1e800e72807d52ea14eed59d13a3cef6a43fd09` (Apache-2.0). Archive SHA256:
+`eef50394bba2452f6daf1a8a052db3a35e68ed049bab480616602496aaca227e`.
+The build verifies its browser manifest and all 265 files, then copies only
+`browser/` into the existing build directory. Acceptance runners and contracts
+remain inside the archive for exact artifact identity; they are not shipped as
+product APIs. The contracts are byte-identical to the existing search package.
+The former local Vite entry/Partner page are removed; native/domain dependencies
+still consumed under `apps/partner/src/lib` remain. Main packaging retains the
+App LICENSE and original source attribution alongside CFL/SDK/font notices.
+The App imports CFL's existing Framework7 presentation; no Composer redesign or
+new Penpot exports are introduced.

@@ -34,6 +34,9 @@ await cp(join(root, 'apps', 'partner', 'runtime', 'session-start-hook.mjs'), joi
 await writeFile(join(vendor, 'package.json'), '{"type":"module"}\n');
 await cp(join(root, 'LICENSE'), join(mainPackage, 'LICENSE'));
 await cp(join(root, 'licenses'), join(vendor, 'licenses'), { recursive: true });
+for (const [source, name] of [['acceptance/LICENSE', 'lamplit-app-Apache-2.0.txt'], ['acceptance/docs/IMPORTS.md', 'lamplit-app-IMPORTS.md']]) {
+  await writeFile(join(vendor, 'licenses', name), execFileSync('tar', ['-xOzf', join(root, 'vendor/lamplit-default-shared-frontend.tgz'), source]));
+}
 await cp(join(dirname(partnerRequire.resolve('@fontsource/noto-sans-sc/package.json')), 'LICENSE'), join(vendor, 'licenses', 'NotoSansSC-OFL-1.1.txt'));
-const packed = JSON.parse(execFileSync('npm', ['pack', '--json', '--pack-destination', output], { cwd: mainPackage, encoding: 'utf8' }))[0];
+const packed = Object.values(JSON.parse(execFileSync('npm', ['pack', '--json', '--pack-destination', output], { cwd: mainPackage, encoding: 'utf8' })))[0];
 console.log(JSON.stringify({ artifact: join(output, packed.filename), mainPackage, version: packed.version }, null, 2));

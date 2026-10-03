@@ -9,7 +9,7 @@ import { partnerPaths } from '../runtime/storage-paths.ts';
 import type { Partner } from '../runtime/partner.ts';
 
 /** Test-only facade: every observation travels through the fake official SDK process. */
-export async function quietCompactionFixture(chatAssets: string, nativeAssets: string, port = 0) {
+export async function quietCompactionFixture(assets: string, port = 0) {
   let f = await fixture();
   let partner: Partner;
   let control: Record<string, unknown> = { holdCompact: true };
@@ -34,7 +34,7 @@ export async function quietCompactionFixture(chatAssets: string, nativeAssets: s
     if (key === 'subscribe') return (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; };
     const value = partner[key as keyof Partner]; return typeof value === 'function' ? value.bind(partner) : value;
   } });
-  const app = createWebServer(facade, nativeAssets, { chatAssets, authorize: async request => request.headers.cookie?.includes('quiet-test-owner=1') === true });
+  const app = createWebServer(facade, assets, { authorize: async request => request.headers.cookie?.includes('quiet-test-owner=1') === true });
   app.server.prependListener('request', (request, response) => {
     if (!request.url?.startsWith('/api')) response.setHeader('Set-Cookie', 'quiet-test-owner=1; Path=/; SameSite=Strict');
   });
@@ -107,7 +107,7 @@ export async function quietCompactionFixture(chatAssets: string, nativeAssets: s
     async close() { control.holdCompactReply = false; control.holdCompact = false; await writeControl(); await app.close(); for (const off of subscriptions) off(); await f.close(); for (const old of retired) await old.close(); await new Promise<void>(done => controls.close(() => done())); } };
 }
 if (process.argv[1] === import.meta.filename) {
-  const host = await quietCompactionFixture(resolve(process.argv[2]!), resolve(process.argv[3]!));
+  const host = await quietCompactionFixture(resolve(process.argv[2]!));
   console.log(JSON.stringify({ origin: host.origin, controlUrl: host.controlUrl, workspace: host.f.workspace }));
   for (const signal of ['SIGINT', 'SIGTERM'] as const) process.once(signal, () => { void host.close().then(() => process.exit()); });
 }

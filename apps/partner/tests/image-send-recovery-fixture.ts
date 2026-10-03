@@ -12,7 +12,7 @@ import { partnerPaths } from '../runtime/storage-paths.ts';
 import type { Submission } from '@lamplit/contracts';
 
 /** TEST ONLY: real Partner/storage/SDK; controls drive its fake official server. */
-export async function imageAcceptanceFixture(chatAssets: string, port = 0, controlPort = 0) {
+export async function imageAcceptanceFixture(assets: string, port = 0, controlPort = 0) {
   let f = await fixture();
   let partner: Awaited<ReturnType<typeof f.createPartner>>;
   let app: ReturnType<typeof createWebServer>;
@@ -43,12 +43,12 @@ export async function imageAcceptanceFixture(chatAssets: string, port = 0, contr
       if (!submissions.some(item => item.operationId === input.operationId)) submissions.push(structuredClone(input));
       return result;
     };
-    app = createWebServer(partner, join(f.directory, 'assets'), { chatAssets,
+    app = createWebServer(partner, assets, {
       authorize: async request => request.headers.cookie?.includes('image-fixture-owner=1') === true,
     });
     // Authentication bootstrap belongs only to this isolated fixture, never product routing.
     app.server.prependListener('request', (request, response) => {
-      if (request.url?.startsWith('/slice')) response.setHeader('Set-Cookie', 'image-fixture-owner=1; Path=/; SameSite=Strict');
+      if (request.url === '/' || request.url === '/chat') response.setHeader('Set-Cookie', 'image-fixture-owner=1; Path=/; SameSite=Strict');
     });
     app.server.listen(port, '127.0.0.1'); await once(app.server, 'listening');
     port = (app.server.address() as { port: number }).port;

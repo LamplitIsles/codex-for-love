@@ -1,6 +1,11 @@
 # Codex for Love
 
-Use Node 24 and the pnpm version pinned in package.json for this imported SvelteKit application. Task-specific implementation specs live under `.scratch/`. Work in this checkout, without worktrees.
+Use Node 24 and the pnpm version pinned in package.json. The default frontend is
+the approved shared Framework7 App: `pnpm build` verifies/copies its vendored frozen
+artifact into `apps/partner/build`, which existing CLI packaging includes. Do not
+rebuild or modify frozen App artifacts during native acceptance. Task-specific
+implementation specs live under `.scratch/`. Work in this checkout, without
+worktrees.
 
 Official Codex app-server owns execution, model history, queue, authentication and compaction. This application owns the Companion UI, STT, attachments and relationship state. Keep one execution owner; remove obsolete naco/DSH paths. Docker, generic migration and deployment cutover are outside this implementation; the explicitly authorized one-time converter for a user-supplied, already-compacted DSH log is the narrow exception documented by its task spec.
 

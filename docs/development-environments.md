@@ -17,7 +17,9 @@ attachments, persona, and official Codex thread. Mika dev and staging begin
 with matching profile assets and Markdown, but their state and sessions remain
 separate.
 
-Dev and staging both serve `apps/partner/build` from this checkout. Run one
+The root build verifies/copies the frozen shared App; it does not build the
+former local UI or require an adjacent App checkout. The packaged CLI includes
+these same bytes. Dev and staging both serve `apps/partner/build` from this checkout. Run one
 checkout `pnpm build` before restarting either service; do not build a separate
 staging UI artifact.
 
@@ -118,3 +120,12 @@ launcher's service `PATH`. That host-policy guard is outside this repository
 and does not match CFL's Companion-only runtime readiness contract. A normal
 Kosmos-unit rollout must remove that guard in a separate Kosmos change; a
 checkout-based dev override does not prove the base launcher is fixed.
+
+## Isolated implementation acceptance
+
+Workers for default-shared-frontend use test-owned fixtures only; the canonical
+services above are for later Owner verification. They do not restart or reconfigure
+these targets. Current commands and shared/native/browser evidence boundaries are
+in [default-shared-frontend.md](default-shared-frontend.md). `/` is the standalone
+entry; `/chat` serves the same App. Platform owns hosted auth, manifest, service
+worker and management independently. `LAMPLIT_APP_ASSETS` and `/slice` are removed.

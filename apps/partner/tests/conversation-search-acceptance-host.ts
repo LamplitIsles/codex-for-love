@@ -4,20 +4,20 @@ import { once } from 'node:events';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { fixture } from './fixture.ts';
-import { seedConversationSearch } from './conversation-search-seed.ts';
+import { seedNativeConversationSearch } from './conversation-search-native-seed.ts';
 import { createWebServer } from '../runtime/server.ts';
 import { createCodexChatBackend } from '../runtime/chat.ts';
 import type { Partner } from '../runtime/partner.ts';
 
 export async function conversationSearchHost(browser: string, evidence: string) {
-  let f = await fixture(), partner: Partner, seeded: Awaited<ReturnType<typeof seedConversationSearch>>;
+  let f = await fixture(), partner: Partner, seeded: Awaited<ReturnType<typeof seedNativeConversationSearch>>;
   const listeners = new Set<() => void>(); let unsubscribe = () => {};
   let calls: string[] = [], failures = new Set<string>(), heldKey: string | undefined;
   const held = new Set<() => void>();
   async function reset() {
     for (const release of held) release(); held.clear(); heldKey = undefined; failures.clear(); calls = [];
-    unsubscribe(); await f.close(); f = await fixture();
-    seeded = await seedConversationSearch(f.directory, f.workspace, f.config.codex.home!);
+    unsubscribe(); await seeded?.close(); await f.close(); f = await fixture();
+    seeded = await seedNativeConversationSearch(f.directory, f.workspace, f.config.codex.home!);
     partner = await f.createPartner(); unsubscribe = partner.subscribe(() => { for (const listener of listeners) listener(); });
     for (const listener of listeners) listener();
   }
@@ -36,10 +36,10 @@ export async function conversationSearchHost(browser: string, evidence: string) 
   }
   const search = { search: (query: string) => deliver('search', query, () => seeded.search.search(query)),
     read: (id: string) => deliver('searchRead', id, () => seeded.search.read(id)) };
-  const app = createWebServer(facade, resolve('apps/partner/build'), { chatAssets: browser, conversationSearch: search,
+  const app = createWebServer(facade, browser, { conversationSearch: search,
     authorize: async request => request.headers.cookie?.includes('search-test-owner=1') === true });
   app.server.prependListener('request', (request, response) => {
-    if (request.url?.startsWith('/slice')) response.setHeader('Set-Cookie', 'search-test-owner=1; Path=/; SameSite=Strict');
+    if (request.url === '/' || request.url === '/chat') response.setHeader('Set-Cookie', 'search-test-owner=1; Path=/; SameSite=Strict');
   });
   app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening');
   const controls = createServer(async (request, response) => {
@@ -64,7 +64,7 @@ export async function conversationSearchHost(browser: string, evidence: string) 
   controls.listen(0, '127.0.0.1'); await once(controls, 'listening');
   return { origin: `http://127.0.0.1:${(app.server.address() as { port: number }).port}`,
     controlUrl: `http://127.0.0.1:${(controls.address() as { port: number }).port}/__test/conversation-search`,
-    async close() { for (const release of held) release(); await app.close(); unsubscribe(); await f.close(); await new Promise<void>(done => controls.close(() => done())); } };
+    async close() { for (const release of held) release(); await app.close(); unsubscribe(); await seeded?.close(); await f.close(); await new Promise<void>(done => controls.close(() => done())); } };
 }
 if (process.argv[1] === import.meta.filename) {
   const h = await conversationSearchHost(resolve(process.argv[2]!), resolve(process.argv[3]!));

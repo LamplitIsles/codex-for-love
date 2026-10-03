@@ -13,6 +13,8 @@ export const VOICE_MODEL = 'qwen-audio-3.1-asr-flash-streaming';
 export type VoiceDependencies = {
   connect?: (key: string) => WebSocket;
   timeouts?: { setup: number; lifetime: number; finish: number };
+  /** Test-owned transport observation; never replaces native admission or relay. */
+  observe?: (client: WebSocket) => void;
 };
 function validKey(key: string | null): key is string {
   return !!key && key === key.trim() && key.length <= 512 && !/[\x00-\x1f\x7f]/u.test(key);
@@ -29,6 +31,7 @@ export function createVoiceHost(credential: () => string | null, dependencies: V
   }));
   const available = () => validKey(credential());
   sockets.on('connection', client => {
+    dependencies.observe?.(client);
     const taskId = randomUUID();
     let upstream: WebSocket | undefined;
     let terminal = false, ready = false, finishing = false, bytes = 0, chars = 0;

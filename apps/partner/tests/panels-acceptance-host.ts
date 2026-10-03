@@ -38,9 +38,9 @@ sockets.on('connection', ws => {
 });
 provider.listen(0, '127.0.0.1'); await once(provider, 'listening');
 const port = (provider.address() as { port: number }).port;
-const app = createWebServer(partner, resolve('apps/partner/build'), { chatAssets: resolve(process.argv[2]!), authorize: async request => request.headers.cookie?.includes('panels-test-owner=1') === true, voice: { connect: () => new WebSocket(`ws://127.0.0.1:${port}`) } });
-app.server.prependListener('request', (request, response) => { if (request.url?.startsWith('/slice')) response.setHeader('Set-Cookie', 'panels-test-owner=1; Path=/; SameSite=Strict'); });
+const app = createWebServer(partner, resolve(process.argv[2]!), { authorize: async request => request.headers.cookie?.includes('panels-test-owner=1') === true, voice: { connect: () => new WebSocket(`ws://127.0.0.1:${port}`) } });
+app.server.prependListener('request', (request, response) => { if (request.url === '/' || request.url === '/chat') response.setHeader('Set-Cookie', 'panels-test-owner=1; Path=/; SameSite=Strict'); });
 app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening');
-console.log(JSON.stringify({ url: `http://127.0.0.1:${(app.server.address() as { port: number }).port}/slice/`, root, sourceAlarm }));
+console.log(JSON.stringify({ url: `http://127.0.0.1:${(app.server.address() as { port: number }).port}/`, root, sourceAlarm }));
 async function close() { await writeFile(join(evidence, 'native.json'), JSON.stringify({ voice, requests: await f.requests(), workspace: f.workspace })); await app.close(); await f.close(); for (const ws of sockets.clients) ws.terminate(); sockets.close(); provider.close(); process.exit(0); }
 process.once('SIGTERM', close); process.once('SIGINT', close);

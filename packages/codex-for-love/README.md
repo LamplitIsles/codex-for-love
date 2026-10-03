@@ -14,3 +14,8 @@ The installed `vendor/ecosystem-mcp.example.toml` is an optional, static
 example for adding FlickNote and Guion Web after CFL has created its minimal
 workspace configuration. The bundled Companion MCP is the only required
 integration.
+
+The main package includes the approved shared Framework7 App. `/` and `/chat`
+serve identical HTML with root-relative assets; no sibling App checkout or asset
+directory override is needed. Platform independently owns hosted authentication,
+manifest, service worker and management. The obsolete `/slice` entry is removed.

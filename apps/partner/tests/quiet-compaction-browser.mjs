@@ -5,7 +5,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { quietCompactionFixture } from './quiet-compaction-fixture.ts';
 const { chromium, expect } = await import(pathToFileURL(resolve(process.argv[2], 'node_modules/@playwright/test/index.mjs')).href);
 const evidence = resolve(process.argv[3]); await mkdir(evidence, { recursive: true });
-const h = await quietCompactionFixture('', resolve('apps/partner/build'));
+const h = await quietCompactionFixture(resolve('apps/partner/build'));
 const browser = await chromium.launch({ headless: true, channel: 'chrome' });
 try {
   for (const width of [390, 1280, 320]) {

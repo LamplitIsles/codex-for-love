@@ -8,7 +8,7 @@ import { openChat } from '@lamplit/contracts/client';
 import { once } from 'node:events';
 
 test('native last usage, nullable completion, fresh coalesced snapshot, failure and ownership', async () => {
-  const h = await quietCompactionFixture('', '');
+  const h = await quietCompactionFixture('');
   try {
     const backend = createCodexChatBackend(h.partner);
     assert.deepEqual((await backend.read()).contextUsage, { tokens: null, capacity: null });
@@ -44,7 +44,7 @@ test('native last usage, nullable completion, fresh coalesced snapshot, failure 
 });
 
 test('admission revalidates revoked authorization and busy state after awaited guard', async () => {
-  const h = await quietCompactionFixture('', '');
+  const h = await quietCompactionFixture('');
   try {
     let release: (value: boolean) => void = () => {};
     const entered = Promise.withResolvers<void>();
@@ -65,7 +65,7 @@ test('admission revalidates revoked authorization and busy state after awaited g
 
 
 test('connection revoked while native authorization awaits never enters the official engine', { timeout: 15000 }, async () => {
-  const h = await quietCompactionFixture('', '');
+  const h = await quietCompactionFixture('');
   let armed = false, checks = 0;
   const entered = Promise.withResolvers<void>(); const gate = Promise.withResolvers<boolean>();
   const app = createWebServer(h.partner, '', { authorize: async () => {
@@ -94,7 +94,7 @@ test('connection revoked while native authorization awaits never enters the offi
 
 
 test('definite official admission refusal returns false without an execution or retry', async () => {
-  const h = await quietCompactionFixture('', '');
+  const h = await quietCompactionFixture('');
   try {
     await h.action({ action: 'refuse', enabled: true });
     const backend = createCodexChatBackend(h.partner);
@@ -108,7 +108,7 @@ test('definite official admission refusal returns false without an execution or 
 
 for (const shared of [false, true]) {
   test(`${shared ? 'shared' : 'native'} pending human admission refuses immediate compact without queuing`, async () => {
-    const h = await quietCompactionFixture('', '');
+    const h = await quietCompactionFixture('');
     try {
       const id = crypto.randomUUID();
       const submission = shared ? h.partner.submitShared({ operationId: id, text: 'first queued text' }) : h.partner.submit(id, 'first queued text');
@@ -127,7 +127,7 @@ for (const shared of [false, true]) {
 }
 
 test('failed shared prerequisites and failed native admission release pending human markers', async () => {
-  const h = await quietCompactionFixture('', '');
+  const h = await quietCompactionFixture('');
   try {
     await assert.rejects(h.partner.submitShared({ operationId: '', text: 'invalid shared input' }));
     await assert.rejects(h.partner.submitShared({ operationId: crypto.randomUUID(), text: 'invalid replacement', replacementSourceIds: ['not-owned'] }));

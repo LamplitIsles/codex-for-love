@@ -6,7 +6,7 @@ import { createWebServer } from '../runtime/server.ts';
 import { parseVoiceServerEvent, type VoiceServerEvent } from '@lamplit/contracts/voice';
 import type { VoiceDependencies } from '../runtime/voice.ts';
 
-export async function voiceFixture(timeouts?: VoiceDependencies['timeouts'], chatAssets?: string) {
+export async function voiceFixture(timeouts?: VoiceDependencies['timeouts'], assets?: string) {
   const f = await fixture();
   f.config.speech = { endpoint: 'http://unused-batch.invalid' }; f.credentials.speech = 'fixture-key';
   const state = { reject: 0, holdReady: false, holdFinish: false, malformed: false, unfinished: false, text: 'recognized final', calls: 0, closes: 0, frames: 0, bytes: 0, auth: '', events: [] as string[] };
@@ -37,7 +37,7 @@ export async function voiceFixture(timeouts?: VoiceDependencies['timeouts'], cha
   provider.listen(0, '127.0.0.1'); await once(provider, 'listening');
   const upstream = `ws://127.0.0.1:${(provider.address() as {port:number}).port}`;
   const partner = await f.createPartner();
-  const app = createWebServer(partner, `${f.directory}/assets`, { chatAssets, voice: {connect: key => new WebSocket(upstream, {headers: {Authorization: `Bearer ${key}`}}), ...(timeouts ? {timeouts} : {})} });
+  const app = createWebServer(partner, assets ?? `${f.directory}/assets`, { voice: {connect: key => new WebSocket(upstream, {headers: {Authorization: `Bearer ${key}`}}), ...(timeouts ? {timeouts} : {})} });
   app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening');
   const origin = `http://127.0.0.1:${(app.server.address() as {port:number}).port}`;
   const clients = new Set<WebSocket>();

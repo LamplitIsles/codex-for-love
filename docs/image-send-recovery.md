@@ -93,7 +93,7 @@ must be unused; neither canonical services nor credentials are read/restarted.
 In a second terminal run the exact extracted runner:
 
 ```sh
-APP_ACCEPTANCE_URL=http://127.0.0.1:19871/slice/ \
+APP_ACCEPTANCE_URL=http://127.0.0.1:19871/ \
 APP_ACCEPTANCE_CONTROL_URL=http://127.0.0.1:19872/__test/image-send-recovery \
 APP_ACCEPTANCE_EVIDENCE="$PWD/.scratch/image-send-recovery/review2/evidence" \
   node .scratch/image-send-recovery/review2/acceptance/images-browser.mjs
@@ -117,3 +117,11 @@ native tests. Compare extracted manifests again after acceptance, and record log
 artifact identity, screenshots, byte evidence and commit/LOC coverage in untracked
 `.scratch/image-send-recovery/implementation-report.md`. Keep the PR open for Owner
 whole-spec review and both backends' joint user acceptance; do not merge or deploy.
+
+## Current default frontend acceptance
+
+The historical artifact identities above remain evidence. For canonical-root
+verification use the approved #3162 full artifact and
+[default shared frontend](default-shared-frontend.md), including all six native
+suites and route lifecycle. The native fixture serves the extracted browser at
+`/`; product builds/package preparation include that same approved App by default.

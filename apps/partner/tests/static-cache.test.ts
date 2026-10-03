@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import { createWebServer } from '../runtime/server.ts';
 import type { Partner } from '../runtime/partner.ts';
 
-test('SPA fallback documents revalidate like the root document', async () => {
+test('only canonical entries serve the document and both revalidate', async () => {
   const assets = await mkdtemp(join(tmpdir(), 'partner-static-cache-'));
   await writeFile(join(assets, 'index.html'), '<!doctype html><title>Partner</title>');
   const app = createWebServer({ close: async () => {} } as Partner, assets);
@@ -17,6 +17,9 @@ test('SPA fallback documents revalidate like the root document', async () => {
   try {
     assert.equal((await fetch(`${url}/`)).headers.get('cache-control'), 'no-cache');
     assert.equal((await fetch(`${url}/chat`)).headers.get('cache-control'), 'no-cache');
+    assert.equal(await (await fetch(`${url}/chat`)).text(), await (await fetch(`${url}/`)).text());
+    for (const path of ['/slice', '/slice/', '/slice/manifest.webmanifest', '/management', '/missing.js', '/assets/missing.js'])
+      assert.equal((await fetch(`${url}${path}`)).status, 404, path);
   } finally {
     await app.close();
     await rm(assets, { recursive: true, force: true });
@@ -42,7 +45,7 @@ test('built PWA entry, manifest and real icons are served without changing docum
     assert.equal(response.status, 200);
     assert.match(response.headers.get('content-type')!, /application\/manifest\+json/u);
     const manifest = await response.json();
-    assert.deepEqual([manifest.id, manifest.scope, manifest.start_url, manifest.display, manifest.name, manifest.short_name], ['/', '/', '/', 'standalone', 'Codex for Love', 'CFL']);
+    assert.deepEqual([manifest.id, manifest.scope, manifest.start_url, manifest.display, manifest.name, manifest.short_name], ['/', '/', '/', 'standalone', 'Lamplit', 'Lamplit']);
     for (const [src, size] of [...manifest.icons.map((icon: { src: string; sizes: string; type: string }) => {
       assert.equal(icon.type, 'image/png');
       return [icon.src, Number(icon.sizes.split('x')[0])];
