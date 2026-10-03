@@ -362,8 +362,10 @@ See [source preparation and isolated acceptance](docs/default-shared-frontend.md
 for complete artifacts and the verification boundary.
 `GET /api/chat/appearance` supplies the configured name, avatars and horizontal/vertical
 backgrounds to the shared UI. Successful replies end quietly; failure and stop notices
-remain visible. In-flight sends stay visible until their native message arrives,
-without showing transient recovery controls.
+remain visible. Text and selected images appear immediately as normal outgoing bubbles, before
+upload or receipt. Offline sends retain the draft. Definite failure before durable
+admission restores text and images alongside newer edits; ambiguous delivery is
+reconciled without automatic replay. Durable rejection retains explicit recovery.
 See [current artifact and isolated acceptance](docs/default-shared-frontend.md).
 
 The official app-server remains the sole execution/history owner. Completed
