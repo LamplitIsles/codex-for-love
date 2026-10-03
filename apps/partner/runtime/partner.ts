@@ -507,6 +507,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
   let pendingHumanAdmissions = 0;
   let eventChain: Promise<void> = Promise.resolve();
   let admission: Promise<void> = Promise.resolve();
+  let inputAdmission: Promise<void> = Promise.resolve();
   let closePromise: Promise<void> | undefined;
   let alarmTimer: ReturnType<typeof setInterval> | undefined;
   const pet = config.pet.enabled ? new PetActivityProjection(() => { if (!closing) notify(); }) : undefined;
@@ -994,6 +995,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
       activeTurnId = turn.id;
       activeOperationId = intent.ids[0] ?? null;
       if (!turnControllers.has(turn.id)) turnControllers.set(turn.id, new AbortController());
+      notify();
       const reconciled = userItems(turn).length ? await reconcileTurn(turn.id, turn) : turn;
       if (reconciled && userItems(reconciled).length) await projectTurn(reconciled);
       syncActiveTurn();
@@ -1363,6 +1365,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
         activeTurnId = turn.id;
         activeOperationId = sourceIdsForTurn(turn.id)[0] ?? activeOperationId;
         if (!turnControllers.has(turn.id)) turnControllers.set(turn.id, new AbortController());
+        notify();
       }
     }
     eventChain = eventChain.then(() => handleServerEvent(notification)).catch((error) => {
@@ -1513,9 +1516,8 @@ export async function createPartner(config: Config, credentials: Credentials, de
   function submitInput(id: string, input: string, values: readonly z.infer<typeof imageInputSchema>[] = [], replaces: readonly string[] = [], shared?: Submission) {
     if (input.trim() === '/compact') return Promise.reject(new Error('Use the compact command without images'));
     pendingHumanAdmissions += 1;
-    const task = admission.then(async () => {
+    const accepted = inputAdmission.then(async () => {
       if (closing || storageError) throw new Error('Partner is unavailable');
-      await eventChain;
       if (shared) {
         const existing = await store.sharedSubmission(id, threadId);
         if (existing) {
@@ -1552,23 +1554,43 @@ export async function createPartner(config: Config, credentials: Credentials, de
         unresolvedInputIds.delete(replacedId);
       }
       if (replaces.length) await setRestoredDraft([...unresolvedInputIds]);
-      await eventChain;
-      syncActiveTurn();
-      const intent: InputIntent = { ids: [id], input, images: materialized, transportId: id, source: 'human' };
-      // Native acceptance can precede turn/started. Hold inputs until that
-      // compaction ends instead of racing a new turn against its start.
-      if (compacting && !activeTurnId) {
-        rejectedSteers.push(intent);
+      return { ids: [id], input, images: materialized, transportId: id, source: 'human' } satisfies InputIntent;
+    });
+    // Durable admission has its own short serializer. Native attempts remain
+    // ordered on the existing execution owner and are drained during close.
+    inputAdmission = accepted.then(() => undefined, () => undefined);
+    const executed = accepted.then(intent => {
+      if (!intent) return;
+      const task = admission.then(async () => {
+        if (closing) { await markUnresolved(intent); return; }
+        await eventChain;
+        if (operationTurn(id) || observedInputIds.has(id) || unresolvedInputIds.has(id) || (await store.outcome(id))) return;
+        syncActiveTurn();
+        // Native acceptance can precede turn/started. Hold inputs until that
+        // compaction ends instead of racing a new turn against its start.
+        if (compacting && !activeTurnId) {
+          rejectedSteers.push(intent);
+          notify();
+          return;
+        }
+        if (rejectedSteers.length) await (drainRejectedSteers() ?? Promise.resolve());
+        if (activeTurnId) await steerIntent(intent, activeTurnId);
+        else await startIntent(intent);
         notify();
-        return;
-      }
-      if (rejectedSteers.length) await (drainRejectedSteers() ?? Promise.resolve());
-      if (activeTurnId) await steerIntent(intent, activeTurnId);
-      else await startIntent(intent);
-      notify();
+      });
+      admission = task.catch(error => {
+        if (!closing) { processError('input.execution_failed', error, { operationId: id }); notify(); }
+      });
+      return task;
     }).finally(() => { pendingHumanAdmissions -= 1; });
-    admission = task.catch(() => { if (!closing) notify(); });
-    return task;
+    // Keep delayed caller handling (especially close) from creating an
+    // unhandled rejection. Execution failures are reported by admission above.
+    void executed.catch(() => undefined);
+    if (shared) {
+      // A receipt promises retained input, not successful native execution.
+      return accepted.then(() => { if (!closing) notify(); });
+    }
+    return executed;
   }
 
   return {
@@ -1646,9 +1668,11 @@ export async function createPartner(config: Config, credentials: Credentials, de
       try { await access(image.path); } catch { availability = 'missing'; }
       return { attachmentId: id, name: image.name, mediaType: image.media_type as ImageRef['mediaType'], availability };
     },
-    async sharedRecovery(): Promise<InputRecovery[]> {
-      await eventChain;
-      if ((await unresolvedMessages()).length) await refreshRecoveryHistory();
+    async sharedRecovery(settled = true): Promise<InputRecovery[]> {
+      if (settled) {
+        await eventChain;
+        if ((await unresolvedMessages()).length) await refreshRecoveryHistory();
+      }
       const sources = await unresolvedMessages();
       const recovery: InputRecovery[] = [];
       for (const source of sources.slice(-20)) {
@@ -1691,8 +1715,8 @@ export async function createPartner(config: Config, credentials: Credentials, de
     avatar: (kind: 'companion' | 'user') => avatars[kind],
     background: (kind: 'landscape' | 'portrait') => backgrounds[kind],
     async petAsset(activity: import('./pet.ts').PetActivity) { return pet ? localPetClip(config.state, activity) : undefined; },
-    async snapshot(options: MessagePageOptions = {}) {
-      await eventChain;
+    async snapshot(options: MessagePageOptions = {}, settled = true) {
+      if (settled) await eventChain;
       const page = options.after === undefined
         ? visibleHistoryPage(await store.allMessages(), [...turnResults.values()], options.before)
         : await store.messagePage(options);
@@ -1804,7 +1828,6 @@ export async function createPartner(config: Config, credentials: Credentials, de
     async chatReceipt(id: string): Promise<Receipt> {
       const meta = await store.messageMeta(id);
       if (!meta) return { operationId: id, state: 'missing', messageId: null, turnId: null, error: null };
-      await eventChain;
       const turn = operationTurn(id);
       const outcome = await store.outcome(id);
       const consumed = observedInputIds.has(id);
@@ -1826,8 +1849,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
       try {
         const input = validateSubmission(value);
         const normalized: Submission = { operationId: input.operationId, text: input.text, ...(input.images?.length ? { images: input.images.map(({ attachmentId, name, mediaType, availability }) => ({ attachmentId, name, mediaType, availability })) } : {}), ...(input.replacementSourceIds?.length ? { replacementSourceIds: input.replacementSourceIds } : {}) };
-        try { await submitInput(input.operationId, input.text, [], input.replacementSourceIds ?? [], normalized); }
-        catch (error) { const admitted = await store.sharedSubmission(input.operationId, threadId); if (!admitted || admitted !== createHash('sha256').update(JSON.stringify(normalized)).digest('hex') || (!unresolvedInputIds.has(input.operationId) && !await store.rejected(input.operationId))) throw error; }
+        await submitInput(input.operationId, input.text, [], input.replacementSourceIds ?? [], normalized);
         return await this.chatReceipt(input.operationId);
       } finally { pendingHumanAdmissions -= 1; }
     },
@@ -1892,6 +1914,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
         let closeError: unknown;
         try { await serverClose; }
         catch (error) { closeError = error; }
+        await inputAdmission;
         await admission;
         await eventChain;
         listeners.clear();

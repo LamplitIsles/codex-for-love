@@ -10,7 +10,9 @@ export function createCodexChatBackend(partner: Partner, authorize: () => Promis
   async function page(cursor?: string) {
     const options: { before?: number; anchor?: string } = cursor ? JSON.parse(cursor) : {};
     if (options.before !== undefined && (!Number.isSafeInteger(options.before) || options.before < 0)) throw new Error('Invalid cursor');
-    const snapshot = await partner.snapshot(options.before === undefined ? {} : { before: options.before });
+    // Shared host refresh must read the current projection without waiting
+    // for native history; known activity and durable receipts are independent.
+    const snapshot = await partner.snapshot(options.before === undefined ? {} : { before: options.before }, false);
     const receipts = new Map(await Promise.all(snapshot.messages.map(async m => [m.id, await partner.chatReceipt(m.id)] as const)));
     const ordered: Array<{ order: number; message: ChatMessage }> = [];
     for (const m of snapshot.messages) {
@@ -48,7 +50,7 @@ export function createCodexChatBackend(partner: Partner, authorize: () => Promis
       return { record, context: { targetSourceRecordIndex: context.targetSourceRecordIndex, truncated: context.truncated,
         items: context.items.filter(item => item.kind !== 'tool').map(({ phase: _phase, kind, ...item }) => ({ ...item, kind: kind as 'message' | 'compaction' })) } };
     },
-    async read(): Promise<ChatView> { const recovery = await partner.sharedRecovery(); const p = await page(); return { version: 1, sessionId: p.snapshot.sessionId, name: p.snapshot.name, activeTurnId: p.snapshot.cancellable[0] ?? null, contextUsage: { tokens: p.snapshot.context?.activeTokens ?? null, capacity: p.snapshot.context?.windowTokens ?? null }, compaction: p.snapshot.lifecycle.latest ? { id: p.snapshot.lifecycle.latest.nativeId ?? null, status: p.snapshot.lifecycle.latest.status } : null, messages: p.messages, before: p.before, capabilities: { ...capabilities, images: await partner.sharedImageLimits() }, recovery }; },
+    async read(): Promise<ChatView> { const recovery = await partner.sharedRecovery(false); const p = await page(); return { version: 1, sessionId: p.snapshot.sessionId, name: p.snapshot.name, activeTurnId: p.snapshot.cancellable[0] ?? null, contextUsage: { tokens: p.snapshot.context?.activeTokens ?? null, capacity: p.snapshot.context?.windowTokens ?? null }, compaction: p.snapshot.lifecycle.latest ? { id: p.snapshot.lifecycle.latest.nativeId ?? null, status: p.snapshot.lifecycle.latest.status } : null, messages: p.messages, before: p.before, capabilities: { ...capabilities, images: await partner.sharedImageLimits() }, recovery }; },
     async history(before) { const p = await page(before); return { messages: p.messages, before: p.before }; },
     compact: input => partner.compact({ ...input, authorize }),
     submit: input => partner.submitShared(input),

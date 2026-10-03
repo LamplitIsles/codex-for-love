@@ -476,9 +476,15 @@ turn are held in FIFO order and merged into one fresh native turn when the
 conversation becomes eligible. This is internal send recovery, not a deferred
 queue feature. An ordinary stop restores only unacknowledged text and images to
 the composer; reopening a conversation never submits a restored draft. The
-next deliberate send may replace that draft's source identities, and a lost
-RPC response is reconciled from official user items/history before any result
-is shown as accepted.
+next deliberate send may replace that draft's source identities. Shared chat
+acceptance is the SQLite commit of validated input, attachments and operation
+fingerprint. Its receipt and reconnect lookup do not wait for native start/steer
+or history catch-up. Native execution remains serialized; official user items
+establish consumption. Later rejection or uncertainty remains visible, and
+ambiguous native attempts are never automatically replayed after restart.
+Accepted means retained input, not a guarantee of exactly-once execution. Known
+native activity reaches the existing typing view independently of reconciliation;
+only completed reply messages are presented.
 
 Uploaded image bytes are validated, materialized once below
 `.lamplit/attachments/`, and sent as native `localImage` input with the exact

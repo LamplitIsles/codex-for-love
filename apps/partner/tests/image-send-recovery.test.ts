@@ -140,7 +140,8 @@ test('rejected uppercase shared UUIDs retain their identity through recovery, re
   const partner = await f.createPartner();
   try {
     const operationId = 'ABCDEF01-ABCD-ABCD-ABCD-ABCDEF012345';
-    assert.equal((await partner.submitShared({ operationId, text: 'uppercase original' })).state, 'rejected');
+    assert.equal((await partner.submitShared({ operationId, text: 'uppercase original' })).state, 'accepted');
+    await eventually(async () => (await partner.chatReceipt(operationId)).state === 'rejected');
     const recovery = (await createCodexChatBackend(partner).read()).recovery;
     assert.equal(recovery.length, 1);
     assert.deepEqual(recovery[0], { sourceId: operationId, operationId, text: 'uppercase original', images: [], state: 'rejected', replacementEligible: true });

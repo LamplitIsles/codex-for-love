@@ -8,7 +8,7 @@ configuration; this is the operating contract for the three CFL targets.
 
 | Target | User service | Runtime source | Configuration | Loopback port |
 | --- | --- | --- | --- | ---: |
-| Mika dev | `codex-for-love-dev.service` | current checkout | `~/.local/state/codex-for-love/dev/partner.toml` | 3082 (also LAN on `192.168.1.179`) |
+| Mika dev | `codex-for-love-dev.service` | isolated complete candidate when overridden; otherwise checkout | `~/.local/state/codex-for-love/dev/partner.toml` | 3082 (also LAN on `192.168.1.179`) |
 | Mika staging | `codex-for-love-staging.service` | candidate snapshot when overridden; otherwise checkout | `~/.local/state/codex-for-love/staging/partner.toml` | 3083 |
 | Shio prod | `codex-for-love-prod.service` | verified complete artifact, installed native package | `~/.local/state/codex-for-love/prod/partner.toml` | 3084 |
 
@@ -20,7 +20,9 @@ separate.
 The root build consumes prepared adjacent App frontend and public contracts.
 Production now serves an isolated bundled runtime and frozen resources, retaining
 the installed native package and its existing configuration/state. Updating this
-checkout or its build output affects dev only. Staging retains its separate
+checkout or its build output affects a checkout launcher only; inspect current
+overrides before deployment. Dev and prod currently both launch the isolated
+`d60b7f518d44ef806f5fbccb3e2419af2101c6f6` complete candidate. Staging retains its separate
 candidate snapshot. New production promotion uses reviewed, verified complete
 artifacts; changing this checkout does not deploy production.
 
@@ -94,10 +96,14 @@ Retain the candidate directory while it is in use.
 
 ## Prepare and promote dev then prod
 
-Production currently serves the unchanged `1263eb20` isolation snapshot under
-`~/.local/share/codex-for-love/prod-candidates/1263eb20c9a73462ba0ad48ee068635b97af004d`.
-It is independent of checkout build/dependencies. Its Sharp 0.34.5 resolves from
-the stable installed prod prefix, which must remain available. Staging's existing
+Dev and production currently serve the complete `d60b7f5` candidate under
+`~/.local/share/codex-for-love/candidates/d60b7f518d44ef806f5fbccb3e2419af2101c6f6/package`.
+It is independent of checkout build/dependencies and uses its stable candidate
+Sharp 0.34.5 dependency prefix, which must remain available. For spec #3219,
+prepare and verify the new complete candidate without changing live launchers.
+Orc owns dev promotion after review/merge; production requires a new explicit
+Owner command. The following dev/prod procedure applies only to targets that
+have been separately authorized. Staging's existing
 `9691854` snapshot remains untouched.
 
 After review/merge, Orc synchronizes `main` through `og`, prepares clean App

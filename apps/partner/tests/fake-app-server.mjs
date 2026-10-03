@@ -247,7 +247,7 @@ function startTurn(input, clientUserMessageId) {
   state.turns.push(turn);
   state.active = turn.id;
   save();
-  send({ method: 'turn/started', params: { threadId: state.threadId, turn } });
+  send({ method: 'turn/started', params: { threadId: state.threadId, turn: process.env.FAKE_SUMMARY_START === 'true' ? turnView(turn, 'summary') : turn } });
   void runTurn(turn);
   return turn;
 }
@@ -332,6 +332,7 @@ async function compact() {
 }
 
 async function handle(request) {
+  while (control().holdMethods?.includes(request.method)) await new Promise(resolve => setTimeout(resolve, 10));
   if (process.env.FAKE_HOLD_METHOD === request.method) await new Promise(() => {});
   if (process.env.FAKE_MALFORMED_METHOD === request.method) return { malformed: true };
   const p = request.params ?? {};
@@ -400,7 +401,7 @@ async function handle(request) {
       if (control().rejectStart) rpcError(-32603, 'fixture turn start temporarily unavailable');
       if (state.active) rpcError(-32600, 'cannot start a turn while another turn is active');
       const turn = startTurn(p.input, p.clientUserMessageId);
-      return { turn };
+      return { turn: process.env.FAKE_SUMMARY_START === 'true' ? turnView(turn, 'summary') : turn };
     }
     case 'turn/steer': return steerTurn(p);
     case 'turn/interrupt': {

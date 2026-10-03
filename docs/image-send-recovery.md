@@ -23,7 +23,11 @@ Rust build, native release, external provider or production state is involved.
   and replacements. Every supplied reference must match the whole staged operation.
   Originals are revalidated and re-hashed before admission. Uploads alone do not
   create messages, execution or album membership. Admission/replacement facts
-  commit together in the existing native SQLite store before execution.
+  commit together in the existing native SQLite store before execution. The
+  accepted receipt ends sending at that commit without waiting for native
+  start/steer or history. It promises retention, not exactly-once execution;
+  lookup recovers a lost receipt and identical retries never replay an ambiguous
+  native attempt. Later rejection/uncertainty remains visible.
 - `GET /api/chat/media/{attachmentId}/{original|preview|model}` authenticates each
   request. Native stored metadata or operation-owned staging determines ownership;
   opaque ID knowledge is insufficient. Originals retain a finite 32 MiB read bound,
@@ -36,7 +40,9 @@ Rust build, native release, external provider or production state is involved.
 
 `view.recovery` has at most 20 `{ sourceId, operationId, text, images, state,
 replacementEligible }` entries, including native-frontend inputs. Native history
-is refreshed before projection and replacement validation. Durable invalid-request
+is reconciled at startup and before replacement validation. Shared view reads
+publish current durable recovery and known native activity without waiting for
+history reconciliation; subsequent events publish updated facts. Durable invalid-request
 rejection proves eligibility; generic internal errors and unresolved inputs remain
 `uncertain` and ineligible. Receipt consumption uses actual native user items.
 No absence of an item, turn completion or disconnect is converted to unconsumption.

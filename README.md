@@ -110,7 +110,7 @@ URL opens the chat page.
 
 The Companion header’s settings button changes language and appearance immediately without changing the conversation. These choices are browser-local preferences, not settings stored in the Partner configuration or workspace.
 
-Browser site settings own notification permission; Companion has no notification switch and does not request permission on sending a message. This requires HTTPS, `http://localhost`, or a `http://*.localhost` address such as `http://prod-lamplit.localhost:17480`; a plain HTTP LAN address cannot use browser notifications. When permission is granted, an open page that is hidden or unfocused announces each newly completed Partner turn once, including when a PWA window loses focus to another app. Notifications contain the Partner name and a generic new-message notice, never reply content. This is page-local browser notification rather than Web Push: closing or suspending the page, losing its connection, or denying browser permission prevents delivery, and devices do not synchronize notification or read state.
+Browser site settings own notification permission; the shared App requests it on the first trusted desktop click when permission is undecided. This requires HTTPS, `http://localhost`, or a `http://*.localhost` address; a plain HTTP LAN address cannot use browser notifications. When permission is granted, an open page that is hidden or unfocused announces each newly observed complete Partner message once, including multiple messages in one turn. Initial history, older-history reads and repeated message IDs stay silent. Notifications contain the Partner name and a localized generic notice, never reply content. Closing or suspending the page, losing its connection, browser permission or system Focus settings can prevent delivery. Physical system notification display remains user acceptance.
 
 ### Install Companion on desktop
 
@@ -369,8 +369,14 @@ See [current artifact and isolated acceptance](docs/default-shared-frontend.md).
 The official app-server remains the sole execution/history owner. Completed
 message IDs are presentation metadata; no reply text is duplicated in a new
 transcript. Each completed agent message, including commentary, becomes visible
-while the turn continues; unfinished text stays hidden. Input delivery follows
-the native consumption receipt. Failure and stop produce independent timeline
+while the turn continues; unfinished text stays hidden. Sending ends when CFL
+commits the validated input, attachment metadata and immutable operation identity
+together in SQLite. The accepted receipt means the input is retained; native
+start/steer and history reconciliation continue independently. It does not
+promise exactly-once Codex execution. Native activity drives typing before
+reply completion, and official user items establish consumption. Reconnect
+lookup and same-operation retries recover the saved receipt without resubmitting
+ambiguous native input; rejection and uncertainty remain visible. Failure and stop produce independent timeline
 notices; successful replies end quietly. Completed messages survive reconnect and restart.
 Browser origins must match the host; existing gateway authentication
 still applies. Use an independent development instance and do not publicly expose
