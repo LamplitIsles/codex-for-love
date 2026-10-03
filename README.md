@@ -342,20 +342,24 @@ There is no `/slice` entry, UI fallback or asset-directory environment override.
 Platform owns hosted authentication, manifest, service worker and management;
 CFL does not register a service worker or serve management routes.
 
-`pnpm build` verifies and copies the Owner-approved App artifact vendored in
+`pnpm build` verifies and copies the pinned App artifact vendored in
 `vendor/lamplit-default-shared-frontend.tgz` into `apps/partner/build`. It requires
 no adjacent App checkout or frontend rebuild. Existing main-package preparation
 bundles those assets under `vendor/build`; the standalone installed CLI needs no
 sibling checkout. Compiled contracts remain pinned in
-`vendor/lamplit-contracts-search.tgz`, byte-identical to the approved handoff.
+`vendor/lamplit-contracts-appearance.tgz`, built from the same App source.
+`GET /api/chat/appearance` supplies the configured name, avatars and horizontal/vertical
+backgrounds to the shared UI. Successful replies end quietly; failure and stop notices
+remain visible. In-flight sends stay visible until their native message arrives,
+without showing transient recovery controls.
 See [current artifact and isolated acceptance](docs/default-shared-frontend.md).
 
 The official app-server remains the sole execution/history owner. Completed
 message IDs are presentation metadata; no reply text is duplicated in a new
 transcript. Each completed agent message, including commentary, becomes visible
 while the turn continues; unfinished text stays hidden. Input delivery follows
-the native consumption receipt. Completion, failure and stop each produce an
-independent timeline notice, and completed messages survive reconnect and restart.
+the native consumption receipt. Failure and stop produce independent timeline
+notices; successful replies end quietly. Completed messages survive reconnect and restart.
 Browser origins must match the host; existing gateway authentication
 still applies. Use an independent development instance and do not publicly expose
 an unauthenticated host. See `lamplit-app/docs/integration.md` for build and

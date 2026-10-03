@@ -1,3 +1,4 @@
+import { APPEARANCE_PATH } from '@lamplit/contracts';
 import { imageHttp } from '@lamplit/contracts/server';
 import { createChatSocket } from './chat.ts';
 import { createVoiceHost, type VoiceDependencies } from './voice.ts';
@@ -73,6 +74,10 @@ export function createWebServer(partner: Partner, assets: string, options: { aut
       if (!await authorize(request)) return json(response, { error: 'Unauthorized' }, 401);
       if (request.headers.origin && ![`http://${request.headers.host}`, `https://${request.headers.host}`].includes(request.headers.origin)) return json(response, { error: 'Forbidden origin' }, 403);
       if (request.headers['sec-fetch-site'] === 'cross-site') return json(response, { error: 'Forbidden origin' }, 403);
+      if (path === APPEARANCE_PATH) {
+        if (request.method !== 'GET') return json(response, { error: 'Method not allowed' }, 405);
+        return json(response, partner.appearance());
+      }
       if (path === '/api/chat/images' || path.startsWith('/api/chat/media/')) {
         // The same-host Origin above is validated before reconstructing the external POST URL.
         const origin = request.method === 'POST' && request.headers.origin ? request.headers.origin : `http://${request.headers.host}`;

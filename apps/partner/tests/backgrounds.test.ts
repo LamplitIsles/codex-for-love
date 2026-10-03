@@ -3,6 +3,7 @@ import { once } from 'node:events';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { validateChatAppearance } from '@lamplit/contracts';
 import { fixture } from './fixture.ts';
 import { createWebServer } from '../runtime/server.ts';
 
@@ -14,11 +15,19 @@ test('configured backgrounds are served as decoration outside the image catalogu
     const landscape = join(f.workspace, 'wide.png'), portrait = join(f.workspace, 'tall.png');
     await writeFile(landscape, png); await writeFile(portrait, png);
     f.config.backgrounds = { landscape, portrait };
+    f.config.avatars = { companion: landscape, user: portrait };
     const partner = await f.createPartner();
     const app = createWebServer(partner, join(f.directory, 'assets'));
     app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening');
     try {
       const base = `http://127.0.0.1:${(app.server.address() as { port: number }).port}`;
+      const appearance = validateChatAppearance(await (await fetch(`${base}/api/chat/appearance`)).json());
+      assert.deepEqual(appearance, { companionName: 'Mica', userName: '', companionAvatar: '/api/avatars/companion', userAvatar: '/api/avatars/user', backgrounds: { landscape: '/api/backgrounds/landscape', portrait: '/api/backgrounds/portrait' } });
+      for (const url of [appearance.companionAvatar!, appearance.userAvatar!]) {
+        const response = await fetch(`${base}${url}`);
+        assert.equal(response.status, 200);
+        assert.deepEqual(Buffer.from(await response.arrayBuffer()), png);
+      }
       assert.deepEqual((await partner.snapshot()).backgrounds, { landscape: '/api/backgrounds/landscape', portrait: '/api/backgrounds/portrait' });
       for (const kind of ['landscape', 'portrait']) {
         const response = await fetch(`${base}/api/backgrounds/${kind}`);
@@ -42,6 +51,7 @@ test('unconfigured background routes return 404; invalid configured files reject
     app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening');
     try {
       const base = `http://127.0.0.1:${(app.server.address() as { port: number }).port}`;
+      assert.deepEqual(validateChatAppearance(await (await fetch(`${base}/api/chat/appearance`)).json()), { companionName: 'Mica', userName: '' });
       assert.equal((await fetch(`${base}/api/backgrounds/portrait`)).status, 404);
     } finally { await app.close(); }
     const landscape = join(f.workspace, 'wide.png'), portrait = join(f.workspace, 'tall.png');

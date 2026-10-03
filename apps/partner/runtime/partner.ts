@@ -1,6 +1,6 @@
 import { listDiary, readDiary } from './diary.ts';
 export { MAX_DIARY_ENTRY_BYTES } from './diary.ts';
-import { validateUpload, validateSubmission, validateRecovery, type Receipt, type Submission, type ImageUpload, type ImageRef, type InputRecovery } from '@lamplit/contracts';
+import { validateUpload, validateSubmission, validateRecovery, type Receipt, type Submission, type ImageUpload, type ImageRef, type InputRecovery, type ChatAppearance } from '@lamplit/contracts';
 import { createHash, randomUUID } from 'node:crypto';
 import { access, lstat, mkdir, readFile, writeFile, unlink } from 'node:fs/promises';
 import { basename, extname, isAbsolute, join, relative, resolve, sep as pathSeparator } from 'node:path';
@@ -1680,6 +1680,13 @@ export async function createPartner(config: Config, credentials: Credentials, de
     async conversationImage(id: string) {
       const image = catalogue.get(id); if (!image) return undefined;
       try { return { media_type: image.mediaType, data: await readFile(image.path) }; } catch { return undefined; }
+    },
+    appearance(): ChatAppearance {
+      return { companionName: config.name, userName: '',
+        ...(avatars.companion ? { companionAvatar: '/api/avatars/companion' } : {}),
+        ...(avatars.user ? { userAvatar: '/api/avatars/user' } : {}),
+        ...(backgrounds.landscape && backgrounds.portrait ? { backgrounds: { landscape: '/api/backgrounds/landscape', portrait: '/api/backgrounds/portrait' } } : {}),
+      };
     },
     avatar: (kind: 'companion' | 'user') => avatars[kind],
     background: (kind: 'landscape' | 'portrait') => backgrounds[kind],

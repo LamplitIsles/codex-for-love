@@ -25,7 +25,7 @@ export function createCodexChatBackend(partner: Partner, authorize: () => Promis
       const images = (await Promise.all(r.images.map(image => partner.sharedImageRef(image.id)))).filter((ref): ref is ImageRef => !!ref);
       const completed = r.completedMessages.length ? r.completedMessages : images.length ? [{ id: `${r.id}:images`, text: '' }] : [];
       for (const [index, message] of completed.entries()) ordered.push({ order: (source?.sequence ?? 0) * 2 + 1 + index / 1000, message: { id: message.id, role: 'agent', text: message.text, ...(index === completed.length - 1 && images.length ? { images } : {}), createdAt: r.completedAt ?? source?.created ?? 0, operationId: null, turnId: r.turnId } });
-      if (['completed', 'failed', 'interrupted', 'cancelled'].includes(r.chatStatus)) ordered.push({ order: (source?.sequence ?? 0) * 2 + 1.9, message: { id: `${r.id}:status`, role: 'notice', text: r.chatStatus === 'completed' ? '回复完成' : r.chatStatus === 'failed' ? '回复失败' : '已停止回复', createdAt: r.completedAt ?? source?.created ?? 0, operationId: null, turnId: r.turnId } });
+      if (['failed', 'interrupted', 'cancelled'].includes(r.chatStatus)) ordered.push({ order: (source?.sequence ?? 0) * 2 + 1.9, message: { id: `${r.id}:status`, role: 'notice', text: r.chatStatus === 'failed' ? '回复失败' : '已停止回复', createdAt: r.completedAt ?? source?.created ?? 0, operationId: null, turnId: r.turnId } });
     }
     ordered.sort((a,b) => a.order - b.order);
     const all = ordered.map(x => x.message);

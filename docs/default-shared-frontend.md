@@ -42,16 +42,16 @@ install or invoke a real native engine or claim native-package release validatio
 Owner release/deploy workflows remain in the operator guide and
 [development environments](development-environments.md); merging does not deploy.
 
-## Approved artifact
+## Current pinned artifact
 
-App source HEAD: `d1e800e72807d52ea14eed59d13a3cef6a43fd09`.
+App source HEAD: `bc93ad34ff89c495741b375021d2071fe76f13db`.
 
 | Artifact | SHA256 | Files |
 | --- | --- | ---: |
-| Full archive | `eef50394bba2452f6daf1a8a052db3a35e68ed049bab480616602496aaca227e` | — |
-| Browser manifest | `8e83a3f3f69e79b9a8e169432190863b7f890270ac580a200cbb1c9ac8571d68` | 265 |
-| Contracts manifest | `5964aecc3c1caa3a0d4c8dd5532fe287ce08d564199796be81563b46d9d9a022` | 24 |
-| Acceptance manifest | `25f667fd6def71c2cb7f788dc02350027dc9b6a404fbc1fbe826b2555b673bb3` | 25 |
+| Full archive | `7e472c0b9d8c79321f5457557f7667f05de22ad569e33b98ee629e113c094264` | — |
+| Browser manifest | `d0e3a6af976fa1dd96939a8535ee0b57b62f5e0efce8f79f50a29ec3841e747d` | 265 |
+| Contracts manifest | `786eec82bbe6678d71c186a548e738705be4d9f2f8b5d90b0f8d0f5a67865fff` | 26 |
+| Acceptance manifest | `5d7d92134ec2a9415b492acfc533d5ae120374040d138b9630af9fc7d8b3bed1` | 25 |
 
 Extract into a new test-owned scratch directory; verify archive, SOURCE_HEAD,
 manifest hashes and every listed file before and after acceptance. Follow the
@@ -62,14 +62,10 @@ then in `acceptance`; generated locks/node_modules belong only to the extraction
 Record their hashes and installed versions without modifying manifested files.
 The existing contracts dependency is byte-identical to this archived package.
 
-The Owner-approved voice replacement is `voice-browser-eca3279.mjs`, from App
-HEAD `eca32794e90ba4f00c1895e3fc2125da57b3d973`, SHA256
-`0eed2c7c66929cc8b5e86e55a010fda49d14a293dc3860fda8a0e0e0e1628fc0`.
-Copy it beside the original runner in the extraction; never overwrite parent
-manifested files. Verify its hash before/after and run this version for voice.
-It targets cancellation by accessible action name while retaining native idle
-image capability and every PCM/cancellation/draft assertion. Other runners and
-all browser/contracts bytes remain the parent artifact.
+The current archive includes the corrected voice runner and the appearance/quiet
+completion browser assertions. Run the archived runners directly; no runner
+replacement is required. Older #3164 acceptance evidence retains its original
+immutable d1e800e archive and separate voice runner in local scratch.
 
 ## Actual native fixtures
 
@@ -107,7 +103,7 @@ APP_ACCEPTANCE_EVIDENCE=<evidence>/<suite> \
 APP_ACCEPTANCE_INTERVAL_SECONDS=300 bun <runner>.mjs
 ```
 
-Use `browser`, `voice-browser-eca3279`, `images-browser`, `compact-browser` or
+Use `browser`, `voice-browser`, `images-browser`, `compact-browser` or
 `search-browser` with the corresponding control URL. Text/voice control URLs end
 in `/__test/text` and `/__test/voice`. Panels uses `panels-browser.mjs` with no
 control URL and CFL's native five-minute interval (`300`). The additional isolated

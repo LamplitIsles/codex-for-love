@@ -285,16 +285,14 @@ original integration work. FlickLog itself and prompt semantics are unchanged.
 
 ### Default shared frontend artifact
 
-`vendor/lamplit-default-shared-frontend.tgz` is the unchanged Owner-approved App
-#3162 archive from `LamplitIsles/lamplit-app` HEAD
-`d1e800e72807d52ea14eed59d13a3cef6a43fd09` (Apache-2.0). Archive SHA256:
-`eef50394bba2452f6daf1a8a052db3a35e68ed049bab480616602496aaca227e`.
+`vendor/lamplit-default-shared-frontend.tgz` is built from
+`LamplitIsles/lamplit-app` HEAD `bc93ad34ff89c495741b375021d2071fe76f13db` (Apache-2.0).
+Archive SHA256: `7e472c0b9d8c79321f5457557f7667f05de22ad569e33b98ee629e113c094264`.
 The build verifies its browser manifest and all 265 files, then copies only
 `browser/` into the existing build directory. Acceptance runners and contracts
-remain inside the archive for exact artifact identity; they are not shipped as
-product APIs. The contracts are byte-identical to the existing search package.
-The former local Vite entry/Partner page are removed; native/domain dependencies
-still consumed under `apps/partner/src/lib` remain. Main packaging retains the
-App LICENSE and original source attribution alongside CFL/SDK/font notices.
-The App imports CFL's existing Framework7 presentation; no Composer redesign or
-new Penpot exports are introduced.
+remain inside the archive for artifact identity; they are not shipped as product
+APIs. `vendor/lamplit-contracts-appearance.tgz` contains the same compiled contracts,
+including the shared display-name/avatar/background schema. This replaces the search
+contracts archive. The App imports CFL's existing Framework7 presentation; no
+Composer redesign, new styles or new Penpot exports are introduced. Main packaging
+retains the App LICENSE and source attribution alongside CFL/SDK/font notices.

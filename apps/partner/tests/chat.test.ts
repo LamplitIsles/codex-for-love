@@ -29,7 +29,8 @@ test('real Node host and official SDK: completed messages, duplicate admission, 
     client = await openChat(new WebSocket(`ws://127.0.0.1:${port}/api/chat/socket`), value => { view = value; }, () => {});
     await eventually(async () => !!view?.messages.some(m => m.role === 'agent'));
     assert.equal((await client.lookup(input.operationId)).state, 'consumed');
-    await eventually(async () => !!view?.messages.some(m => m.role === 'notice' && m.text === '回复完成'));
+    await eventually(async () => view?.activeTurnId === null);
+    assert.equal(view!.messages.some(m => m.text === '回复完成'), false);
     const old = view?.activeTurnId;
     await f.holdProvider(true); await client.submit({ operationId: crypto.randomUUID(), text: 'stop me' });
     await eventually(async () => !!view?.activeTurnId);
@@ -75,8 +76,10 @@ test('each completed message appears while running; consumed input and terminal 
       assert.equal(view!.activeTurnId, turnId);
       if (ending === 'stop') assert.equal((await client.stop(turnId)).stopped, true);
       else await f.chatPhase(ending);
-      const status = ending === 'finish' ? '回复完成' : ending === 'fail' ? '回复失败' : '已停止回复';
-      await eventually(async () => view?.activeTurnId === null && view.messages.some(m => m.turnId === turnId && m.role === 'notice' && m.text === status));
+      const status = ending === 'fail' ? '回复失败' : '已停止回复';
+      await eventually(async () => view?.activeTurnId === null);
+      if (ending === 'finish') assert.equal(view!.messages.some(m => m.turnId === turnId && m.role === 'notice'), false);
+      else await eventually(async () => !!view?.messages.some(m => m.turnId === turnId && m.role === 'notice' && m.text === status));
       const messages = view!.messages.filter(m => m.turnId === turnId && m.role === 'agent');
       assert.equal(messages.length, ending === 'finish' ? 2 : 1);
       assert.ok(messages.some(m => m.id === completedId));
@@ -90,7 +93,9 @@ test('each completed message appears while running; consumed input and terminal 
         port = (app.server.address() as { port: number }).port;
       }
       client = await connect();
-      await eventually(async () => !!view?.messages.some(m => m.turnId === turnId && m.role === 'notice' && m.text === status));
+      await eventually(async () => view?.activeTurnId === null);
+      if (ending === 'finish') assert.equal(view!.messages.some(m => m.turnId === turnId && m.role === 'notice'), false);
+      else await eventually(async () => !!view?.messages.some(m => m.turnId === turnId && m.role === 'notice' && m.text === status));
       assert.equal(view!.messages.filter(m => m.turnId === turnId && m.role === 'agent').length, ending === 'finish' ? 2 : 1);
     }
   } finally { client.close(); await app.close(); await f.close(); }
