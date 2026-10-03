@@ -87,6 +87,8 @@ codex-for-love serve /path/to/partner.toml
 
 CFL binds to `127.0.0.1` and prints the local URL. Use a fresh workspace for a new conversation.
 
+On this development host, Shio production runs an isolated complete application artifact with its existing installed CFL native package. Application updates promote reviewed source builds through dev then prod, independently of npm application publication. See [Development-machine Partner environments](docs/development-environments.md) for the exact service and deployment commands.
+
 Optional chat backgrounds are configured in the Partner TOML, separately from browser appearance preferences:
 
 ```toml
@@ -312,6 +314,7 @@ The direction is companion autonomy without hidden automation, and continuity wi
 Use Node 24 and the pnpm version pinned in [`package.json`](package.json):
 
 ```bash
+pnpm source:prepare
 pnpm install --frozen-lockfile
 pnpm check
 pnpm build
@@ -342,12 +345,21 @@ There is no `/slice` entry, UI fallback or asset-directory environment override.
 Platform owns hosted authentication, manifest, service worker and management;
 CFL does not register a service worker or serve management routes.
 
-`pnpm build` verifies and copies the pinned App artifact vendored in
-`vendor/lamplit-default-shared-frontend.tgz` into `apps/partner/build`. It requires
-no adjacent App checkout or frontend rebuild. Existing main-package preparation
-bundles those assets under `vendor/build`; the standalone installed CLI needs no
-sibling checkout. Compiled contracts remain pinned in
-`vendor/lamplit-contracts-appearance.tgz`, built from the same App source.
+CFL records the App commit in `lamplit-app.sha`. Keep `lamplit-app` adjacent to
+this checkout, with Bun 1.3.14. `pnpm source:prepare` installs App's frozen lock,
+generates localization, checks/builds/tests App, then materializes its browser
+and compiled public contracts together. Local preparation permits edits and
+records their identity; CI and formal candidates use `pnpm source:prepare --strict`
+with clean App source at the recorded SHA. Then run CFL's frozen install,
+check, build and test in order. Updating the SHA requires reviewing the resulting
+joint checks; no npm publication or submodule is required.
+
+`pnpm build` verifies the prepared resources and copies the browser into
+`apps/partner/build`. Main packaging includes those resources, bundled runtime
+and contracts, licenses and `vendor/source.json`; the installed CLI needs no
+sibling checkout. Public GitHub source is retrieved at the exact recorded SHA.
+See [source preparation and isolated acceptance](docs/default-shared-frontend.md)
+for complete artifacts and the verification boundary.
 `GET /api/chat/appearance` supplies the configured name, avatars and horizontal/vertical
 backgrounds to the shared UI. Successful replies end quietly; failure and stop notices
 remain visible. In-flight sends stay visible until their native message arrives,

@@ -1,13 +1,14 @@
 # Codex for Love
 
-Use Node 24 and the pnpm version pinned in package.json. The default frontend is
-the approved shared Framework7 App: `pnpm build` verifies/copies its vendored frozen
-artifact into `apps/partner/build`, which existing CLI packaging includes. Do not
-rebuild or modify frozen App artifacts during native acceptance. Task-specific
-implementation specs live under `.scratch/`. Work in this checkout, without
-worktrees.
+Use Node 24 and the pnpm version pinned in package.json. Before frozen CFL
+installation, prepare adjacent lamplit-app source with its pinned Bun toolchain:
+read [source preparation](docs/default-shared-frontend.md) for local edits, strict
+candidates, pin updates and isolated acceptance. The shared frontend and compiled
+public contracts come from one App revision; CFL owns native integration and
+execution. Task-specific implementation specs live under `.scratch/`. Work in
+this checkout, without worktrees.
 
-Official Codex app-server owns execution, model history, queue, authentication and compaction. This application owns the Companion UI, STT, attachments and relationship state. Keep one execution owner; remove obsolete naco/DSH paths. Docker, generic migration and deployment cutover are outside this implementation; the explicitly authorized one-time converter for a user-supplied, already-compacted DSH log is the narrow exception documented by its task spec.
+Official Codex app-server owns execution, model history, queue, authentication and compaction. This application owns Companion integration, STT, attachments and relationship state; lamplit-app owns the shared UI. Keep one execution owner; remove obsolete naco/DSH paths. Docker, generic migration and deployment cutover are outside this implementation; the explicitly authorized one-time converter for a user-supplied, already-compacted DSH log is the narrow exception documented by its task spec.
 
 When an owner can browse a finite conversation-owned collection, Companion MCP must offer the Partner equivalent bounded discovery over the same membership. Material inspected with native tools must never be silently added to that collection.
 
@@ -37,7 +38,7 @@ Before updating CFL native artifacts or releasing a CFL npm package, read
 - On this Linux host, run one heavy build at a time with four Cargo jobs inside an enforced resource scope: `MemoryMax=6G`, `MemorySwapMax=512M`, `CPUQuota=400%`, and `TasksMax=256`. Verify the scope's limits before compiling; stop if enforcement is unavailable. Job count is not a memory limit.
 - First inspect Cargo freshness under these parameters. If dependencies unexpectedly require widespread rebuilding, stop and report the fingerprint mismatch before continuing a long build. For unchanged fork behavior and release packaging, use lightweight package availability and installed-artifact smoke checks rather than rebuilding the Rust test graph. Establish appropriate resource controls on macOS before its later build.
 
-- Run `pnpm install --frozen-lockfile`, `pnpm check`, `pnpm build` and `pnpm test` from the repository root, in that order; static-artifact tests consume the current build.
+- Prepare App with `pnpm source:prepare` (strict for formal candidates), then run `pnpm install --frozen-lockfile`, `pnpm check`, `pnpm build` and `pnpm test` from the repository root, in that order; static-artifact tests consume the current build.
 - Fork-native changes follow the local Codex build contract above. A native-only update locally stages Linux and macOS archives and publishes their exact npm tarballs through `skills/cfl-release`; it becomes deployable only after a later main-package change pins those public versions. The published launcher selects its pinned native package, not a production TOML executable override. The removed `pnpm codex:build` command is not a release path.
 - Run the Partner with `pnpm --filter @lamplitisles/partner start -- <config.toml>` after configuring the Codex 0.159.1 app-server executable and existing device-auth login.
 - Use a fresh test-owned workspace and the fake app-server for automated tests. Do not use the real Codex home, credentials or external message side effects in tests.

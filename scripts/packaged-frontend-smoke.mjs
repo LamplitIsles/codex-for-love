@@ -10,7 +10,6 @@ import { join, resolve } from 'node:path';
 import { fixture, eventually } from '../apps/partner/tests/fixture.ts';
 
 const archive = resolve(process.argv[2]);
-const approved = resolve(process.argv[3]);
 const root = await realpath(await mkdtemp(join(tmpdir(), 'cfl-packaged-frontend-')));
 const f = await fixture();
 const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
@@ -33,10 +32,9 @@ try {
     await eventually(async () => { if (runtime.exitCode !== null) throw new Error(stderr); try { return (await fetch(origin)).ok; } catch { return false; } }, 15000);
     const rootHtml = await (await fetch(origin)).text();
     assert.equal(await (await fetch(origin + '/chat')).text(), rootHtml);
-    const hashes = await readFile(join(approved, 'browser.sha256'), 'utf8');
+    const source = JSON.parse(await readFile(join(packageRoot, 'vendor/source.json'), 'utf8'));
     let verified = 0;
-    for (const line of hashes.trim().split('\n')) {
-      const [, expected, path] = /^(\w{64})  (.+)$/u.exec(line);
+    for (const [path, expected] of Object.entries(source.browser)) {
       const response = await fetch(`${origin}/${path}`); assert.equal(response.status, 200, path);
       assert.equal(createHash('sha256').update(Buffer.from(await response.arrayBuffer())).digest('hex'), expected, path); verified++;
     }

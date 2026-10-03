@@ -9,25 +9,27 @@ configuration; this is the operating contract for the three CFL targets.
 | Target | User service | Runtime source | Configuration | Loopback port |
 | --- | --- | --- | --- | ---: |
 | Mika dev | `codex-for-love-dev.service` | current checkout | `~/.local/state/codex-for-love/dev/partner.toml` | 3082 (also LAN on `192.168.1.179`) |
-| Mika staging | `codex-for-love-staging.service` | current checkout | `~/.local/state/codex-for-love/staging/partner.toml` | 3083 |
-| Shio prod | `codex-for-love-prod.service` | selected installed CLI | `~/.local/state/codex-for-love/prod/partner.toml` | 3084 |
+| Mika staging | `codex-for-love-staging.service` | candidate snapshot when overridden; otherwise checkout | `~/.local/state/codex-for-love/staging/partner.toml` | 3083 |
+| Shio prod | `codex-for-love-prod.service` | verified complete artifact, installed native package | `~/.local/state/codex-for-love/prod/partner.toml` | 3084 |
 
 Each configuration owns a distinct state root, workspace, projection database,
 attachments, persona, and official Codex thread. Mika dev and staging begin
 with matching profile assets and Markdown, but their state and sessions remain
 separate.
 
-The root build verifies/copies the frozen shared App; it does not build the
-former local UI or require an adjacent App checkout. The packaged CLI includes
-these same bytes. Dev and staging both serve `apps/partner/build` from this checkout. Run one
-checkout `pnpm build` before restarting either service; do not build a separate
-staging UI artifact.
+The root build consumes prepared adjacent App frontend and public contracts.
+Production now serves an isolated bundled runtime and frozen resources, retaining
+the installed native package and its existing configuration/state. Updating this
+checkout or its build output affects dev only. Staging retains its separate
+candidate snapshot. New production promotion uses reviewed, verified complete
+artifacts; changing this checkout does not deploy production.
 
 ## Install and deploy dev
 
 Build and check the checkout that the dev service will run:
 
 ```sh
+pnpm source:prepare
 pnpm install --frozen-lockfile
 pnpm check
 pnpm build
@@ -64,40 +66,101 @@ Record the candidate commit and HTTP result in the task handoff. This is a
 serving-readiness check: do not send a Partner message, read a conversation, or
 inspect credentials.
 
-## Install and deploy prod
+## Staging candidate preview
 
-Production uses the published CLI in an explicit, stable prefix rather than a
-checkout. Install only the approved main package in that prefix; npm resolves
-its native dependency from the main package's exact pin. After installation,
-verify that no separately installed native package remains at the prefix root,
-then validate the launcher before restarting prod:
+The Framework7 candidate `969185407263127a177011b1cc2f5384d1c7fd88`
+is deployed behind the existing Kepos URL
+`http://staging-her.localhost:17480/` (Mac and Pixel 7a ACL). The direct
+`http://127.0.0.1:3083/` endpoint is for publisher-local readiness checks.
+Its committed Partner source and
+verified build are copied to
+`~/.local/share/codex-for-love/staging-candidates/<commit>/apps/partner`.
+The snapshot uses the checkout's installed Node dependencies through symlinks;
+it is a local preview, not a standalone release package.
 
-```sh
-npm install --global --ignore-scripts --prefer-online --prefix /home/neil/.local/share/codex-for-love/prod-current @lamplitisles/codex-for-love@<approved-version>
-npm ls --global --depth=0 --prefix /home/neil/.local/share/codex-for-love/prod-current
-/home/neil/.local/share/codex-for-love/prod-current/bin/codex-for-love --help
-```
+`~/.config/systemd/user/codex-for-love-staging.service.d/candidate.conf`
+overrides only `ExecStart` to run the candidate's `runtime/cli.ts` with the
+existing staging TOML. Existing state, service credentials and configuration
+stay with staging. Only the staging service is restarted. The shared checkout
+build and production service are untouched.
 
-The top-level package list should contain only `@lamplitisles/codex-for-love`.
-The launcher in this checkout resolves the native package relative to itself
-and refuses a version that differs from its pinned optional dependency,
-including for `--help`. An old native package previously installed at the prefix
-root is not a valid reason to keep a second version installed.
+After restarting, verify port 3083, compare the served HTML and entry assets
+with the verified build, and confirm the production homepage and process are
+unchanged. Do not send a message or read conversations for this readiness check.
 
-A native-only npm publication is available for a later main release but is not
-itself a production deployment. Keep `codex.command` absent from the production
-Partner TOML; `codex.provenance` is not a supported setting. Checkout
-development is the only path that selects a direct executable path.
+To return staging to its configured checkout launcher, remove only the
+`candidate.conf` override, reload user systemd, and restart only staging.
+Retain the candidate directory while it is in use.
 
-Point the production override at that stable executable and its fixed production
-configuration:
+## Prepare and promote dev then prod
+
+Production currently serves the unchanged `1263eb20` isolation snapshot under
+`~/.local/share/codex-for-love/prod-candidates/1263eb20c9a73462ba0ad48ee068635b97af004d`.
+It is independent of checkout build/dependencies. Its Sharp 0.34.5 resolves from
+the stable installed prod prefix, which must remain available. Staging's existing
+`9691854` snapshot remains untouched.
+
+After review/merge, Orc synchronizes `main` through `og`, prepares clean App
+source at `lamplit-app.sha`, then runs the frozen CFL sequence and strict package
+checks from [source preparation](default-shared-frontend.md). Keep the verified
+tarball immutable: record its SHA256, reviewed CFL commit, App commit, and the
+`vendor/source.json` resource hashes. Extract that exact tarball once under
+`~/.local/share/codex-for-love/candidates/<cfl-commit>/package`; install the declared
+Sharp version into a separate stable candidate dependency prefix and link its
+`node_modules` into the extracted package. Verify Sharp binary loading and the
+fake-engine package smoke before touching a live launcher. Do not use symlinks to
+this mutable checkout's dependencies.
+
+Preserve each target's prior launcher override bytes for rollback. Update only
+its ExecStart to `/run/current-system/sw/bin/node <candidate>/package/vendor/runtime/cli.mjs`
+with its existing fixed TOML. For prod retain the existing `--native-package-root`
+argument below and environment file; dev retains its configured direct native
+command. Reload, sequentially restart the same dev service, and verify port 3082,
+process identity and every served browser hash against the candidate manifest.
+Only after dev readiness, perform the same operation on prod port 3084 with the
+identical extracted candidate bytes. Never start a parallel instance or copy
+state, conversations, workspace, configuration or credentials.
+
+Budget up to 120 seconds with short readiness polls; the unchanged production
+snapshot took about 33 seconds from service activation through all resource
+hash checks during isolation. Abort early on process
+failure/restart loops. An initial 10-second isolation timeout was rolled back
+and the original launcher recovered; a longer controlled retry verified all 508
+original static resources. HTTP readiness alone does not prove resource identity.
+Fetch only static resources; do not inspect conversations or send messages.
+
+On failure, restore that target's prior override bytes, reload and restart the
+same service, then wait for original readiness and original resource hashes.
+Retain prior code/assets and dependency prefixes until rollback is no longer
+needed. Rollback never restores instance state. The initial isolation override
+backup is in the task's local `.scratch/sha-pinned-shared-frontend/` evidence.
+New feature deployment remains Orc-owned after whole-spec review/merge; merge,
+local checks and the initial isolation do not establish new-feature deployment.
+
+Reuse the installed CFL native package from the stable
+`~/.local/share/codex-for-love/prod-current` prefix. Before restarting, resolve
+`@lamplitisles/codex-for-love-linux-x64/package.json` relative to the installed
+main package and verify its version equals the exact native pin in this
+checkout's `packages/codex-for-love/package.json`. Verify the direct app-server
+version and code-mode helper availability. If the pin changes, install the
+matching public native package before deploying; never substitute the ordinary
+Codex CLI or rebuild native artifacts as part of an application-only update.
+
+The production override selects the verified native package root through the
+existing CLI argument, preserving the production TOML without an executable
+override:
 
 ```ini
 # ~/.config/systemd/user/codex-for-love-prod.service.d/release.conf
 [Service]
+EnvironmentFile=/home/neil/.local/state/keet-mcp/gateway.env
 ExecStart=
-ExecStart=/home/neil/.local/share/codex-for-love/prod-current/bin/codex-for-love serve /home/neil/.local/state/codex-for-love/prod/partner.toml
+ExecStart=/run/current-system/sw/bin/node <candidate>/package/vendor/runtime/cli.mjs --native-package-root /home/neil/.local/share/codex-for-love/prod-current/lib/node_modules/@lamplitisles/codex-for-love/node_modules/@lamplitisles/codex-for-love-linux-x64 serve /home/neil/.local/state/codex-for-love/prod/partner.toml
 ```
+
+Keep the native package at that root available across application deployments.
+Main-package npm publication remains available for other installations and is
+separate from this host's production deployment.
 
 After an explicitly authorized production deployment, reload and verify only
 the production service:

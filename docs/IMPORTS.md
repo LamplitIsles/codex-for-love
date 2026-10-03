@@ -283,16 +283,18 @@ into ignored test-owned scratch; they are not copied into native product source.
 CFL's search adapter, subprocess data fixture and isolated host controls are
 original integration work. FlickLog itself and prompt semantics are unchanged.
 
-### Default shared frontend artifact
+### Shared frontend and compiled public contracts from source
 
-`vendor/lamplit-default-shared-frontend.tgz` is built from
-`LamplitIsles/lamplit-app` HEAD `bc93ad34ff89c495741b375021d2071fe76f13db` (Apache-2.0).
-Archive SHA256: `7e472c0b9d8c79321f5457557f7667f05de22ad569e33b98ee629e113c094264`.
-The build verifies its browser manifest and all 265 files, then copies only
-`browser/` into the existing build directory. Acceptance runners and contracts
-remain inside the archive for artifact identity; they are not shipped as product
-APIs. `vendor/lamplit-contracts-appearance.tgz` contains the same compiled contracts,
-including the shared display-name/avatar/background schema. This replaces the search
-contracts archive. The App imports CFL's existing Framework7 presentation; no
-Composer redesign, new styles or new Penpot exports are introduced. Main packaging
-retains the App LICENSE and source attribution alongside CFL/SDK/font notices.
+The default Framework7/Svelte frontend and `@lamplit/contracts` public exports
+are built together from Apache-2.0 `LamplitIsles/lamplit-app`, initially
+`26ab708799f8ef4d99d974e1ab60c4d14a38267a`. `lamplit-app.sha` is the authoritative
+current pin. The preparation step consumes adjacent source with its frozen Bun
+lock, and materializes compiled package exports without private UI imports.
+The former frontend and appearance-contract archives are removed. Earlier
+archive entries above describe historical integration work; their runtime domain
+consumers continue using the current public contracts.
+
+Complete artifacts retain the App LICENSE and its `docs/IMPORTS.md` alongside
+CFL/SDK/font notices and record actual App/CFL source identities plus browser and
+contracts hashes in `vendor/source.json`. App imports CFL's existing Framework7
+presentation. This build-source change introduces no presentation redesign.

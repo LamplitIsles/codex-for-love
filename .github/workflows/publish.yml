@@ -45,37 +45,50 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          stage="$RUNNER_TEMP/cfl-release-source"
+          stage="$GITHUB_WORKSPACE/cfl-release-source"
           mkdir -p "$stage"
           git archive "$GITHUB_SHA" | tar -x -C "$stage"
           node scripts/release-stage.mjs "$stage" "$RELEASE_TAG"
+      - name: Read recorded App source
+        id: app
+        run: node --input-type=module -e 'import {readPin} from "./scripts/shared-source.mjs"; console.log("sha=" + await readPin())' >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: LamplitIsles/lamplit-app
+          ref: ${{ steps.app.outputs.sha }}
+          path: lamplit-app
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: '1.3.14'
       - name: Install pinned toolchain and dependencies
-        working-directory: ${{ runner.temp }}/cfl-release-source
+        working-directory: ${{ github.workspace }}/cfl-release-source
         run: |
           npm install --global npm@11.17.0 corepack@0.35.0
           corepack enable
+          CFL_SOURCE_SHA="$GITHUB_SHA" corepack pnpm source:prepare --strict
           corepack pnpm install --frozen-lockfile
       - name: Typecheck, build, and test CFL
-        working-directory: ${{ runner.temp }}/cfl-release-source
+        working-directory: ${{ github.workspace }}/cfl-release-source
         run: |
           corepack pnpm check
           corepack pnpm build
           corepack pnpm test
       - name: Build, inspect, and pack the staged main package
-        working-directory: ${{ runner.temp }}/cfl-release-source
+        working-directory: ${{ github.workspace }}/cfl-release-source
         run: |
           mkdir -p "$RUNNER_TEMP/cfl-npm-release"
-          node scripts/release-prepare.mjs "$RUNNER_TEMP/cfl-npm-release"
+          CFL_SOURCE_SHA="$GITHUB_SHA" node scripts/release-prepare.mjs "$RUNNER_TEMP/cfl-npm-release" --strict
           node scripts/pack-check.mjs
       - name: Smoke the packed main package with the published native package
         timeout-minutes: 3
-        working-directory: ${{ runner.temp }}/cfl-release-source
+        working-directory: ${{ github.workspace }}/cfl-release-source
         env:
           CFL_ARTIFACT_DIR: ${{ runner.temp }}/cfl-npm-release
         run: node scripts/artifact-smoke.mjs
       - name: Verify immutable tarball and registry state
         id: preflight
-        working-directory: ${{ runner.temp }}/cfl-release-source
+        working-directory: ${{ github.workspace }}/cfl-release-source
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |

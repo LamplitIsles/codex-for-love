@@ -611,11 +611,22 @@ page/session and never changes native consumption. See
 
 ## Shared frontend build and acceptance
 
-`pnpm build` installs verified frozen App bytes into `apps/partner/build`; main
-package preparation reuses that directory in the packed CLI. No App checkout is
-needed at runtime. `/` and `/chat` use identical HTML and root-relative assets.
+Run [source preparation](default-shared-frontend.md) before frozen CFL installation.
+`pnpm build` verifies the prepared App browser and matching public contracts,
+then copies resources into `apps/partner/build`; packaging retains them and the
+bundled runtime. No App checkout is needed at runtime. `/` and `/chat` use identical HTML and root-relative assets.
 The former `/slice` route and `LAMPLIT_APP_ASSETS` selection are removed. Platform
 keeps hosted auth/PWA/management ownership. Companion MCP configuration semantics
 remain unchanged. Follow [default shared frontend](default-shared-frontend.md)
 for current artifact identities, isolated fixture commands and verification limits.
 Publication and deployment still require Owner review; merging does not deploy.
+
+## Source-based complete application candidates
+
+Before building or promoting a checkout candidate, follow
+[source preparation](default-shared-frontend.md): App's recorded SHA supplies
+frontend and compiled public contracts together, with frozen App/CFL dependencies.
+Complete tarballs retain source/resource identities and bundled runtime; npm
+publication is optional. For host-local ordered dev/prod promotion and code/assets
+rollback, follow [development environments](development-environments.md). Keep
+state/config/native package ownership with the existing instance.

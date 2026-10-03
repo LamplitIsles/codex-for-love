@@ -1,8 +1,9 @@
 import { execFileSync } from 'node:child_process';
-import { cp, rm, writeFile } from 'node:fs/promises';
+import { cp, rm, writeFile, readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { prepared, verifyPrepared, hashes, cflIdentity } from './shared-source.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const partnerRequire = createRequire(join(root, 'apps', 'partner', 'package.json'));
@@ -11,11 +12,10 @@ const destination = process.argv[2];
 if (!destination) throw new Error('Provide an absolute output directory for the verified main-package tarball.');
 const output = resolve(destination);
 
-execFileSync('corepack', ['pnpm', '--filter', '@lamplitisles/partner', 'build'], {
-  cwd: root,
-  env: { ...process.env, CI: 'true', npm_config_confirmModulesPurge: 'false' },
-  stdio: 'inherit',
-});
+const manifest = await verifyPrepared({ strict: process.argv.includes('--strict') });
+const built = JSON.parse(await readFile(join(root, '.generated/build-source.json'), 'utf8'));
+if (JSON.stringify(built) !== JSON.stringify(manifest) || JSON.stringify(await hashes(join(root, 'apps/partner/build'))) !== JSON.stringify(manifest.browser)) throw new Error('Build resources differ from prepared source; run pnpm build before packaging.');
+manifest.cfl = cflIdentity();
 await rm(join(mainPackage, 'vendor'), { recursive: true, force: true });
 const vendor = join(mainPackage, 'vendor');
 await Promise.all([
@@ -34,9 +34,8 @@ await cp(join(root, 'apps', 'partner', 'runtime', 'session-start-hook.mjs'), joi
 await writeFile(join(vendor, 'package.json'), '{"type":"module"}\n');
 await cp(join(root, 'LICENSE'), join(mainPackage, 'LICENSE'));
 await cp(join(root, 'licenses'), join(vendor, 'licenses'), { recursive: true });
-for (const [source, name] of [['acceptance/LICENSE', 'lamplit-app-Apache-2.0.txt'], ['acceptance/docs/IMPORTS.md', 'lamplit-app-IMPORTS.md']]) {
-  await writeFile(join(vendor, 'licenses', name), execFileSync('tar', ['-xOzf', join(root, 'vendor/lamplit-default-shared-frontend.tgz'), source]));
-}
+await cp(join(prepared, 'licenses'), join(vendor, 'licenses'), { recursive: true });
+await writeFile(join(vendor, 'source.json'), JSON.stringify(manifest, null, 2) + '\n');
 await cp(join(dirname(partnerRequire.resolve('@fontsource/noto-sans-sc/package.json')), 'LICENSE'), join(vendor, 'licenses', 'NotoSansSC-OFL-1.1.txt'));
 const packed = Object.values(JSON.parse(execFileSync('npm', ['pack', '--json', '--pack-destination', output], { cwd: mainPackage, encoding: 'utf8' })))[0];
 console.log(JSON.stringify({ artifact: join(output, packed.filename), mainPackage, version: packed.version }, null, 2));

@@ -7,65 +7,67 @@ same-origin checks. Platform independently owns hosted auth, manifest, service
 worker and management. Companion MCP configuration and execution ownership stay
 unchanged. No migration, alias, old UI fallback or asset override is supported.
 
-## Build and package
+## Source preparation and complete artifacts
 
-Use Node 24 and pnpm 11.22.0 from the repository root, in this order:
+Keep `codex-for-love/` and `lamplit-app/` adjacent. CFL uses Node 24 and pinned
+pnpm; App uses Bun 1.3.14. `lamplit-app.sha` contains one full commit SHA.
+Public `https://github.com/LamplitIsles/lamplit-app` serves the initial recorded
+commit and tree matching registered Forgejo source. CI uses that public repository
+and exact SHA, without additional credentials. Future pin changes must also be
+reachable there; following latest main is not the formal source contract.
 
 ```sh
+pnpm source:prepare
 pnpm install --frozen-lockfile
 pnpm check
 pnpm build
 pnpm test
 ```
 
-The build verifies/copies the approved browser from
-`vendor/lamplit-default-shared-frontend.tgz` into `apps/partner/build`.
-It does not rebuild App or require an adjacent checkout. Existing main-package
-preparation copies that directory to the packed CLI's `vendor/build`, bundles
-runtime/MCP and retains App/CFL/SDK/font licenses and attribution. Native package
-pins and engines are unchanged. To verify a local package without publication:
+Preparation runs App frozen install, existing Paraglide generation, check, build
+and test. It materializes browser and compiled public package exports into
+ignored `.generated/shared-app`. That contracts package is a declared pnpm
+workspace dependency with its own domain dependencies; frozen CFL installation
+requires preparation first. No dependency version/lock rewriting is needed in CI.
+The normal build verifies prepared hashes and source identity before copying
+resources into `apps/partner/build`. Source edits after preparation require
+preparing again. Local App edits are allowed and recorded, including a dirty
+marker/diff fingerprint; local candidates are not formal deployment artifacts.
+
+For CI and deployment, use `pnpm source:prepare --strict`: source must be clean
+at the recorded pin. Keep it clean through build and packaging. To update the
+pin, review the new App commit, change `lamplit-app.sha`, prepare, and run the same
+frozen sequence. Dependency changes may require a deliberate pnpm lock update in
+the PR, never an ad hoc frozen-install fix in CI.
 
 ```sh
-mkdir -p .scratch/default-shared-frontend/package-artifacts
-pnpm release:prepare "$PWD/.scratch/default-shared-frontend/package-artifacts"
+mkdir -p .scratch/sha-pinned-shared-frontend/artifacts
+pnpm release:prepare "$PWD/.scratch/sha-pinned-shared-frontend/artifacts" --strict
 pnpm release:check
 node scripts/packaged-frontend-smoke.mjs \
-  .scratch/default-shared-frontend/package-artifacts/lamplitisles-codex-for-love-0.1.0-beta.0.tgz \
-  .scratch/default-shared-frontend/frozen
+  .scratch/sha-pinned-shared-frontend/artifacts/lamplitisles-codex-for-love-0.1.0-beta.0.tgz
 ```
 
-The last command starts extracted packaged runtime with a fake official app-server
-and test-owned TOML/workspace/Codex home. It verifies every served browser file,
-root/hosted identity, canonical 404s and native session construction. It installs
-only the declared Sharp JS dependency into a temporary directory. It does not
-install or invoke a real native engine or claim native-package release validation.
-Owner release/deploy workflows remain in the operator guide and
-[development environments](development-environments.md); merging does not deploy.
+Packaging verifies the current build rather than rebuilding it. It includes
+browser resources, bundled runtime/MCP/public contracts, helper, licenses and
+`vendor/source.json` (actual App/CFL identity, pin and resource hashes). Runtime
+requires only its declared installed Sharp dependency and supported native package;
+it does not require either source checkout. The fake-engine smoke extracts to a
+test-owned location, installs only Sharp there, verifies every served browser
+file, root/chat identity, canonical 404s and native session construction.
 
-## Current pinned artifact
+`check.yml` runs source preparation and the frozen CFL sequence, then complete
+artifact/package smoke without publication. The optional tag publication workflow
+uses the same preparation and retains reviewed-main/tag, native pin, npm environment
+and OIDC guards. Local execution is not evidence of hosted Actions success.
 
-App source HEAD: `bc93ad34ff89c495741b375021d2071fe76f13db`.
+## Native source acceptance
 
-| Artifact | SHA256 | Files |
-| --- | --- | ---: |
-| Full archive | `7e472c0b9d8c79321f5457557f7667f05de22ad569e33b98ee629e113c094264` | — |
-| Browser manifest | `d0e3a6af976fa1dd96939a8535ee0b57b62f5e0efce8f79f50a29ec3841e747d` | 265 |
-| Contracts manifest | `786eec82bbe6678d71c186a548e738705be4d9f2f8b5d90b0f8d0f5a67865fff` | 26 |
-| Acceptance manifest | `5d7d92134ec2a9415b492acfc533d5ae120374040d138b9630af9fc7d8b3bed1` | 25 |
-
-Extract into a new test-owned scratch directory; verify archive, SOURCE_HEAD,
-manifest hashes and every listed file before and after acceptance. Follow the
-complete archived `acceptance/docs/default-shared-frontend.md` control handoff.
-The Owner corrected the initial lockfile instruction: the archive intentionally
-contains no dependency locks. Run `bun install` first in `contracts/package`,
-then in `acceptance`; generated locks/node_modules belong only to the extraction.
-Record their hashes and installed versions without modifying manifested files.
-The existing contracts dependency is byte-identical to this archived package.
-
-The current archive includes the corrected voice runner and the appearance/quiet
-completion browser assertions. Run the archived runners directly; no runner
-replacement is required. Older #3164 acceptance evidence retains its original
-immutable d1e800e archive and separate voice runner in local scratch.
+Use the unchanged App runners from `lamplit-app/tests/`, with its frozen
+installed dependencies, and `apps/partner/build` produced above. The existing
+native hosts below use a fake official engine and test-owned state. Record source
+identities and resource hashes around acceptance; never use real conversations,
+providers or installed service state as fixtures.
 
 ## Actual native fixtures
 
@@ -94,13 +96,13 @@ invoke an installed service executable or FlickLog setup. The fixture binds a
 fresh loopback port and gives Meilisearch a synthetic key, private DB path and
 isolated environment. Native matching/context semantics remain unchanged.
 
-From extracted `acceptance/`, with absolute evidence paths and printed URLs:
+From adjacent `lamplit-app/`, with absolute evidence paths and printed URLs:
 
 ```sh
 APP_ACCEPTANCE_URL=<origin>/ \
 APP_ACCEPTANCE_CONTROL_URL=<control-url> \
 APP_ACCEPTANCE_EVIDENCE=<evidence>/<suite> \
-APP_ACCEPTANCE_INTERVAL_SECONDS=300 bun <runner>.mjs
+APP_ACCEPTANCE_INTERVAL_SECONDS=300 bun tests/<runner>.mjs
 ```
 
 Use `browser`, `voice-browser`, `images-browser`, `compact-browser` or
@@ -122,7 +124,7 @@ responses and wait for route teardown; the isolated lifecycle test is separate.
 ## Verification boundary
 
 All six native suites passed at 390/1280 under spec #3164, including the approved
-voice replacement with native image intake enabled. The local implementation report
+voice replacement with native image intake enabled. The historical local implementation report
 records acceptance with logs, screenshots at 390/1280, extra image/compact 320 probes and
 before/after manifests. This does not claim actual platform gateway or PWA
 acceptance, physical-device keyboard/safe-area/install behavior, real providers,
