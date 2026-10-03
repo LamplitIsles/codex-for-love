@@ -1,5 +1,5 @@
-import { MAX_MESSAGE_LENGTH } from "../src/lib/message-input.ts";
-import { normalizeVoiceMediaType, MAX_VOICE_DATA_URL_BYTES } from '../src/lib/companion/voice-contract.ts';
+import { MAX_MESSAGE_LENGTH } from "./message-input.ts";
+import { normalizeVoiceMediaType, MAX_VOICE_DATA_URL_BYTES } from './voice-contract.ts';
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { execFile } from 'node:child_process';

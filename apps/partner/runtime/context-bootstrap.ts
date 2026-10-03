@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { parse, stringify } from 'smol-toml';
 import type { CodexAppServerClient } from '@jaminzhou/codex-app-server-client';
 import type { v2 } from '@jaminzhou/codex-app-server-client/protocol';
-import type { CompanionState, CompanionStateRecord } from '../src/lib/companion/domain.ts';
+import type { CompanionState, CompanionStateRecord } from './relationship-domain.ts';
 import { DEFAULT_CONTEXT_ROUND_LIMIT } from './config.ts';
 import { partnerPaths } from './storage-paths.ts';
 

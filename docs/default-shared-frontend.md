@@ -26,11 +26,16 @@ pnpm test
 
 Preparation runs App frozen install, existing Paraglide generation, check, build
 and test. It materializes browser and compiled public package exports into
-ignored `.generated/shared-app`. That contracts package is a declared pnpm
+ignored `.generated/shared-app`. CFL has no local browser source, translation
+catalogs or browser compiler. `pnpm check` uses TypeScript for the remaining
+runtime and native test fixtures. That contracts package is a declared pnpm
 workspace dependency with its own domain dependencies; frozen CFL installation
 requires preparation first. No dependency version/lock rewriting is needed in CI.
 The normal build verifies prepared hashes and source identity before copying
-resources into `apps/partner/build`. Source edits after preparation require
+resources into `apps/partner/build`. Preparation also copies App’s LICENSE,
+IMPORTS and the upstream Noto Sans SC OFL from App’s frozen installed font
+dependency; their hashes are verified alongside browser and contracts resources.
+Source edits after preparation require
 preparing again. Local App edits are allowed and recorded, including a dirty
 marker/diff fingerprint; local candidates are not formal deployment artifacts.
 
@@ -49,8 +54,9 @@ node scripts/packaged-frontend-smoke.mjs \
 ```
 
 Packaging verifies the current build rather than rebuilding it. It includes
-browser resources, bundled runtime/MCP/public contracts, helper, licenses and
-`vendor/source.json` (actual App/CFL identity, pin and resource hashes). Runtime
+browser resources, runtime/MCP/public contracts bundled with CFL’s explicit
+Rolldown dependency, helper, licenses and
+`vendor/source.json` (actual App/CFL identity, pin and browser/contracts/prepared-license hashes). Runtime
 requires only its declared installed Sharp dependency and supported native package;
 it does not require either source checkout. The fake-engine smoke extracts to a
 test-owned location, installs only Sharp there, verifies every served browser
@@ -63,7 +69,10 @@ and OIDC guards. Local execution is not evidence of hosted Actions success.
 
 ## Native source acceptance
 
-Use the unchanged App runners from `lamplit-app/tests/`, with its frozen
+Browser runners and UI-only assertions live in App; obsolete CFL browser-copy
+runners have been removed. CFL retains the native acceptance hosts and native
+unit/integration tests. Use the unchanged App runners from `lamplit-app/tests/`,
+with its frozen
 installed dependencies, and `apps/partner/build` produced above. The existing
 native hosts below use a fake official engine and test-owned state. Record source
 identities and resource hashes around acceptance; never use real conversations,

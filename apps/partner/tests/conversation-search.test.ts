@@ -6,31 +6,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { createConversationSearch } from '../runtime/conversation-search.ts';
 import { createWebServer } from '../runtime/server.ts';
-import { contextTargetIndex, snippetParts, textParts } from '../src/lib/companion/client/conversation-search-highlight.ts';
 import { fixture } from './fixture.ts';
-
-test('search highlights keep non-mark markup as plain text', () => {
-  assert.deepEqual(snippetParts('before <mark>match</mark> <img src=x>'), [
-    { text: 'before ', matched: false },
-    { text: 'match', matched: true },
-    { text: ' <img src=x>', matched: false },
-  ]);
-  assert.deepEqual(textParts('A sunset, another sunset.', 'sunset'), [
-    { text: 'A ', matched: false },
-    { text: 'sunset', matched: true },
-    { text: ', another ', matched: false },
-    { text: 'sunset', matched: true },
-    { text: '.', matched: false },
-  ]);
-});
-
-test('a repeated message is identified by source record rather than matching text', () => {
-  const items = [
-    { sourceRecordIndex: 7, kind: 'message', role: 'user', content: 'same text' },
-    { sourceRecordIndex: 8, kind: 'message', role: 'user', content: 'same text' },
-  ];
-  assert.equal(contextTargetIndex(8, items), 1);
-});
 
 test('conversation search uses the Partner workspace and expands only its records', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'cfl-search-test-')));

@@ -3,10 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "paraglide:generate": "paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide --emit-ts-declarations --strategy globalVariable preferredLanguage baseLocale --silent",
-    "precheck": "pnpm run paraglide:generate",
     "build": "node ../../scripts/build-shared-frontend.mjs",
-    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "check": "tsc --project ./tsconfig.json",
     "test": "node --test tests/*.test.ts",
     "test:real-sdk": "node tests/real-sdk-check.mjs",
     "test:real-import": "node tests/real-import-check.mjs",
@@ -14,21 +12,9 @@
     "cli": "node runtime/cli.ts"
   },
   "dependencies": {
-    "@capacitor-community/media": "9.1.0",
-    "@capacitor/app": "8.1.1",
-    "@capacitor/camera": "8.2.3",
-    "@capacitor/clipboard": "8.0.1",
-    "@capacitor/core": "8.5.1",
-    "@fontsource/noto-sans-sc": "^5.3.0",
-    "@humanspeak/svelte-markdown": "1.8.5",
     "@jaminzhou/codex-app-server-client": "github:lamplitisles/codex-app-server-client#56ab11736036d6a5c3dd6e150498dec2d95b2bf5",
     "@lamplit/contracts": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.30.0",
-    "framework7": "9.2.0",
-    "framework7-svelte": "9.2.0",
-    "katex": "0.16.47",
-    "lucide-svelte": "1.0.1",
-    "pixi.js": "7.4.3",
     "sharp": "^0.34.5",
     "sirv": "^3.0.2",
     "smol-toml": "^1.8.0",
@@ -37,13 +23,8 @@
     "zod": "^4.6.2"
   },
   "devDependencies": {
-    "@inlang/paraglide-js": "2.25.2",
-    "@sveltejs/vite-plugin-svelte": "^7.3.0",
     "@types/node": "^24.13.4",
     "@types/ws": "8.18.2",
-    "svelte": "^5.57.0",
-    "svelte-check": "^4.7.6",
-    "typescript": "^6.0.3",
-    "vite": "^8.2.2"
+    "typescript": "^6.0.3"
   }
 }

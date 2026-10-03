@@ -5,65 +5,35 @@ LamplitIsles Companion application. Imported or adapted source is identified
 here so the runtime boundary stays clear; the official Codex app-server is an
 external executable and is not vendored into this repository.
 
-## Companion UI and domain
+## Companion domain and historical UI
 
-The Svelte Companion UI and its pure client/domain modules under
-`apps/partner/src/lib/companion/` were imported from
+CFL retains the host-used relationship validation and state types in
+`apps/partner/runtime/relationship-domain.ts`, compaction boundary/projection
+rules in `runtime/continuity.ts`, the message limit in `runtime/message-input.ts`
+and short-audio admission rules in `runtime/voice-contract.ts`. These came from
 `LamplitIsles/dsh-plugins` revision `29ed11a`, primarily
-`packages/dsh-companion/src`. This includes the Companion presentation,
-markdown rendering, locale, image drafts, voice input,
-relationship-history view and pure continuity/media/domain definitions. The
-DSH controller and view-registry integration were removed; the former local page bound
-the projection to this repository's HTTP/SSE host. The shared App now owns serving;
-retained native/domain and tested client modules remain in this repository.
-The Keet message header in the Companion component
-adapt `LamplitIsles/lamplit-cloudflare`'s `frontend/src/lib/companion/client/`
-presentation at revision `2381cfc3e916130beb14c95c1078bd6c2479b1f3`.
+`packages/dsh-companion/src`. The retained rules keep their existing semantics;
+unused browser presentation and validation helpers have been removed.
+The persistence layer in `runtime/store.ts` contains native presentation/domain
+metadata, not an imported model history journal.
 
-Framework7 and framework7-svelte 9.2.0 (MIT, framework7io/framework7) now own
-UI components, theme tokens, routing, Page/Messages/Message, Messagebar and its
-attachment components, Photo Browser/Swiper and Virtual List. Message grouping
-follows the official Svelte Messages demo using first/last/tail props. Message
-timestamps use the official footer outside the bubble; pending status uses textFooter. CFL adapts
-the 9.2.0 Svelte Input event to the detail-array shape required by Messagebar;
-textarea resizing and page padding remain Framework7 capabilities. The previous SvelteKit and imported daisyUI themes are removed.
-The Vite/Svelte application entry follows the Framework7 CLI 9.0.2 Svelte
-starter's mount pattern without running its generator over this repository.
-`@capacitor-community/media` 9.1.0 (MIT) supplies native album saving. Framework7
-Touch taphold and Actions own long-press recognition and target-anchored action
-popovers on mobile and desktop;
-CFL wires message operations, mouse-only holds and desktop context menus, reading-focus handling and
-a stationary-multitouch guard for Framework7 9.2 taphold. Official
-`@capacitor/clipboard` 8.0.1 (MIT) supplies system clipboard writes in the native
-shell.
+The former local Svelte Companion, markdown, locale, image drafts, voice capture,
+relationship drawer, continuity/media projection and pet presentation were
+imported or adapted from the same source. Their unused CFL copies, local catalogs,
+assets and UI-only tests are removed. App is the sole browser implementation;
+its pinned source and retained IMPORTS describe current browser attribution.
+CFL keeps native acceptance hosts for App’s browser runners.
 
-The Companion typing indicator retains Framework7 Message markup. Its dot geometry
-and motion are adapted from the original daisyUI 5.7.37 `loading-dots` /
-`loading-sm` (MIT, saadeghi/daisyui): 20px indicator, 5px solid dots, 5px upward
-travel, 1.05s cycle and 100ms stagger. The behavior is expressed as local CSS;
-the daisyUI dependency and themes are not restored. Reduced motion stops the dots.
-
-The optional TOML-configured portrait/landscape chat background, its theme-aware
-overlay and keyboard-stable composition selection are original CFL additions
-to the imported Companion surface. No background artwork is bundled.
-
-The application-owned relationship validation/domain behavior is retained and
-the runtime persistence is implemented in `apps/partner/runtime/store.ts`.
-The store contains UI/domain metadata only. It is not an imported model
-history journal.
-
-The compact/expanded composer interaction follows the owner-supplied Penpot
-`Composer` design package dated 2026-10-02. The full old Composer/attachment mockup, including its 96px mandate, is
-superseded by the native Framework7 baseline at CFL HEAD
-`63616953a28158e2224aca633b639c5b27123d28` for quiet compaction (#3121).
-The retained layout uses Framework7 tokens and Lucide controls; no exported design PNGs are bundled.
-
-The drawer spacing and automatic-wake list presentation follow the owner-supplied
-Penpot “新版 · 自动唤醒” designs and `LamplitIsles/lamplit-chat`
-`frontend/src/lib/companion/client/WakeDrawer.svelte` / `companion.css` at
-`cc91634ae3c164f4faf9233095e175a9c3c20375` (Apache-2.0). CFL retains its existing
-alarm data contract and uses Framework7 List and Accordion rather than importing
-the wake component or its runtime. No Penpot exports are bundled.
+Historical presentation adaptations included the Keet header from
+`LamplitIsles/lamplit-cloudflare` at `2381cfc3e916130beb14c95c1078bd6c2479b1f3`,
+the Framework7 9.2.0 Svelte components and CLI 9.0.2 starter (MIT), official
+Capacitor plugins (MIT), and daisyUI 5.7.37 loading-dot geometry (MIT).
+The original CFL backgrounds and desktop manifest/icons, the owner’s 2026-10-02
+Penpot composer reference (superseded by `63616953a28158e2224aca633b639c5b27123d28`),
+and the automatic-wake drawer reference from `LamplitIsles/lamplit-chat` at
+`cc91634ae3c164f4faf9233095e175a9c3c20375` describe that historical work.
+No private background artwork or Penpot exports are bundled. Required notices
+for the packaged App remain in its retained source attribution and license payload.
 
 ## Prompt and speech
 
@@ -158,7 +128,9 @@ The imported LamplitIsles source described above is Apache-2.0; the repository
 root [`LICENSE`](../LICENSE) supplies its terms.
 
 Noto Sans SC is supplied through `@fontsource/noto-sans-sc` under SIL Open Font
-License 1.1. Release preparation copies its upstream `LICENSE` verbatim to
+License 1.1. Source preparation resolves the font from pinned App’s frozen
+installed dependencies and copies its upstream `LICENSE` verbatim into prepared
+licenses. Release preparation carries it to
 `vendor/licenses/NotoSansSC-OFL-1.1.txt` in the packed main package. The same
 directory retains the SDK MIT and generated Codex Apache-2.0 license texts from
 the repository's `licenses/` directory.
@@ -195,8 +167,8 @@ build, GitHub Release, npm token fallback, or automatic native publication.
 
 ## Desktop installation and mobile keyboard reference
 
-The desktop installation manifest, heart/code icons and browser file capture
-are original CFL work. Native mobile camera capture uses
+The historical desktop installation manifest, heart/code icons and browser file
+capture were original CFL work, now owned by the shared App. Native mobile camera capture uses
 the official Capacitor Camera plugin. Reading actions release editable focus;
 keyboard dismissal follows browser/WebView focus behavior without a Keyboard
 plugin. Native Android navigation
@@ -214,7 +186,7 @@ The new `runtime/chat.ts` adapter is original CFL integration code. It consumes
 `@lamplit/contracts` from the Apache-2.0 `LamplitIsles/lamplit-app` repository.
 That package uses Chord 1.0.0 for RPC and replicated presentation state and
 TypeBox for runtime validation. It does not import private frontend source.
-The shared frontend imports the Framework7 Companion presentation from this
+The shared frontend originally imported the Framework7 Companion presentation from this
 repository at `17a786271f5498bf5a188f421e9ce02adf7262f9`; attribution lives in
 `lamplit-app/docs/IMPORTS.md`. The native execution owner remains in place; the default frontend is now the
 approved shared App described below.
@@ -298,6 +270,8 @@ archive entries above describe historical integration work; their runtime domain
 consumers continue using the current public contracts.
 
 Complete artifacts retain the App LICENSE and its `docs/IMPORTS.md` alongside
-CFL/SDK/font notices and record actual App/CFL source identities plus browser and
-contracts hashes in `vendor/source.json`. App imports CFL's existing Framework7
-presentation. This build-source change introduces no presentation redesign.
+CFL/SDK/font notices and record actual App/CFL source identities plus browser,
+contracts and prepared-license hashes in `vendor/source.json`. CFL’s explicitly
+pinned Rolldown 1.2.8 (MIT) bundles the runtime and Companion MCP; browser building
+remains in App. Removing the unused CFL frontend does not change the pinned
+App presentation or its resource bytes.

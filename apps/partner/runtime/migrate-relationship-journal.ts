@@ -2,7 +2,7 @@ import { access, rename, rm } from 'node:fs/promises';
 import { DatabaseSync } from 'node:sqlite';
 import { readRelationshipJournal, replaceRelationshipJournal } from './relationship-journal.ts';
 import { partnerPaths } from './storage-paths.ts';
-import type { CompanionStateRecord } from '../src/lib/companion/domain.ts';
+import type { CompanionStateRecord } from './relationship-domain.ts';
 
 /** One-time, explicit conversion of a legacy CFL relationship table. */
 export async function migrateRelationshipJournal(workspace: string): Promise<{ records: number }> {

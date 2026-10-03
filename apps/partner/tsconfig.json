@@ -8,7 +8,7 @@
     "allowImportingTsExtensions": true,
     "skipLibCheck": true,
     "noEmit": true,
-    "types": ["vite/client", "node"]
+    "types": ["node"]
   },
-  "include": ["src/**/*", "runtime/**/*.ts", "tests/**/*.ts"]
+  "include": ["runtime/**/*.ts", "tests/**/*.ts"]
 }

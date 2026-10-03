@@ -99,7 +99,9 @@ portrait = "./workspace/.lamplit/profile/background-portrait.jpg"
 
 Supply both images or omit `[backgrounds]` to keep the default appearance. Paths resolve relative to the TOML file and must stay inside the workspace. Supported formats are PNG, JPEG, WebP and GIF, up to 20 MiB per file; invalid or missing configured files prevent startup. Restart Partner after changing paths or replacing images. Companion selects the composition from the window shape before the keyboard opens (square windows use portrait), scales it to fill the chat area and crops centrally. The background stays stationary as messages scroll, with a theme-colored soft overlay; message bubbles, attachments, header, composer and drawers retain their own surfaces. Background images do not enter conversation history or the Chat Image Library.
 
-The Companion frontend uses Svelte 5, Vite and Framework7 9.2.0. Framework7 owns
+The shared lamplit-app frontend uses Svelte 5, Vite and Framework7 9.2.0.
+App owns browser components, localization and browser tests; CFL owns the Node
+runtime and the domain rules it uses. Framework7 owns
 component styles, theme tokens, its app/view shell and Photo Browser navigation;
 SvelteKit, Tailwind and daisyUI are removed. Sidebar, settings and search use
 the official Svelte Panel, Popover and Popup components. Framework7 owns their
@@ -348,15 +350,19 @@ CFL does not register a service worker or serve management routes.
 CFL records the App commit in `lamplit-app.sha`. Keep `lamplit-app` adjacent to
 this checkout, with Bun 1.3.14. `pnpm source:prepare` installs App's frozen lock,
 generates localization, checks/builds/tests App, then materializes its browser
-and compiled public contracts together. Local preparation permits edits and
+and compiled public contracts together, including App attribution and its Noto
+font license. Local preparation permits edits and
 records their identity; CI and formal candidates use `pnpm source:prepare --strict`
 with clean App source at the recorded SHA. Then run CFL's frozen install,
-check, build and test in order. Updating the SHA requires reviewing the resulting
+check, build and test in order. CFL’s `pnpm check` typechecks runtime and native
+test fixtures with TypeScript; browser compilation and checks run in App during
+preparation. Updating the SHA requires reviewing the resulting
 joint checks; no npm publication or submodule is required.
 
 `pnpm build` verifies the prepared resources and copies the browser into
 `apps/partner/build`. Main packaging includes those resources, bundled runtime
-and contracts, licenses and `vendor/source.json`; the installed CLI needs no
+and contracts using its explicit Rolldown dependency, licenses and
+`vendor/source.json` (browser, contracts and prepared license hashes); the installed CLI needs no
 sibling checkout. Public GitHub source is retrieved at the exact recorded SHA.
 See [source preparation and isolated acceptance](docs/default-shared-frontend.md)
 for complete artifacts and the verification boundary.
@@ -487,7 +493,7 @@ internal errors, lost responses, interruptions and unresolved native input remai
 uncertain. Recovery never automatically executes. Restore/edit sends a fresh UUID
 and replaces only eligible sources; consumed/replaced input cannot return. Missing
 originals leave text editable and require explicit removal or a new selection.
-The native frontend and its private routes remain available at `/`.
+The shared App at `/` uses these native routes.
 
 See [the shared image protocol and isolated acceptance recipe](docs/image-send-recovery.md).
 

@@ -27,8 +27,8 @@ import {
   clampAffinity,
   type CompanionState,
   type CompanionStateRecord,
-} from '../src/lib/companion/domain.ts';
-import type { CompactBoundary } from '../src/lib/continuity.ts';
+} from './relationship-domain.ts';
+import type { CompactBoundary } from './continuity.ts';
 
 /** The logical DSH session-log generation admitted by this one-time converter. */
 export const DSH_SESSION_FORMAT_VERSION = 3;

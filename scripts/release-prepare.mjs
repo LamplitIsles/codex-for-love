@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { prepared, verifyPrepared, hashes, cflIdentity } from './shared-source.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const partnerRequire = createRequire(join(root, 'apps', 'partner', 'package.json'));
+const releaseRequire = createRequire(import.meta.url);
 const mainPackage = join(root, 'packages', 'codex-for-love');
 const destination = process.argv[2];
 if (!destination) throw new Error('Provide an absolute output directory for the verified main-package tarball.');
@@ -25,8 +25,9 @@ await Promise.all([
   cp(join(root, 'apps', 'partner', 'persona.example.md'), join(vendor, 'persona.example.md')),
   cp(join(root, 'docs', 'IMPORTS.md'), join(vendor, 'IMPORTS.md')),
 ]);
-const rolldown = execFileSync('find', [join(root, 'node_modules', '.pnpm'), '-path', '*/node_modules/rolldown/bin/cli.mjs', '-print', '-quit'], { encoding: 'utf8' }).trim();
-if (!rolldown) throw new Error('The pinned Vite/Rolldown bundler is unavailable; run pnpm install before release preparation.');
+const rolldownPackage = releaseRequire.resolve('rolldown/package.json');
+const rolldownManifest = JSON.parse(await readFile(rolldownPackage, 'utf8'));
+const rolldown = join(dirname(rolldownPackage), rolldownManifest.bin.rolldown);
 for (const [entry, output] of [['cli.ts', 'cli.mjs'], ['companion-mcp.ts', 'companion-mcp.mjs']]) {
   execFileSync(process.execPath, [rolldown, join(root, 'apps', 'partner', 'runtime', entry), '--platform=node', '--format=esm', '--external', 'sharp', '--file', join(vendor, 'runtime', output)], { cwd: root, stdio: 'inherit' });
 }
@@ -36,6 +37,5 @@ await cp(join(root, 'LICENSE'), join(mainPackage, 'LICENSE'));
 await cp(join(root, 'licenses'), join(vendor, 'licenses'), { recursive: true });
 await cp(join(prepared, 'licenses'), join(vendor, 'licenses'), { recursive: true });
 await writeFile(join(vendor, 'source.json'), JSON.stringify(manifest, null, 2) + '\n');
-await cp(join(dirname(partnerRequire.resolve('@fontsource/noto-sans-sc/package.json')), 'LICENSE'), join(vendor, 'licenses', 'NotoSansSC-OFL-1.1.txt'));
 const packed = Object.values(JSON.parse(execFileSync('npm', ['pack', '--json', '--pack-destination', output], { cwd: mainPackage, encoding: 'utf8' })))[0];
 console.log(JSON.stringify({ artifact: join(output, packed.filename), mainPackage, version: packed.version }, null, 2));

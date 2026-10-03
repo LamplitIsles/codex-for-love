@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { listDiary, readDiary } from './diary.ts';
 import { panelCursors } from './panel-cursor.ts';
 import { dirname } from 'node:path';
-import { canonicalizeChangeReason, canonicalizeHistoryRead, canonicalizeRelationshipUpdate, canonicalizeSignature, MOODS } from '../src/lib/companion/domain.ts';
+import { canonicalizeChangeReason, canonicalizeHistoryRead, canonicalizeRelationshipUpdate, canonicalizeSignature, MOODS } from './relationship-domain.ts';
 import { rollDice } from './tools/dice-core.ts';
 import { readRelationshipJournal, updateRelationshipJournal } from './relationship-journal.ts';
 import { partnerPaths } from './storage-paths.ts';

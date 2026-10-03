@@ -6,7 +6,6 @@ import { join } from 'node:path';
 import { once } from 'node:events';
 import { Store } from '../runtime/store.ts';
 import { createWebServer } from '../runtime/server.ts';
-import { mergeMessages, mergeResults } from '../src/lib/message-pages.ts';
 import { fixture, eventually } from './fixture.ts';
 import { partnerPaths } from '../runtime/storage-paths.ts';
 import { visibleHistoryPage } from '../runtime/partner.ts';
@@ -50,9 +49,6 @@ test('history pages and bounded change batches retain stable ordering and restar
     const changed = await store.messagePage({ after: recent.cursor });
     assert.equal(changed.messages.length, 1);
     assert(changed.messages[0]!.revision > oldRevision);
-    const merged = mergeMessages(mergeMessages(recent.messages, changed.messages), previous.messages);
-    assert.equal(merged.find((message) => message.id === ids[5])!.revision, changed.messages[0]!.revision);
-    assert.equal(new Set(merged.map((message) => message.id)).size, merged.length);
     await store.close(); store = new Store(paths.database);
     assert.equal((await store.messagePage({ after: changed.cursor })).messages.length, 0);
     for (const id of ids) await store.touchMessage(id);
@@ -67,24 +63,6 @@ test('history pages and bounded change batches retain stable ordering and restar
     assert.equal(batches, 3); assert.equal(seen.size, 65);
     await assert.rejects(store.messagePage({ after: cursor + 1 }), /ahead/);
   } finally { await store.close(); await f.close(); }
-});
-
-test('revisioned replacements and canonical results reject stale responses', () => {
-  type TestMessage = { id: string; sequence: number; revision: number; delivery: 'unresolved' | 'replaced' };
-  const pending: TestMessage = { id: 'draft', sequence: 4, revision: 10, delivery: 'unresolved' };
-  const replaced: TestMessage = { ...pending, revision: 11, delivery: 'replaced' };
-  const stalePage = { ...pending, revision: 10 };
-  const afterReplacement = mergeMessages([pending], [replaced]);
-  const reconciled = mergeMessages(afterReplacement, [stalePage]);
-  assert.equal(reconciled.find((message) => message.id === pending.id)?.delivery, 'replaced');
-
-  const olderResult = { id: 'turn:one', sequence: 4, revision: 20, status: 'interrupted' };
-  const newerResult = { ...olderResult, revision: 21, status: 'completed' };
-  const laterResult = { id: 'turn:two', sequence: 8, revision: 22, status: 'completed' };
-  const results = mergeResults([newerResult], [olderResult, laterResult]);
-  assert.deepEqual(results.map((result) => result.id), ['turn:one', 'turn:two']);
-  assert.equal(results[0]?.status, 'completed');
-  assert.equal(results[0]?.revision, 21);
 });
 
 test('HTTP refresh returns native turn, steering and turn-level interruption changes', async () => {

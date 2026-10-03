@@ -2,7 +2,12 @@ import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile, lstat } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { z } from 'zod';
-import type { ImageAttachmentLimits } from '../src/lib/companion/client/contracts.ts';
+interface ImageAttachmentLimits {
+  mediaTypes: readonly ImageInput['mediaType'][];
+  maxImagesPerMessage: number;
+  maxImageBytes: number;
+  maxMessageImageBytes: number;
+}
 import { partnerPaths } from './storage-paths.ts';
 
 export const imageLimits: ImageAttachmentLimits = {

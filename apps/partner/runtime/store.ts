@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { DatabaseSync } from 'node:sqlite';
 import type { Submission, ImageRef } from '@lamplit/contracts';
 import type { MaterializedGeneratedImage, MaterializedInputImage } from './images.ts';
-import type { CompactBoundary, ContextObservation } from '../src/lib/continuity.ts';
+import type { CompactBoundary, ContextObservation } from './continuity.ts';
 
 /** UI/domain metadata only. Official Codex owns the conversation transcript. */
 export type MessageMeta = { id: string; created: number; sequence: number; revision: number };

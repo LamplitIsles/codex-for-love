@@ -17,5 +17,8 @@
     "release:smoke": "node scripts/artifact-smoke.mjs",
     "release:preflight": "node scripts/publish-preflight.mjs",
     "source:prepare": "node scripts/prepare-shared-source.mjs"
+  },
+  "devDependencies": {
+    "rolldown": "1.2.8"
   }
 }

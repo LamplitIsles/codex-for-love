@@ -43,12 +43,10 @@ test('STT forwards bounded audio, ignores emotion annotations and never admits a
 });
 
 test('voice transcription returns only text regardless of provider emotion', async () => {
-  const { normalizeVoiceTranscription } = await import('../src/lib/companion/client/voice-input.ts');
   for (const emotion of [' HAPPY ', 'unknown', null]) {
     const result = await transcribeAudio('http://fixture.invalid', 'fixture', new Uint8Array([1]), 'audio/wav', new AbortController().signal,
       async () => Response.json({ output: { choices: [{ message: { content: [{ text: '你好' }], annotations: [{ emotion }] } }] } }));
     assert.deepEqual(result, { text: '你好' });
-    assert.deepEqual(normalizeVoiceTranscription({ text: ' 你好 ', expression: emotion }), { text: '你好' });
   }
 });
 

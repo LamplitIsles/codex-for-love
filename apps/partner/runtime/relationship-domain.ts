@@ -66,61 +66,10 @@ export interface CompanionStateRecord {
   state: CompanionState;
 }
 
-export interface CompanionHistoryPage {
-  /** Records are newest first within this page. */
-  records: CompanionStateRecord[];
-  /** The next `before` cursor, or undefined when this is the oldest page. */
-  nextBefore?: number;
-  hasEarlier: boolean;
-  /** The complete record immediately before the oldest visible record. */
-  predecessor?: CompanionStateRecord;
-}
-
-export type CompanionHistoryValue =
-  | { value: Mood; note?: string }
-  | { value: number }
-  | { value: string };
-
-export interface CompanionHistoryChange {
-  dimension: "mood" | "affinity" | "signature";
-  before?: CompanionHistoryValue;
-  after: CompanionHistoryValue;
-  delta?: number;
-  reason?: string;
-}
-
-export { companionHistoryChanges } from "./relationship-history.ts";
-
 export interface RelationshipUpdate {
   mood?: { value: Mood; note?: string; reason: string };
   affinity?: { delta: number; reason: string };
 }
-
-export interface AvatarInput {
-  data: string;
-  mediaType: AvatarMediaType;
-  width: number;
-  height: number;
-}
-export type AvatarMediaType =
-  | "image/png"
-  | "image/jpeg"
-  | "image/webp"
-  | "image/gif";
-
-export interface CompanionIdentitySettings {
-  workspaceId: string;
-  companionName: string;
-  companionAvatar?: AvatarInput;
-  userName: string;
-  userAvatar?: AvatarInput;
-  preferredAddress: string;
-  defaultAffinity: number;
-}
-
-export const DEFAULT_MOOD: MoodRecord = Object.freeze({
-  mood: "neutral",
-});
 
 export class CompanionValidationError extends TypeError {
   constructor(message: string) {
@@ -205,38 +154,6 @@ export function canonicalizeHistoryRead(value: unknown): number {
     throw new CompanionValidationError("历史读取包含未知字段。");
   }
   return canonicalizeHistoryLimit(record.limit);
-}
-
-export interface CompanionHistoryPageRead {
-  limit: number;
-  /** Absolute exclusive record position, counted from the beginning. */
-  before?: number;
-}
-
-export function canonicalizeHistoryPageRead(
-  value: unknown,
-): CompanionHistoryPageRead {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new CompanionValidationError("历史分页读取格式无效。");
-  }
-  const record = value as Record<string, unknown>;
-  if (Object.keys(record).some((key) => key !== "limit" && key !== "before")) {
-    throw new CompanionValidationError("历史分页读取包含未知字段。");
-  }
-  const limit = canonicalizeHistoryLimit(record.limit);
-  if (record.before === undefined) return { limit };
-  if (
-    typeof record.before !== "number" ||
-    !Number.isSafeInteger(record.before) ||
-    record.before < 0
-  ) {
-    throw new CompanionValidationError("历史分页位置必须是非负整数。");
-  }
-  return { limit, before: record.before };
-}
-
-function canonicalizeOptionalChangeReason(value: unknown): string | undefined {
-  return value === undefined ? undefined : canonicalizeChangeReason(value);
 }
 
 export function canonicalizeRelationshipUpdate(
@@ -351,16 +268,4 @@ export function affinityStage(value: number): AffinityStage {
   if (affinity < 60) return "熟悉";
   if (affinity < 80) return "亲近";
   return "深厚";
-}
-
-export function normalizeDefaultAffinity(value: unknown): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isSafeInteger(value) ||
-    value < 0 ||
-    value > 100
-  ) {
-    throw new CompanionValidationError("默认亲近度必须是 0 到 100 的整数。");
-  }
-  return value;
 }

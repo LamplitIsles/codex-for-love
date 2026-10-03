@@ -1,9 +1,0 @@
-.companion-search-header .button{width:44px;min-width:44px;height:44px;padding:0;display:grid;place-items:center}
-.companion-search-form.searchbar{flex:1;min-width:0;width:auto}
-.companion-search-form .searchbar-input-wrap{min-width:0}
-.companion-search-submit{flex:none;margin-inline-start:8px}
-.companion-search-state{display:flex;align-items:center;justify-content:center;gap:12px}
-.companion-search-state .preloader{flex:none}
-.companion-search-reader,.companion-search-results{overscroll-behavior:contain}
-.companion-search-bubble{white-space:pre-wrap;overflow-wrap:anywhere}
-.companion-search-reader mark,.companion-search-results mark{background:var(--f7-color-yellow);color:var(--companion-color-on-highlight)}

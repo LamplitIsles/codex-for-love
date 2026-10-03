@@ -6,8 +6,6 @@ import { test } from 'node:test';
 import { loadConfig } from '../runtime/config.ts';
 import { activityForItem, PetActivityProjection } from '../runtime/pet.ts';
 import { localPetManifest } from '../runtime/pet-assets.ts';
-import { defaultDock, dockPoint, keyboardDock, snapDock } from '../src/lib/pet/dock.ts';
-import { clipPlan, nextFrame } from '../src/lib/pet/playback.ts';
 
 test('pet configuration defaults off and finite projection never carries execution content', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'lamplit-pet-test-'));
@@ -48,12 +46,6 @@ test('pet transient expiry notifies subscribers and retains another active item'
   let changes = 0; const pet = new PetActivityProjection(() => { changes += 1; }, { success: 5, concern: 5 });
   pet.turnStarted(); pet.itemStarted({ id: 'read', type: 'webSearch' }); pet.itemStarted({ id: 'reply', type: 'agentMessage' }); pet.itemCompleted({ id: 'read', type: 'webSearch' });
   assert.equal(pet.snapshot().activity, 'replying'); pet.turnCompleted('completed'); assert.equal(pet.snapshot().activity, 'success'); await new Promise(resolve => setTimeout(resolve, 15)); assert.equal(pet.snapshot().activity, 'idle'); assert.equal(changes >= 5, true);
-});
-
-test('playback and dock helpers honor manifest metadata and current placement', () => {
-  assert.deepEqual(clipPlan(new Headers([['x-pet-frame-count', '6'], ['x-pet-fps', '10'], ['x-pet-loop', 'false']])), { frameCount: 6, fps: 10, loop: false });
-  assert.equal(nextFrame(4, 200, { frameCount: 6, fps: 10, loop: false }), 5); assert.equal(nextFrame(5, 200, { frameCount: 6, fps: 10, loop: true }), 1);
-  const view = { width: 800, height: 600, size: 128 }; const initial = defaultDock(view); const point = dockPoint(initial, view); assert.equal(point.y > 300, true); const moved = keyboardDock(initial, 'ArrowUp', view)!; assert.equal(dockPoint(moved, view).y < point.y, true); assert.deepEqual(snapDock({ x: 400, y: 580 }, view).edge, 'bottom');
 });
 
 function webp(width: number, height: number): Buffer { const data = Buffer.alloc(30); data.write('RIFF'); data.writeUInt32LE(22, 4); data.write('WEBP', 8); data.write('VP8X', 12); data.writeUInt32LE(10, 16); data[24] = (width - 1) & 255; data[25] = ((width - 1) >> 8) & 255; data[26] = ((width - 1) >> 16) & 255; data[27] = (height - 1) & 255; data[28] = ((height - 1) >> 8) & 255; data[29] = ((height - 1) >> 16) & 255; return data; }

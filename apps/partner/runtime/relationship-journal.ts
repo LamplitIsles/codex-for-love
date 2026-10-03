@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, rmdir, unlink, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { canonicalizeChangeReason, canonicalizeMood, canonicalizeSignature, clampAffinity, type CompanionState, type CompanionStateRecord, type RelationshipUpdate } from '../src/lib/companion/domain.ts';
+import { canonicalizeChangeReason, canonicalizeMood, canonicalizeSignature, clampAffinity, type CompanionState, type CompanionStateRecord, type RelationshipUpdate } from './relationship-domain.ts';
 
 export const MAX_JOURNAL_BYTES = 4 * 1024 * 1024;
 export const MAX_JOURNAL_RECORD_BYTES = 4 * 1024;

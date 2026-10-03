@@ -68,7 +68,7 @@ export async function verifyPrepared({ strict = false } = {}) {
   if (manifest.pin !== pin) throw new Error('Prepared App pin differs; run pnpm source:prepare again.');
   if (strict) requirePinned(manifest.app, pin);
   if (JSON.stringify(identity()) !== JSON.stringify(manifest.app)) throw new Error('App source changed since preparation; run pnpm source:prepare again.');
-  for (const [directory, expected] of [['browser', manifest.browser], ['contracts', manifest.contracts]]) {
+  for (const [directory, expected] of [['browser', manifest.browser], ['contracts', manifest.contracts], ['licenses', manifest.licenses]]) {
     if (JSON.stringify(await hashes(join(prepared, directory))) !== JSON.stringify(expected)) throw new Error(`Prepared ${directory} changed; run pnpm source:prepare again.`);
   }
   return manifest;

@@ -56,11 +56,12 @@ notifications after closing/suspension.
 
 ## Mobile keyboard validation
 
-After building, run `node apps/partner/tests/mobile-browser.mjs` with
-`agent-browser` and Chromium installed. The test uses isolated state, fake
-services, keyboard geometry and clipboard writes to check layout, scrolling,
-agent-only copying and toast feedback. `pnpm test` also covers native bridge
-and event handling. These checks do not establish real OS animation quality.
+Prepare and build the pinned App, then use its browser runners against CFL’s
+isolated native acceptance hosts as described in
+[source preparation and isolated acceptance](default-shared-frontend.md).
+App owns layout, scrolling, clipboard and focus assertions; CFL’s `pnpm test`
+covers native runtime and protocol behavior. These checks do not establish
+real OS animation quality.
 
 Reading actions now release editable focus instead of hiding the keyboard while
 retaining it. Browser acceptance covers copy-menu and settings close, return to

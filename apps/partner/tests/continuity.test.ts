@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createCompactBoundary, projectContinuity } from '../src/lib/continuity.ts';
-import type { CompactionLifecycleState } from '../src/lib/companion/continuity.ts';
+import { createCompactBoundary, projectContinuity } from '../runtime/continuity.ts';
+import type { CompactionLifecycleState } from '../runtime/continuity.ts';
 
 test('automatic pre-turn and mid-turn compact boundaries use engine operation identity, not pending message order', () => {
   const pre = createCompactBoundary('compact:pre', 'one', 'old', 'pre_turn', 2000);
