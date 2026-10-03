@@ -245,7 +245,7 @@ export function createWebServer(partner: Partner, assets: string, options: { aut
       else response.end();
     }
   });
-  const chat = createChatSocket(partner, authorize);
+  const chat = createChatSocket(partner, authorize, options.conversationSearch);
   server.on('upgrade', async (request, socket, head) => {
     const path = new URL(request.url ?? '/', 'http://localhost').pathname;
     const origin = request.headers.origin;

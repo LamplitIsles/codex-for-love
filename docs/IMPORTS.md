@@ -268,3 +268,16 @@ Upstream LICENSE, TypeBox schemas, Chord host, image and voice protocols remain
 in the archive. The same handoff browser and common compact/images/panels runner
 bytes are extracted only into ignored test-owned scratch. CFL's Node native
 adapter and fake official app-server controls are original integration work.
+
+### Reviewed conversation-search contract artifact
+
+`vendor/lamplit-contracts-search.tgz` replaces the quiet-compaction archive with
+unchanged compiled Apache-2.0 `@lamplit/contracts` bytes from Owner-approved
+App #3142 HEAD `512ed6656c0564426838b7a82245453e6dd34114`.
+SHA256: `cf06f2a5015e174d7f0712d668e9c3713de3d1c5e1be7066860b1ed742817653`.
+The upstream LICENSE, public schemas, Chord host and existing image/voice/compact
+protocols remain intact. Search validation and per-method 2 MiB reply isolation
+come from this archive. Approved browser and acceptance bytes are extracted only
+into ignored test-owned scratch; they are not copied into native product source.
+CFL's search adapter, subprocess data fixture and isolated host controls are
+original integration work. FlickLog itself and prompt semantics are unchanged.

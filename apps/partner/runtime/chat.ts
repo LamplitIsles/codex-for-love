@@ -2,9 +2,10 @@ import { capabilities, mediaUrl, PAGE_SIZE, type ImageRef, type ChatMessage, typ
 import { createChatHost, type ChatBackend } from '@lamplit/contracts/server';
 import { panelCursors } from './panel-cursor.ts';
 import type { Partner } from './partner.ts';
+import type { ConversationSearch } from './conversation-search.ts';
 import { WebSocketServer } from 'ws';
 
-export function createCodexChatBackend(partner: Partner, authorize: () => Promise<boolean> = async () => true): ChatBackend {
+export function createCodexChatBackend(partner: Partner, authorize: () => Promise<boolean> = async () => true, conversationSearch?: ConversationSearch): ChatBackend {
   const cursors = panelCursors();
   async function page(cursor?: string) {
     const options: { before?: number; anchor?: string } = cursor ? JSON.parse(cursor) : {};
@@ -35,6 +36,18 @@ export function createCodexChatBackend(partner: Partner, authorize: () => Promis
     return { snapshot, messages: all.slice(start, end), before };
   }
   return {
+    async search({ query }) {
+      if (!conversationSearch) throw new Error('Search unavailable');
+      const result = await conversationSearch.search(query);
+      return { hits: result.hits.map(({ cwd: _cwd, ...hit }) => hit), estimatedTotalHits: result.estimatedTotalHits,
+        limited: result.estimatedTotalHits > result.hits.length };
+    },
+    async searchRead({ id }) {
+      if (!conversationSearch) throw new Error('Search unavailable');
+      const { record: { cwd: _cwd, ...record }, context } = await conversationSearch.read(id);
+      return { record, context: { targetSourceRecordIndex: context.targetSourceRecordIndex, truncated: context.truncated,
+        items: context.items.filter(item => item.kind !== 'tool').map(({ phase: _phase, kind, ...item }) => ({ ...item, kind: kind as 'message' | 'compaction' })) } };
+    },
     async read(): Promise<ChatView> { const recovery = await partner.sharedRecovery(); const p = await page(); return { version: 1, sessionId: p.snapshot.sessionId, name: p.snapshot.name, activeTurnId: p.snapshot.cancellable[0] ?? null, contextUsage: { tokens: p.snapshot.context?.activeTokens ?? null, capacity: p.snapshot.context?.windowTokens ?? null }, compaction: p.snapshot.lifecycle.latest ? { id: p.snapshot.lifecycle.latest.nativeId ?? null, status: p.snapshot.lifecycle.latest.status } : null, messages: p.messages, before: p.before, capabilities: { ...capabilities, images: await partner.sharedImageLimits() }, recovery }; },
     async history(before) { const p = await page(before); return { messages: p.messages, before: p.before }; },
     compact: input => partner.compact({ ...input, authorize }),
@@ -74,13 +87,13 @@ export function createCodexChatBackend(partner: Partner, authorize: () => Promis
     subscribe: listener => partner.subscribe(listener),
   };
 }
-export function createChatSocket(partner: Partner, authorize: (request: import('node:http').IncomingMessage) => Promise<boolean> = async () => true) {
+export function createChatSocket(partner: Partner, authorize: (request: import('node:http').IncomingMessage) => Promise<boolean> = async () => true, conversationSearch?: ConversationSearch) {
   const sockets = new WebSocketServer({ noServer: true, maxPayload: 2 * 1024 * 1024 });
   const hosts = new Set<Awaited<ReturnType<typeof createChatHost>>>();
   sockets.on('connection', (ws, request) => {
     let channel: Awaited<ReturnType<typeof createChatHost>>['connect'] extends (...args: never[]) => infer R ? R : never;
     let closed = false;
-    const host = createChatHost(createCodexChatBackend(partner, async () => await authorize(request) && !closed && ws.readyState === ws.OPEN));
+    const host = createChatHost(createCodexChatBackend(partner, async () => await authorize(request) && !closed && ws.readyState === ws.OPEN, conversationSearch));
     void host.then(h => { if (closed) h.close(); else hosts.add(h); }).catch(() => ws.close(1011, 'Chat unavailable'));
     ws.on('close', () => { closed = true; channel?.close(); void host.then(h => { h.close(); hosts.delete(h); }).catch(() => undefined); });
     // Register immediately; a browser may send subscription calls before host hydration completes.

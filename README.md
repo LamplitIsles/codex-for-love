@@ -204,10 +204,18 @@ the Companion header. Search runs the FlickLog CLI in the Partner's configured
 workspace, using the Partner's Codex home. FlickLog owns its rebuildable index;
 CFL does not copy conversation history into its own database. Results are limited
 to that workspace and show highlighted excerpts. Opening a result shows the
-complete message and nearby context in the search panel, without changing the
-active conversation. The same bounded search and record-reading capability is
-available to the companion through Companion MCP. Without FlickLog, the chat
-still works, but search requests report that search is unavailable.
+complete message or compaction summary and nearby context in the search panel,
+without changing the active conversation or draft. The shared `/slice/` reader
+uses authenticated `lamplit.chat.v1.search` and `searchRead` socket methods backed
+by the same configured helper as native HTTP. FlickLog matching, ranking, its
+20-hit limit and estimated total remain unchanged; only `sessions` are scanned,
+never `archived_sessions`. Context keeps native source indexes, up to eight
+eligible chat/summary records per side and 12,000 Unicode code points. Selected
+text stays complete when its reply fits the existing 2 MiB transport limit.
+The same bounded search and record-reading capability is available to the companion through Companion MCP. Without FlickLog, the chat
+still works, but search requests fail normally with the existing retry UI.
+Native subprocess, lookup and oversized-reply failures use ordinary RPC errors;
+they do not disconnect text chat or introduce new search status categories.
 For a keyed external Meilisearch instance, provide `FLICKLOG_MEILI_URL` and
 either `FLICKLOG_MEILI_KEY` or a systemd credential named `flicklog-meili-key`
 to the Partner service. If its executable is not on the Partner process's
@@ -331,7 +339,7 @@ Development and tests must use fresh, test-owned workspaces. Do not point them a
 The optional shared frontend is served at `/slice/` when `LAMPLIT_APP_ASSETS`
 points to an extracted, reviewed Lamplit browser archive. The existing frontend
 remains at `/`. The common `/api/chat/socket` protocol uses the exact compiled
-`@lamplit/contracts` archive pinned in `vendor/lamplit-contracts-compact.tgz`.
+`@lamplit/contracts` archive pinned in `vendor/lamplit-contracts-search.tgz`.
 Use `pnpm install --frozen-lockfile`; no adjacent source build is required.
 This is a development slice, not a production cutover or published-package release workflow.
 
@@ -525,3 +533,48 @@ its actual host also streams voice through a local fake provider. All controls
 are test-only entry points, absent from production routing. Acceptance uses no
 live services, real credentials, paid providers or external messages. Owner
 joint acceptance remains a separate merge gate.
+
+### Shared conversation-search acceptance
+
+App #3142 HEAD `512ed6656c0564426838b7a82245453e6dd34114` is the
+Owner-approved browser/contracts/runner for CFL spec #3144. Its exact frozen
+artifacts live at
+`/Users/neil/code/projects/LamplitIsles/lamplit-app/.scratch/conversation-search/frozen-512ed66`.
+Read `identity.json`, `owner-approval.json` and the extracted acceptance README;
+verify archive and per-file manifest SHA-256 hashes before and after acceptance.
+Do not rebuild or alter the approved browser, contracts or runner.
+
+Extract into sibling test-owned `browser/`, `contracts/`, `acceptance/` directories
+under `.scratch/conversation-search`; install dependencies with `bun install`
+first in `contracts/package`, then in `acceptance`. The product consumes the exact
+approved contracts archive through pnpm. From the repository root, run Node 24
+and pnpm 11.22.0 in order:
+
+```sh
+pnpm install --frozen-lockfile
+pnpm check
+pnpm build
+pnpm test
+node --test apps/partner/tests/conversation-search*.test.ts
+node apps/partner/tests/conversation-search-acceptance-host.ts \
+  .scratch/conversation-search/browser .scratch/conversation-search/evidence
+```
+
+Use the host's printed origin and control URL in another terminal:
+
+```sh
+APP_ACCEPTANCE_URL=<printed-origin>/slice/ \
+APP_ACCEPTANCE_CONTROL_URL=<printed-control-url> \
+APP_ACCEPTANCE_EVIDENCE="$PWD/.scratch/conversation-search/evidence" \
+  bun .scratch/conversation-search/acceptance/search-browser.mjs
+```
+
+This actual CFL host uses temporary native state, the fake official app-server,
+and `createConversationSearch` invoking a test-owned FlickLog process fixture.
+Controls seed/reset owned data, delay/fail delivery, or expose native IDs/state;
+no browser routes replace public search responses. The unchanged runner checks
+390px/1280px readers, Chinese/English hits, summaries, distinct repeated records,
+import context, truncation, safe marks, stale replies, retry, draft preservation
+and ordinary chat. Stop the fixture host after acceptance to clean its temporary
+workspace. It never uses live services, credentials or real history. Native
+acceptance and joint user review remain merge gates; these commands do not deploy.
