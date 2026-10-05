@@ -11,6 +11,7 @@ export async function voiceFixture(timeouts?: VoiceDependencies['timeouts'], ass
   f.config.speech = { endpoint: 'http://unused-batch.invalid' }; f.credentials.speech = 'fixture-key';
   const state = { reject: 0, holdReady: false, holdFinish: false, malformed: false, unfinished: false, text: 'recognized final', calls: 0, closes: 0, frames: 0, bytes: 0, auth: '', events: [] as string[] };
   const provider = createServer(); const sockets = new WebSocketServer({ noServer: true });
+  let providerSession: { ws: WebSocket; event: (name: string, payload: object) => void } | undefined;
   provider.on('upgrade', (req, socket, head) => {
     state.calls++; state.auth = req.headers.authorization ?? '';
     if (state.reject) { socket.end(`HTTP/1.1 ${state.reject} Rejected\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`); return; }
@@ -19,6 +20,7 @@ export async function voiceFixture(timeouts?: VoiceDependencies['timeouts'], ass
   sockets.on('connection', ws => {
     let taskId = '';
     const event = (name: string, payload: object = {}) => ws.send(JSON.stringify({ header: { event: name, task_id: taskId }, payload }));
+    providerSession = { ws, event };
     const sentence = (id: number, text: string, final = true) => event('result-generated', { output: { sentence: { sentence_id: id, sentence_end: final, text } } });
     ws.on('error', () => {}); ws.on('close', () => state.closes++);
     ws.on('message', (raw, binary) => {
@@ -42,6 +44,17 @@ export async function voiceFixture(timeouts?: VoiceDependencies['timeouts'], ass
   const origin = `http://127.0.0.1:${(app.server.address() as {port:number}).port}`;
   const clients = new Set<WebSocket>();
   return {f, partner, app, state, origin,
+    async providerEvent(name: string, payload: object = {}) {
+      if (!providerSession || providerSession.ws.readyState !== WebSocket.OPEN) throw new Error('Fixture provider is not connected');
+      const { ws, event } = providerSession;
+      // A pong fences prior provider messages through the real relay; rejection closes it instead.
+      await new Promise<void>(resolve => {
+        const done = () => { ws.off('pong', done); ws.off('close', done); resolve(); };
+        ws.once('pong', done); ws.once('close', done);
+        event(name, payload); ws.ping();
+      });
+      return ws.readyState === WebSocket.OPEN;
+    },
     async client(originHeader: string | undefined = origin) {
       const ws = new WebSocket(`${origin.replace('http', 'ws')}/api/voice/stream`, originHeader ? {origin: originHeader} : {}); clients.add(ws);
       const events: VoiceServerEvent[] = []; ws.on('message', raw => events.push(parseVoiceServerEvent(raw.toString()))); ws.on('error', () => {});

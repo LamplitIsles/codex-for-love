@@ -6,6 +6,43 @@ import { MAX_VOICE_FRAME_BYTES } from '@lamplit/contracts/voice';
 import { voiceFixture } from './voice-fixture.ts';
 import { eventually } from './fixture.ts';
 
+for (const finalId of [1, 2]) test(`empty final during recording stays open for usable final sentence ${finalId}`, async () => {
+  const f = await voiceFixture();
+  try {
+    f.state.holdFinish = true;
+    const c = await f.client(); await c.wait('ready');
+    c.ws.send(Buffer.alloc(3200), { binary: true });
+    await eventually(async () => f.state.frames === 1);
+    const sentence = (id: number, text: string, final = true) => ({ output: { sentence: { sentence_id: id, sentence_end: final, text } } });
+    await f.providerEvent('result-generated', sentence(1, '', false));
+    // Reported production shape: valid ID 1/string text/final flag, empty text, before Finish.
+    assert.equal(await f.providerEvent('result-generated', sentence(1, '')), true, 'empty final must not abort recording');
+    assert.deepEqual(c.events, [{ type: 'ready' }]);
+    await f.providerEvent('result-generated', sentence(finalId, 'recognized final'));
+    assert.deepEqual(c.events, [{ type: 'ready' }]);
+    c.ws.send(JSON.stringify({ type: 'finish' }));
+    await eventually(async () => f.state.events.includes('finish-task'));
+    await f.providerEvent('task-finished');
+    assert.deepEqual(await c.wait('result'), { type: 'result', text: 'recognized final' });
+    assert.equal((await f.f.requests()).some(r => r.method === 'turn/start'), false);
+  } finally { await f.close(); }
+});
+
+test('only empty final sentences cannot produce a successful transcript at Finish', async () => {
+  const f = await voiceFixture();
+  try {
+    f.state.holdFinish = true;
+    const c = await f.client(); await c.wait('ready');
+    c.ws.send(Buffer.alloc(2));
+    await eventually(async () => f.state.frames === 1);
+    assert.equal(await f.providerEvent('result-generated', { output: { sentence: { sentence_id: 1, sentence_end: true, text: '  ' } } }), true);
+    c.ws.send(JSON.stringify({ type: 'finish' }));
+    await eventually(async () => f.state.events.includes('finish-task'));
+    await f.providerEvent('task-finished');
+    assert.deepEqual(await c.wait('error'), { type: 'error', code: 'transcript_invalid' });
+  } finally { await f.close(); }
+});
+
 test('Node voice and chat share one upgrade owner; PCM streams before finish, final sentences replace/order, no Codex admission', async () => {
   const f = await voiceFixture();
   try {

@@ -108,7 +108,8 @@ export function createVoiceHost(credential: () => string | null, dependencies: V
               return;
             }
             unfinished.delete(sentence.sentence_id);
-            if (!sentence.text.trim()) return fail('transcript_invalid');
+            // Empty final segments carry no transcript; wait for usable speech or Finish.
+            if (!sentence.text.trim()) return;
             chars += Array.from(sentence.text).length - Array.from(sentences.get(sentence.sentence_id) ?? '').length;
             if (chars > VOICE_TRANSCRIPT_MAX_CHARS) return fail('transcript_invalid');
             sentences.set(sentence.sentence_id, sentence.text); break;
