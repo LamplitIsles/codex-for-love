@@ -34,7 +34,9 @@ export function createCodexChatBackend(partner: Partner, authorize: () => Promis
     const end = options.anchor ? all.findIndex(m => m.id === options.anchor) : all.length;
     if (end < 0) throw new Error('Cursor no longer exists');
     const start = Math.max(0, end - PAGE_SIZE);
-    const before = start > 0 ? JSON.stringify({ ...options, anchor: all[start]!.id }) : snapshot.hasMore && snapshot.before !== null ? JSON.stringify({ before: snapshot.before }) : null;
+    // An anchor belongs to this native window, not whichever window is latest
+    // when the Human next requests history. Freeze its exclusive upper bound.
+    const before = start > 0 ? JSON.stringify({ before: options.before ?? snapshot.messages.at(-1)!.sequence + 1, anchor: all[start]!.id }) : snapshot.hasMore && snapshot.before !== null ? JSON.stringify({ before: snapshot.before }) : null;
     return { snapshot, messages: all.slice(start, end), before };
   }
   return {

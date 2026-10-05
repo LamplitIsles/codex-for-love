@@ -2,10 +2,58 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { once } from 'node:events';
 import { join } from 'node:path';
+import { writeFile } from 'node:fs/promises';
 import { fixture, eventually } from './fixture.ts';
 import { createWebServer } from '../runtime/server.ts';
 import { openChat } from '@lamplit/contracts/client';
 import type { ChatView } from '@lamplit/contracts';
+
+for (const rounds of [16, 31]) for (const advance of [0, 11]) test(`older history button pages ${rounds} native rounds through the shared socket after ${advance} new rounds`, async () => {
+  const f = await fixture();
+  const turns = Array.from({ length: rounds }, (_, i) => ({
+    id: `history-turn-${i}`, status: 'completed', startedAt: 1700000000 + i, completedAt: 1700000000 + i,
+    error: null, items: [
+      { type: 'userMessage', id: `history-user-${i}`, clientId: `history-input-${i}`, content: [{ type: 'text', text: `human ${i}` }] },
+      { type: 'agentMessage', id: `history-agent-${i}`, text: `partner ${i}`, phase: 'final_answer' },
+    ],
+  }));
+  await writeFile(f.appServer.env.FAKE_SERVER_STATE!, JSON.stringify({ threadId: 'thread-fake', next: 32, turns }));
+  const partner = await f.createPartner();
+  const app = createWebServer(partner, join(f.directory, 'assets'));
+  app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening');
+  const port = (app.server.address() as { port: number }).port;
+  let view: ChatView | undefined;
+  const connect = () => openChat(new WebSocket(`ws://127.0.0.1:${port}/api/chat/socket`), value => { view = value; }, () => {});
+  let client = await connect();
+  try {
+    await eventually(async () => !!view?.before);
+    const pages = [view!.messages];
+    let before = view!.before;
+    // The App retains this older-history cursor while accumulating evicted
+    // live messages. Advance the native window beyond its original anchor.
+    for (let i = 0; i < advance; i++) {
+      const id = crypto.randomUUID();
+      await partner.submit(id, `new message ${i}`);
+      await eventually(async () => (await partner.snapshot()).results.some(r => r.sourceIds.includes(id) && r.status === 'completed'));
+    }
+    const originalBoundary = rounds + 1;
+    const anchor = pages[0]![0]!.operationId!;
+    assert.equal((await partner.snapshot()).messages.some(m => m.id === anchor), advance === 0);
+    assert.equal((await partner.snapshot({ before: originalBoundary })).messages.some(m => m.id === anchor), true);
+    const firstPage = await client.history(before!);
+    client.close(); view = undefined; client = await connect();
+    await eventually(async () => !!view?.before);
+    assert.deepEqual(await client.history(before!), firstPage, 'the retained history cursor also works after reconnect');
+    while (before) {
+      const page = await client.history(before);
+      assert.ok(page.messages.length > 0);
+      assert.ok(page.messages.length <= 30);
+      pages.unshift(page.messages);
+      before = page.before;
+    }
+    assert.deepEqual(pages.flat().map(m => m.text), turns.flatMap((_, i) => [`human ${i}`, `partner ${i}`]));
+  } finally { client.close(); await app.close(); await f.close(); }
+});
 
 test('real Node host and official SDK: completed messages, duplicate admission, steer, stop and rehydrate', async () => {
   const f = await fixture(); await f.holdProvider(true);
