@@ -183,6 +183,13 @@ web browsers use the secure-context Clipboard API.
 Message timestamps and pending status use Framework7 Message `textFooter` inside
 the bubble; avatars retain the framework’s bottom alignment.
 
+Native photo selection uses Capacitor Camera 8.2.3 gallery intake and reads the
+returned originals into memory before creating drafts. Web browsers keep the
+file picker. Native picker or read failures show a composer error; reselect an
+unreadable photo to retry. Supported originals remain PNG, JPEG, WebP and GIF;
+HEIC is rejected. The native shell must include the Camera plugin and be rebuilt
+after `cap sync`.
+
 Tap an image to open Framework7 Photo Browser. Mobile previews use almost the
 full width and support pinch zoom and panning. Tap outside the displayed image
 to close it. Long-press an image in the chat or preview to save the original:
