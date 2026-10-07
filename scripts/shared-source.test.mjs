@@ -15,7 +15,7 @@ test('source pins accept only a complete commit and formal preparation requires 
     requirePinned({ sha: pin, dirty: false }, pin);
     assert.throws(() => requirePinned({ sha: pin, dirty: true }, pin), /local changes/);
     assert.throws(() => requirePinned({ sha: 'b'.repeat(40), dirty: false }, pin), /Formal source/);
-    assert.throws(() => identity(join(directory, 'missing')), /Adjacent lamplit-app source is unavailable/);
+    assert.throws(() => identity(join(directory, 'missing')), /Selected App source is unavailable/);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
@@ -43,6 +43,10 @@ test('local source identity changes with untracked bytes and symlink targets, bu
     git(['add', '.gitignore']);
     git(['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', 'commit', '--quiet', '-m', 'fixture']);
     const clean = identity(directory); assert.equal(clean.dirty, false);
+    const moduleUrl = new URL('./shared-source.mjs', import.meta.url).href;
+    const probe = `const m = await import(${JSON.stringify(moduleUrl)}); const actual = m.identity(); m.requirePinned(actual, ${JSON.stringify(clean.sha)}); console.log(JSON.stringify({source:m.source,actual}));`;
+    const selected = JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e', probe], { env: { ...process.env, CFL_APP_SOURCE: directory }, encoding: 'utf8' }));
+    assert.equal(selected.source, directory); assert.deepEqual(selected.actual, clean);
     const path = join(directory, 'new ui\n.svelte');
     await writeFile(path, '<p>first</p>');
     const prepared = identity(directory); assert.equal(prepared.dirty, true);

@@ -76,7 +76,7 @@ test('real Node host and official SDK: completed messages, duplicate admission, 
     await eventually(async () => (await partner.snapshot()).results.some(r => r.status === 'completed'));
     client = await openChat(new WebSocket(`ws://127.0.0.1:${port}/api/chat/socket`), value => { view = value; }, () => {});
     await eventually(async () => !!view?.messages.some(m => m.role === 'agent'));
-    assert.equal((await client.lookup(input.operationId)).state, 'consumed');
+    assert.equal((await client.lookup(input.operationId))?.state, 'submitted');
     await eventually(async () => view?.activeTurnId === null);
     assert.equal(view!.messages.some(m => m.text === '回复完成'), false);
     const old = view?.activeTurnId;
@@ -107,9 +107,9 @@ test('each completed message appears while running; consumed input and terminal 
       await f.chatPhase('partial');
       const input = { operationId: crypto.randomUUID(), text: `phase fixture ${ending}` };
       await client.submit(input);
-      await eventually(async () => !!view?.activeTurnId && view.messages.some(m => m.operationId === input.operationId && m.delivery === 'consumed'));
+      await eventually(async () => !!view?.activeTurnId && view.messages.some(m => m.operationId === input.operationId && m.turnId !== null));
       const turnId = view!.activeTurnId!;
-      assert.equal((await client.lookup(input.operationId)).state, 'consumed');
+      assert.equal((await client.lookup(input.operationId))?.state, 'submitted');
       assert.equal(view!.messages.filter(m => m.turnId === turnId && m.role === 'agent').length, 0);
       await f.chatPhase('message-completed');
       await eventually(async () => !!view?.messages.some(m => m.turnId === turnId && m.text === 'completed commentary'));
@@ -128,6 +128,8 @@ test('each completed message appears while running; consumed input and terminal 
       await eventually(async () => view?.activeTurnId === null);
       if (ending === 'finish') assert.equal(view!.messages.some(m => m.turnId === turnId && m.role === 'notice'), false);
       else await eventually(async () => !!view?.messages.some(m => m.turnId === turnId && m.role === 'notice' && m.text === status));
+      assert.equal((await client.lookup(input.operationId))?.state, 'submitted');
+      assert.equal(view!.recovery.length, 0, 'reply outcome never restores a consumed input');
       const messages = view!.messages.filter(m => m.turnId === turnId && m.role === 'agent');
       assert.equal(messages.length, ending === 'finish' ? 2 : 1);
       assert.ok(messages.some(m => m.id === completedId));

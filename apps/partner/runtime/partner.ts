@@ -1158,7 +1158,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
     return task;
   }
 
-  async function restoreUnconsumed(turnId?: string, preserveQueued = false): Promise<void> {
+  async function restoreUnconsumed(turnId?: string, preserveQueued = false, withdrawn = true): Promise<void> {
     const ids: string[] = turnId ? [...sourceIdsForTurn(turnId)] : [];
     const selectedSteers = pendingSteers.filter((intent) => turnId === undefined || intent.turnId === turnId);
     const selectedStarts = [...pendingStarts.values()].filter((intent) => turnId === undefined || intent.turnId === turnId);
@@ -1173,8 +1173,15 @@ export async function createPartner(config: Config, credentials: Credentials, de
     for (let index = rejectedSteers.length - 1; index >= 0; index -= 1) {
       if (selectedRejected.includes(rejectedSteers[index]!)) rejectedSteers.splice(index, 1);
     }
-    const unconsumed = [...new Set(ids)].filter((id) => !observedInputIds.has(id));
+    let unconsumed = [...new Set(ids)].filter((id) => !observedInputIds.has(id));
     if (!unconsumed.length) return;
+    // Only a terminal native turn with fresh items can prove pre-processing withdrawal.
+    const native = withdrawn && turnId ? await reconcileTurn(turnId, undefined, true) : undefined;
+    if (native && userItems(native).length) await projectTurn(native);
+    unconsumed = unconsumed.filter(id => !observedInputIds.has(id));
+    if (!unconsumed.length) return;
+    const confirmedWithdrawal = native && ['interrupted', 'cancelled'].includes(turnStatus(native));
+    if (confirmedWithdrawal) await store.markRejected(unconsumed, 'Input withdrawn before processing');
     await markUnresolved({ ids: unconsumed, input: '', images: [], transportId: 'restore', source: 'none' });
   }
 
@@ -1321,7 +1328,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
         if (reconciled && (turnStatus(reconciled) === 'interrupted' || turnStatus(reconciled) === 'cancelled')) await restoreUnconsumed(completedTurnId);
         // Successful compact/review turns contain no user input. Their rejected
         // steers belong to the next turn; only unconfirmed inputs need restoring.
-        else if (reconciled && !userItems(reconciled).length && completedTurnId) await restoreUnconsumed(completedTurnId, turnStatus(reconciled) === 'completed');
+        else if (reconciled && !userItems(reconciled).length && completedTurnId) await restoreUnconsumed(completedTurnId, turnStatus(reconciled) === 'completed', false);
         syncActiveTurn();
         if (compacting || lifecycle?.status === 'running') {
           compacting = false;
@@ -1519,6 +1526,11 @@ export async function createPartner(config: Config, credentials: Credentials, de
     const accepted = inputAdmission.then(async () => {
       if (closing || storageError) throw new Error('Partner is unavailable');
       if (shared) {
+        const failed = await store.failedSubmission(id, threadId);
+        if (failed) {
+          if (JSON.stringify(failed.input) !== JSON.stringify(shared)) throw new Error('Message identity conflict');
+          return;
+        }
         const existing = await store.sharedSubmission(id, threadId);
         if (existing) {
           if (existing !== createHash('sha256').update(JSON.stringify(shared)).digest('hex')) throw new Error('Message identity conflict');
@@ -1527,7 +1539,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
         if (await store.messageMeta(id)) throw new Error('Message identity conflict');
         if (replaces.length) await refreshRecoveryHistory();
         for (const sourceId of replaces) {
-          if (observedInputIds.has(sourceId) || (await store.outcome(sourceId))?.status === 'replaced' || !await store.rejected(sourceId)) throw new Error('Replacement source is not eligible');
+          if (observedInputIds.has(sourceId) || (await store.outcome(sourceId))?.status === 'replaced' || (!await store.rejected(sourceId) && (await store.failedSubmission(sourceId, threadId))?.replacedBy !== null)) throw new Error('Replacement source is not eligible');
         }
         const staged = await store.stagedImages(id, threadId);
         if (shared.images?.length) {
@@ -1538,7 +1550,13 @@ export async function createPartner(config: Config, credentials: Credentials, de
       const images = inputImages(id, values);
       if (shared && JSON.stringify(images.map(image => image.id)) !== JSON.stringify((shared.images ?? []).map(image => image.attachmentId))) throw new Error('Staged original bytes changed');
       const materialized = await materializeImages(paths.workspaceRoot, images);
-      await store.admit(id, input, materialized, shared ? { sessionId: threadId, input: shared } : undefined);
+      const admitted = await store.admit(id, input, materialized, shared ? { sessionId: threadId, input: shared } : undefined).catch(async error => {
+        // Store.admit rolls back atomically. Conflicts do not replace an existing identity.
+        if (!shared || (error as { code?: string }).code === 'MESSAGE_IDENTITY_CONFLICT') throw error;
+        await store.failSubmission(shared, threadId, error instanceof Error ? error.message : String(error));
+        return undefined;
+      });
+      if (!admitted) return;
       messageIds.add(id);
       const message = await store.messageMeta(id);
       if (message) {
@@ -1662,7 +1680,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
       try { const file = await lstat(metadata.path); if (!file.isFile() || file.size > 32 * 1024 * 1024) return null; return { bytes: await readFile(metadata.path), mediaType: metadata.media_type }; } catch { return null; }
     },
     async sharedImageRef(id: string): Promise<ImageRef | undefined> {
-      const image = await store.imageMetadata(id);
+      const image = await store.imageMetadata(id) ?? (await store.stagedMedia(id, threadId))?.image;
       if (!image) return undefined;
       let availability: ImageRef['availability'] = 'available';
       try { await access(image.path); } catch { availability = 'missing'; }
@@ -1679,12 +1697,15 @@ export async function createPartner(config: Config, credentials: Credentials, de
         // Match the frozen OperationIdSchema without normalizing the stored identity.
         if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(source.id)) continue;
         const payload = await store.inputPayload(source.id);
-        if (!payload || (!unresolvedInputIds.has(source.id) && !await store.rejected(source.id))) continue;
-        const rejected = await store.rejected(source.id);
+        if (!payload || observedInputIds.has(source.id) || !await store.rejected(source.id)) continue;
         const images = (await Promise.all(payload.images.map(image => this.sharedImageRef(image.id)))).filter((ref): ref is ImageRef => !!ref);
-        recovery.push(validateRecovery({ sourceId: source.id, operationId: source.id, text: payload.input, images, state: rejected ? 'rejected' : 'uncertain', replacementEligible: !!rejected }));
+        recovery.push(validateRecovery({ sourceId: source.id, operationId: source.id, text: payload.input, images, replacementEligible: true }));
       }
-      return recovery;
+      for (const input of await store.failedSubmissions(threadId)) {
+        const images = (await Promise.all((input.images ?? []).map(image => this.sharedImageRef(image.attachmentId)))).filter((ref): ref is ImageRef => !!ref);
+        recovery.push(validateRecovery({ sourceId: input.operationId, operationId: input.operationId, text: input.text, images, replacementEligible: true }));
+      }
+      return recovery.slice(-20);
     },
     async image(id: string) {
       const metadata = await store.imageMetadata(id);
@@ -1825,13 +1846,11 @@ export async function createPartner(config: Config, credentials: Credentials, de
         } : undefined,
       };
     },
-    async chatReceipt(id: string): Promise<Receipt> {
+    async chatReceipt(id: string): Promise<Receipt | null> {
       const meta = await store.messageMeta(id);
-      if (!meta) return { operationId: id, state: 'missing', messageId: null, turnId: null, error: null };
-      const turn = operationTurn(id);
-      const outcome = await store.outcome(id);
-      const consumed = observedInputIds.has(id);
-      return { operationId: id, state: consumed ? 'consumed' : await store.rejected(id) ? 'rejected' : unresolvedInputIds.has(id) ? 'uncertain' : outcome?.status === 'attachment-error' || outcome?.status === 'replaced' ? 'rejected' : 'accepted', messageId: id, turnId: turn?.id ?? null, error: outcome?.error ?? null };
+      if (meta) return { operationId: id, state: 'submitted', messageId: id, turnId: operationTurn(id)?.id ?? null, error: await store.rejected(id) ?? null };
+      const failed = await store.failedSubmission(id, threadId);
+      return failed ? { operationId: id, state: 'failed', messageId: null, turnId: null, error: failed.error } : null;
     },
     async chatStop(id: string) {
       if (!activeTurnId || activeTurnId !== id) return { stopped: false };
@@ -1850,7 +1869,9 @@ export async function createPartner(config: Config, credentials: Credentials, de
         const input = validateSubmission(value);
         const normalized: Submission = { operationId: input.operationId, text: input.text, ...(input.images?.length ? { images: input.images.map(({ attachmentId, name, mediaType, availability }) => ({ attachmentId, name, mediaType, availability })) } : {}), ...(input.replacementSourceIds?.length ? { replacementSourceIds: input.replacementSourceIds } : {}) };
         await submitInput(input.operationId, input.text, [], input.replacementSourceIds ?? [], normalized);
-        return await this.chatReceipt(input.operationId);
+        const receipt = await this.chatReceipt(input.operationId);
+        if (!receipt) throw new Error('Submission has no durable result');
+        return receipt;
       } finally { pendingHumanAdmissions -= 1; }
     },
     async cancel(id: string) {

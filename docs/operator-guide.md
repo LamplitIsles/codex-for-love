@@ -485,9 +485,9 @@ next deliberate send may replace that draft's source identities. Shared chat
 acceptance is the SQLite commit of validated input, attachments and operation
 fingerprint. Its receipt and reconnect lookup do not wait for native start/steer
 or history catch-up. Native execution remains serialized; official user items
-establish consumption. Later rejection or uncertainty remains visible, and
-ambiguous native attempts are never automatically replayed after restart.
-Accepted means retained input, not a guarantee of exactly-once execution. Known
+establish consumption. Only confirmed pre-processing withdrawal or rejection
+produces public recovery; ambiguous native attempts are never automatically replayed after restart.
+`submitted` means retained input, not a guarantee of exactly-once execution. Known
 native activity reaches the existing typing view independently of reconciliation;
 only completed reply messages are presented.
 
@@ -613,8 +613,8 @@ GitHub secret is used by this repository.
 At the default `/` entry, select or paste supported images and remove selections before send.
 An upload failure keeps editable text and files. Submitted recovery offers inspect,
 restore to edit and dismiss. Current edits prevent restoration from overwriting them.
-Uncertain delivery permits inspection only; a completed turn or socket reconnect is
-not proof of unconsumption. Eligible edited resend uses a new operation UUID.
+Unresolved native delivery stays internal and never produces public recovery; a
+completed turn or socket reconnect is not proof of unconsumption. Eligible edited resend uses a new operation UUID.
 Missing originals block image resend until explicitly removed or replaced.
 Clearing restored input returns its offer; discard/dismiss hides it only for this
 page/session and never changes native consumption. See

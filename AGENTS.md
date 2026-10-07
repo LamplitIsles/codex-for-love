@@ -3,7 +3,11 @@
 Use Node 24 and the pnpm version pinned in package.json. Before frozen CFL
 installation, prepare adjacent lamplit-app source with its pinned Bun toolchain:
 read [source preparation](docs/default-shared-frontend.md) for local edits, strict
-candidates, pin updates and isolated acceptance. The shared frontend and compiled
+candidates, pin updates and isolated acceptance. For an approved isolated App source checkout, set
+`CFL_APP_SOURCE` through preparation, build and packaging; strict checks still
+require the clean exact pin. Native acceptance consumes the separately approved
+frozen artifacts as described in [submission acceptance](docs/native-durable-submissions.md).
+The shared frontend and compiled
 public contracts come from one App revision; CFL owns native integration and
 execution. Task-specific implementation specs live under `.scratch/`. Work in
 this checkout, without worktrees.

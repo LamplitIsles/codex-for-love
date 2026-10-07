@@ -85,7 +85,7 @@ export async function keetAcceptanceHost(assets: string, evidence?: string) {
       ...(input.hasImage || input.images?.length ? { images: [{ status: 'available', mediaType: 'image/png', name: 'keet-original.png', ref: `${crypto.randomUUID()}.png` }] } : {}),
     }) });
     if (response.status !== 202) throw new Error(`Native ingress ${response.status}: ${await response.text()}`);
-    await eventually(async () => (await partner.chatReceipt(`keet:webhook:${eventId}`)).state === 'consumed' && !(await partner.snapshot()).typing);
+    await eventually(async () => (await partner.snapshot()).results.some(r => r.sourceIds.includes(`keet:webhook:${eventId}`) && r.status === 'completed') && !(await partner.snapshot()).typing);
     control.hold = true; await writeControl();
     return (await partner.snapshot()).messages.find(m => m.id === `keet:webhook:${eventId}`)?.keet?.imageNote;
   }
@@ -117,7 +117,7 @@ export async function keetAcceptanceHost(assets: string, evidence?: string) {
     } else if (input.action === 'reminder') {
       const alarm = createAlarm(partnerPaths(f.workspace).alarms, '测试提醒', { kind: 'once', at: new Date(clock + 1000).toISOString() }, clock);
       clock += 2000; control.completedText = 'fixture reminder reply'; control.hold = false; await writeControl(); await partner.checkAlarms();
-      await eventually(async () => (await partner.chatReceipt(`alarm:${alarm.id}:${alarm.nextAt}`)).state === 'consumed' && !(await partner.snapshot()).typing); control.hold = true; await writeControl();
+      await eventually(async () => (await partner.snapshot()).results.some(r => r.sourceIds.includes(`alarm:${alarm.id}:${alarm.nextAt}`) && r.status === 'completed') && !(await partner.snapshot()).typing); control.hold = true; await writeControl();
     } else if (input.action !== 'state') throw new Error('Unknown action');
     await settled();
     if (evidence) {

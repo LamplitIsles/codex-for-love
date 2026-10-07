@@ -69,6 +69,7 @@ export class Store {
       this.db.exec('PRAGMA locking_mode=EXCLUSIVE; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;');
       this.db.exec(`
         CREATE TABLE IF NOT EXISTS staged_images (operation_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, fingerprint TEXT NOT NULL, payload TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS failed_submissions (operation_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, fingerprint TEXT NOT NULL, payload TEXT NOT NULL, error TEXT NOT NULL, replaced_by TEXT);
         CREATE TABLE IF NOT EXISTS shared_submissions (operation_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, fingerprint TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS rejected_inputs (message_id TEXT PRIMARY KEY, error TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS chat_completed_items (turn_id TEXT NOT NULL, item_id TEXT PRIMARY KEY);
@@ -188,11 +189,13 @@ export class Store {
       }
       if (shared) {
         for (const sourceId of shared.input.replacementSourceIds ?? []) {
-          if (!this.db.prepare('SELECT 1 FROM pending_inputs p JOIN rejected_inputs r ON r.message_id=p.message_id WHERE p.message_id=?').get(sourceId)
-            || this.db.prepare("SELECT 1 FROM message_outcomes WHERE message_id=? AND status='replaced'").get(sourceId)) throw new Error('Replacement source is not eligible');
+          if ((!this.db.prepare('SELECT 1 FROM pending_inputs p JOIN rejected_inputs r ON r.message_id=p.message_id WHERE p.message_id=?').get(sourceId)
+            || this.db.prepare("SELECT 1 FROM message_outcomes WHERE message_id=? AND status='replaced'").get(sourceId))
+            && !this.db.prepare('SELECT 1 FROM failed_submissions WHERE operation_id=? AND replaced_by IS NULL').get(sourceId)) throw new Error('Replacement source is not eligible');
         }
         this.db.prepare('INSERT INTO shared_submissions(operation_id,session_id,fingerprint) VALUES(?,?,?)').run(id, shared.sessionId, createHash('sha256').update(JSON.stringify(shared.input)).digest('hex'));
         for (const sourceId of shared.input.replacementSourceIds ?? []) {
+          if (this.db.prepare('UPDATE failed_submissions SET replaced_by=? WHERE operation_id=? AND replaced_by IS NULL').run(id, sourceId).changes) continue;
           this.db.prepare("INSERT INTO message_outcomes(message_id,status,error) VALUES(?,'replaced','replaced') ON CONFLICT(message_id) DO UPDATE SET status='replaced',error='replaced'").run(sourceId);
           this.db.prepare('DELETE FROM pending_inputs WHERE message_id=?').run(sourceId);
           this.addRevision(sourceId);
@@ -240,6 +243,25 @@ export class Store {
       const row = this.db.prepare('SELECT fingerprint,session_id FROM shared_submissions WHERE operation_id=?').get(id) as { fingerprint: string; session_id: string } | undefined;
       if (row && row.session_id !== sessionId) throw identityConflict();
       return row?.fingerprint;
+    });
+  }
+  async failedSubmission(id: string, sessionId: string): Promise<{ input: Submission; error: string; replacedBy: string | null } | undefined> {
+    return this.transaction(() => {
+      const row = this.db.prepare('SELECT payload,error,replaced_by FROM failed_submissions WHERE operation_id=? AND session_id=?').get(id, sessionId) as { payload: string; error: string; replaced_by: string | null } | undefined;
+      return row ? { input: JSON.parse(row.payload), error: row.error, replacedBy: row.replaced_by } : undefined;
+    });
+  }
+  async failedSubmissions(sessionId: string): Promise<Submission[]> {
+    return this.transaction(() => (this.db.prepare('SELECT payload FROM failed_submissions WHERE session_id=? AND replaced_by IS NULL ORDER BY rowid DESC LIMIT 20').all(sessionId) as Array<{ payload: string }>).reverse().map(row => JSON.parse(row.payload)));
+  }
+  /** Record definite rolled-back admission, never an execution/transport outcome. */
+  async failSubmission(input: Submission, sessionId: string, error: string): Promise<void> {
+    await this.transaction(() => {
+      if (this.db.prepare('SELECT 1 FROM message_meta WHERE id=?').get(input.operationId)) throw new Error('Cannot fail a durably admitted input');
+      const fingerprint = createHash('sha256').update(JSON.stringify(input)).digest('hex');
+      const old = this.db.prepare('SELECT fingerprint FROM failed_submissions WHERE operation_id=?').get(input.operationId) as { fingerprint: string } | undefined;
+      if (old) { if (old.fingerprint !== fingerprint) throw identityConflict(); return; }
+      this.db.prepare('INSERT INTO failed_submissions(operation_id,session_id,fingerprint,payload,error) VALUES(?,?,?,?,?)').run(input.operationId, sessionId, fingerprint, JSON.stringify(input), error);
     });
   }
   async markRejected(ids: readonly string[], error: string): Promise<void> {

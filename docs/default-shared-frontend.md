@@ -35,6 +35,12 @@ The normal build verifies prepared hashes and source identity before copying
 resources into `apps/partner/build`. Preparation also copies App’s LICENSE,
 IMPORTS and the upstream Noto Sans SC OFL from App’s frozen installed font
 dependency; their hashes are verified alongside browser and contracts resources.
+Set `CFL_APP_SOURCE=/absolute/test-owned/lamplit-app` to select an isolated real Git
+checkout at the approved commit. Preparation and verification use this same path;
+the default remains the adjacent checkout. Strict pin/clean-tree validation and
+prepared resource integrity checks apply unchanged. A SHA environment override or
+metadata-free archive is insufficient. Keep the variable set through build/package.
+
 Source edits after preparation require
 preparing again. Local App edits are allowed and recorded, including a dirty
 marker/diff fingerprint; local candidates are not formal deployment artifacts.
@@ -71,16 +77,16 @@ and OIDC guards. Local execution is not evidence of hosted Actions success.
 
 Browser runners and UI-only assertions live in App; obsolete CFL browser-copy
 runners have been removed. CFL retains the native acceptance hosts and native
-unit/integration tests. Use the unchanged App runners from `lamplit-app/tests/`,
-with its frozen
-installed dependencies, and `apps/partner/build` produced above. The existing
+unit/integration tests. For spec #3437, use the unchanged Orc-approved extracted App runners and frozen
+browser/contracts bytes from the [immutable handoff](native-durable-submissions.md).
+Source-built packaging outputs have their own hashes and are separate evidence. The existing
 native hosts below use a fake official engine and test-owned state. Record source
 identities and resource hashes around acceptance; never use real conversations,
 providers or installed service state as fixtures.
 
-## Keet acceptance identities
+## Historical Keet acceptance identities
 
-Current source pin is merged App PR15 `75f6d3fe7789c8cc28922ae98caa8385459e4c65`,
+Historical Keet source pin was merged App PR15 `75f6d3fe7789c8cc28922ae98caa8385459e4c65`,
 with the exact reviewed tree of `7061b0972266ef1a525ff9430278cde2384ea1e1`.
 Main’s source preparation/build contract supersedes vendored archive installation.
 Historical acceptance used product source `09bf71009ff931cfdc75c675d9b16037bbb1d881`:
@@ -112,6 +118,9 @@ note and have no attached bytes. This change adds no image materializer, trigger
 prompt, webhook provisioning or hosted credential/routing surface. The existing
 loopback ingress and browser same-origin/auth guards remain required.
 
+Current submission/Keet acceptance uses the unchanged runners and frozen resources
+from [the approved submission handoff](native-durable-submissions.md).
+
 The isolated native host uses actual CFL webhook, Partner storage, fake official
 app-server transport, fake loopback KFA media, and the prepared browser from the pinned App source:
 
@@ -119,7 +128,7 @@ app-server transport, fake loopback KFA media, and the prepared browser from the
 node apps/partner/tests/keet-acceptance-host.ts apps/partner/build <owned-evidence>
 ```
 
-The separate approved runner is from App HEAD
+The historical separately approved runner was from App HEAD
 `7061b0972266ef1a525ff9430278cde2384ea1e1`. Archive SHA256:
 `effb16db242eaa7686623bf07cb1469919c91d79340528ba9fe44422078e3c42`;
 11-file manifest SHA256:

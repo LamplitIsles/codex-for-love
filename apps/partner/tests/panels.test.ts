@@ -63,7 +63,7 @@ test('public panels read native journal, diary, catalogue and SQLite; MCP writes
     assert.equal((await client.diaryRead({ sessionId: input.sessionId, name: '2026-01-02.md' })).status, 'missing');
     assert.equal((await client.diaryList(input)).entries.includes('2026-01-02.md'), false);
     await assert.rejects(client.diaryRead({ sessionId: input.sessionId, name: '../persona.md' }));
-    socket.send(JSON.stringify({ version: 1, type: 'call', id: 'invalid-panel', call: { serviceId: 'lamplit.chat.v1', member: 'diaryRead', args: [{ sessionId: input.sessionId, name: '../persona.md' }] } }));
+    socket.send(JSON.stringify({ version: 1, type: 'call', id: 'invalid-panel', call: { serviceId: 'lamplit.chat.v2', member: 'diaryRead', args: [{ sessionId: input.sessionId, name: '../persona.md' }] } }));
     await eventually(async () => frames.some(frame => frame.id === 'invalid-panel' && frame.type === 'error'));
     assert.equal((await client.relationship({ sessionId: input.sessionId })).current.affinity, 66);
     const album = await client.album(input); assert.equal(album.images.length, 30);
@@ -131,7 +131,7 @@ for (const kind of ['once', 'interval'] as const) for (const lateness of [59000,
         assert.ok((await backend.history(JSON.stringify({}))).messages.some(m => m.id === id && m.source?.kind === 'reminder'));
         await partner.checkAlarms(); assert.equal((await f.requests()).filter(r => r.method === 'turn/start').length, 1);
         await f.holdProvider(false); await eventually(async () => (await partner.snapshot()).results.some(r => r.chatStatus === 'completed'));
-        assert.equal((await backend.lookup(id)).state, 'consumed');
+        assert.equal((await backend.lookup(id))?.state, 'submitted');
         await partner.close(); partner = await f.createPartner({ now: () => clock });
         assert.deepEqual((await createCodexChatBackend(partner).read()).messages.find(m => m.id === id)?.source, message.source);
         assert.equal((await f.requests()).filter(r => r.method === 'turn/start').length, 1);

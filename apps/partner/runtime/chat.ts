@@ -16,16 +16,14 @@ export function createCodexChatBackend(partner: Partner, authorize: () => Promis
     const receipts = new Map(await Promise.all(snapshot.messages.map(async m => [m.id, await partner.chatReceipt(m.id)] as const)));
     const ordered: Array<{ order: number; message: ChatMessage }> = [];
     for (const m of snapshot.messages) {
-      if (m.delivery === 'replaced') continue;
-      const state = receipts.get(m.id)!.state;
-      const delivery = state === 'accepted' ? 'pending' : state === 'missing' ? 'uncertain' : state;
+      if (m.delivery === 'replaced' || receipts.get(m.id)?.state !== 'submitted') continue;
       const images = (await Promise.all(m.inputImages.map(image => partner.sharedImageRef(image.id)))).filter((ref): ref is ImageRef => !!ref);
       const source: ChatMessage['source'] = m.keet
         ? { kind: 'keet', channel: m.keet.kind, destination: m.keet.destination, senderLabel: m.keet.senderLabel }
         : m.alarm ? { kind: 'reminder', reminderId: m.id.split(':')[1]!, occurrenceId: m.id } : undefined;
       ordered.push({ order: m.sequence * 2, message: {
         id: m.id, role: 'user', text: m.keet ? `${m.keet.text}${m.keet.imageNote ?? ''}` : m.input,
-        ...(images.length ? { images } : {}), delivery, createdAt: m.created,
+        ...(images.length ? { images } : {}), createdAt: m.created,
         operationId: m.id, turnId: m.turnId, ...(source ? { source } : {}),
       } });
     }
@@ -59,7 +57,7 @@ export function createCodexChatBackend(partner: Partner, authorize: () => Promis
       return { record, context: { targetSourceRecordIndex: context.targetSourceRecordIndex, truncated: context.truncated,
         items: context.items.filter(item => item.kind !== 'tool').map(({ phase: _phase, kind, ...item }) => ({ ...item, kind: kind as 'message' | 'compaction' })) } };
     },
-    async read(): Promise<ChatView> { const recovery = await partner.sharedRecovery(false); const p = await page(); return { version: 1, sessionId: p.snapshot.sessionId, name: p.snapshot.name, activeTurnId: p.snapshot.cancellable[0] ?? null, contextUsage: { tokens: p.snapshot.context?.activeTokens ?? null, capacity: p.snapshot.context?.windowTokens ?? null }, compaction: p.snapshot.lifecycle.latest ? { id: p.snapshot.lifecycle.latest.nativeId ?? null, status: p.snapshot.lifecycle.latest.status } : null, messages: p.messages, before: p.before, capabilities: { ...capabilities, images: await partner.sharedImageLimits() }, recovery }; },
+    async read(): Promise<ChatView> { const recovery = await partner.sharedRecovery(false); const p = await page(); return { version: 2, sessionId: p.snapshot.sessionId, name: p.snapshot.name, activeTurnId: p.snapshot.cancellable[0] ?? null, contextUsage: { tokens: p.snapshot.context?.activeTokens ?? null, capacity: p.snapshot.context?.windowTokens ?? null }, compaction: p.snapshot.lifecycle.latest ? { id: p.snapshot.lifecycle.latest.nativeId ?? null, status: p.snapshot.lifecycle.latest.status } : null, messages: p.messages, before: p.before, capabilities: { ...capabilities, images: await partner.sharedImageLimits() }, recovery }; },
     async history(before) { const p = await page(before); return { messages: p.messages, before: p.before }; },
     compact: input => partner.compact({ ...input, authorize }),
     submit: input => partner.submitShared(input),

@@ -57,25 +57,26 @@ test('durable WS receipts, concurrent admission and reconnect do not wait for na
   try {
     await h.control(['turn/start']);
     const first = { operationId: crypto.randomUUID(), text: 'saved while start held' };
-    assert.equal((await promptly(h.client.submit(first))).state, 'accepted');
+    assert.equal((await promptly(h.client.submit(first))).state, 'submitted');
     assert.equal(h.view!.activeTurnId, null, 'no activity before native evidence');
     await eventually(async () => (await h.f.requests()).some(r => r.method === 'turn/start'));
     const second = { operationId: crypto.randomUUID(), text: 'saved behind first execution' };
-    assert.equal((await promptly(h.client.submit(second))).state, 'accepted');
-    assert.equal((await promptly(h.client.submit(first))).state, 'accepted');
+    assert.equal((await promptly(h.client.submit(second))).state, 'submitted');
+    assert.equal((await promptly(h.client.submit(first))).state, 'submitted');
     await assert.rejects(h.client.submit({ ...first, text: 'conflict' }));
     const bad = { operationId: crypto.randomUUID(), text: '', images: [{ attachmentId: 'a'.repeat(64), name: 'missing.png', mediaType: 'image/png' as const, availability: 'available' as const }] };
     await assert.rejects(h.client.submit(bad));
-    assert.equal((await h.client.lookup(bad.operationId)).state, 'missing');
+    assert.equal(await h.client.lookup(bad.operationId), null);
     await h.reconnect();
-    assert.equal((await promptly(h.client.lookup(first.operationId))).state, 'accepted', 'lookup after lost connection uses committed identity');
+    assert.equal((await promptly(h.client.lookup(first.operationId)))?.state, 'submitted', 'lookup after lost connection uses committed identity');
     await h.control(['turn/steer']);
     await eventually(async () => !!h.view?.activeTurnId);
     await eventually(async () => (await h.f.requests()).some(r => r.method === 'turn/steer'));
     const third = { operationId: crypto.randomUUID(), text: 'saved while steer held' };
-    assert.equal((await promptly(h.client.submit(third))).state, 'accepted');
+    assert.equal((await promptly(h.client.submit(third))).state, 'submitted');
     await h.control([]);
-    await eventually(async () => (await h.client.lookup(third.operationId)).state === 'consumed');
+    await eventually(async () => await h.f.consumed(third.operationId));
+    assert.equal((await h.client.lookup(third.operationId))?.state, 'submitted');
     assert.equal((await h.f.requests()).filter(r => r.method === 'turn/start').length, 1);
     assert.equal((await h.f.requests()).filter(r => r.method === 'turn/steer').length, 2);
     assert.equal((await h.client.stop(h.view!.activeTurnId!)).stopped, true);
@@ -95,7 +96,8 @@ test('native typing reaches WS while history is held, and completed reply arrive
     await h.reconnect();
     assert.ok(h.view!.activeTurnId, 'reconnect read also bypasses history wait');
     await h.control([]);
-    await eventually(async () => (await h.client.lookup(input.operationId)).state === 'consumed');
+    await eventually(async () => await h.f.consumed(input.operationId));
+    assert.equal((await h.client.lookup(input.operationId))?.state, 'submitted');
     await h.control([], false);
     await eventually(async () => h.view?.activeTurnId === null && h.view.messages.some(m => m.role === 'agent'));
     assert.equal(h.view!.messages.filter(m => m.role === 'agent').length, 1);
@@ -104,25 +106,25 @@ test('native typing reaches WS while history is held, and completed reply arrive
   } finally { await h.close(); }
 });
 
-test('accepted inputs survive shutdown with a held attempt and queued input without automatic replay', async () => {
+test('submitted inputs survive shutdown with a held attempt and queued input without automatic replay', async () => {
   const f = await fixture();
   f.appServer.env.FAKE_HOLD_METHOD = 'turn/start';
   let partner = await f.createPartner();
   const first = { operationId: crypto.randomUUID(), text: 'ambiguous attempt' };
   const second = { operationId: crypto.randomUUID(), text: 'retained before execution' };
   try {
-    assert.equal((await promptly(partner.submitShared(first))).state, 'accepted');
+    assert.equal((await promptly(partner.submitShared(first))).state, 'submitted');
     await eventually(async () => (await f.requests()).some(r => r.method === 'turn/start'));
-    assert.equal((await promptly(partner.submitShared(second))).state, 'accepted');
+    assert.equal((await promptly(partner.submitShared(second))).state, 'submitted');
     await promptly(partner.close());
     f.appServer.env.FAKE_HOLD_METHOD = '';
     partner = await f.createPartner();
     for (const input of [first, second]) {
-      assert.equal((await partner.chatReceipt(input.operationId)).state, 'uncertain');
-      assert.equal((await partner.submitShared(input)).state, 'uncertain');
+      assert.equal((await partner.chatReceipt(input.operationId))?.state, 'submitted');
+      assert.equal((await partner.submitShared(input)).state, 'submitted');
       await assert.rejects(partner.submitShared({ ...input, text: 'changed retry' }));
     }
-    assert.equal((await partner.sharedRecovery()).length, 2);
+    assert.equal((await partner.sharedRecovery()).length, 0);
     assert.equal((await f.requests()).filter(r => r.method === 'turn/start').length, 1);
     assert.equal((await f.requests()).filter(r => r.method === 'turn/steer').length, 0);
   } finally { await partner.close(); await f.close(); }
@@ -136,27 +138,30 @@ test('lost WS acknowledgement resolves by lookup without executing the same oper
     const input = { operationId: crypto.randomUUID(), text: 'saved but acknowledgement lost' };
     let acknowledged = false;
     const lost = h.client.submit(input).then(() => { acknowledged = true; }, () => {});
-    await eventually(async () => (await h.partner.chatReceipt(input.operationId)).state === 'accepted');
+    await eventually(async () => (await h.partner.chatReceipt(input.operationId))?.state === 'submitted');
     assert.equal(acknowledged, false);
     await h.reconnect(); await lost;
-    assert.equal((await promptly(h.client.lookup(input.operationId))).state, 'accepted');
-    assert.equal((await promptly(h.client.submit(input))).state, 'accepted');
+    assert.equal((await promptly(h.client.lookup(input.operationId)))?.state, 'submitted');
+    assert.equal((await promptly(h.client.submit(input))).state, 'submitted');
     await h.control([]);
-    await eventually(async () => (await h.client.lookup(input.operationId)).state === 'consumed');
+    await eventually(async () => await h.f.consumed(input.operationId));
+    assert.equal((await h.client.lookup(input.operationId))?.state, 'submitted');
     assert.equal((await h.f.requests()).filter(r => r.method === 'turn/start').length, 1);
   } finally { await h.close(); }
 });
 
 
-test('failed SQLite admission rolls back input and fingerprint without an accepted receipt', async () => {
+test('failed SQLite admission rolls back input and fingerprint with a durable failed receipt', async () => {
   const h = await harness(false, true);
   try {
     const failed = { operationId: crypto.randomUUID(), text: 'must roll back' };
-    await assert.rejects(h.client.submit(failed));
-    assert.equal((await h.client.lookup(failed.operationId)).state, 'missing');
+    assert.equal((await h.client.submit(failed)).state, 'failed');
+    assert.equal((await h.client.lookup(failed.operationId))?.state, 'failed');
     assert.equal((await h.partner.snapshot()).messages.length, 0);
-    // A leaked immutable fingerprint would incorrectly turn this into success.
-    await assert.rejects(h.client.submit(failed));
+    // The failed receipt deduplicates, preserves content and never starts a turn.
+    assert.equal((await h.client.submit(failed)).state, 'failed');
     assert.equal((await h.f.requests()).filter(r => r.method === 'turn/start').length, 0);
+    await assert.rejects(h.client.submit({ ...failed, text: 'conflicting retry' }));
+    assert.equal((await h.partner.sharedRecovery())[0]?.text, failed.text);
   } finally { await h.close(); }
 });

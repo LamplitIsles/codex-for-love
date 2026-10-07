@@ -363,6 +363,10 @@ test('stop interrupts the turn and restores an unacknowledged steer as an editab
     assert.equal(stopped.draft?.input, 'draft after stop');
     assert.equal(stopped.draft?.images.length, 1);
     assert.equal(stopped.draft?.images[0]?.name, 'steer.png');
+    const recovery = await partner.sharedRecovery();
+    assert.equal(recovery.length, 1); assert.equal(recovery[0]?.sourceId, second);
+    assert.equal(recovery[0]?.replacementEligible, true); assert.equal(recovery[0]?.images.length, 1);
+    assert.equal((await partner.chatReceipt(second))?.state, 'submitted');
     assert.equal(stopped.messages.find((message) => message.id === first)?.delivery, 'acknowledged');
     assert.equal(stopped.results?.find((result) => result.sourceIds.includes(first))?.status, 'interrupted');
     assert.equal(stopped.results?.some((result) => result.sourceIds.includes(second)), false);
@@ -370,6 +374,13 @@ test('stop interrupts the turn and restores an unacknowledged steer as an editab
     const store = new Store(partnerPaths(f.workspace).database);
     try { assert.equal(await store.outcome(first), undefined); } finally { await store.close(); }
     await assert.rejects(pendingSteer, /closed|closing|aborted|timed out/i);
+    const starts = (await f.requests()).filter(r => r.method === 'turn/start').length;
+    const reopened = await f.createPartner();
+    try {
+      assert.equal((await reopened.chatReceipt(second))?.state, 'submitted');
+      assert.equal((await reopened.sharedRecovery())[0]?.sourceId, second);
+      assert.equal((await f.requests()).filter(r => r.method === 'turn/start').length, starts);
+    } finally { await reopened.close(); }
   } finally { await f.close(); }
 });
 

@@ -453,6 +453,9 @@ if (process.env.FAKE_IMAGES_FIXTURE === 'true') {
         turn.status = 'completed'; turn.completedAt = nowSeconds(); state.active = null; save();
         send({ method: 'turn/completed', params: { threadId: state.threadId, turn } });
       }
+    } else if (command.action === 'replyFailure') {
+      const turn = state.turns.find(turn => turn.id === state.active);
+      if (turn) { turn.status = 'failed'; turn.error = { message: 'Test-owned reply failure' }; turn.completedAt = nowSeconds(); state.active = null; save(); send({ method: 'turn/completed', params: { threadId: state.threadId, turn } }); }
     } else if (command.action === 'history') {
       const turn = state.turns.at(-1);
       for (let i = 0; i < 32; i++) turn.items.push({ type: 'agentMessage', id: `history-${state.next++}`, text: `历史回复 ${i}`, phase: 'final_answer' });

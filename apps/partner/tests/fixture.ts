@@ -55,6 +55,12 @@ export async function fixture(directoryRoot?: string) {
   };
   return {
     directory, workspace, config, credentials, appServer, requests,
+    async consumed(id: string) {
+      try {
+        const state = JSON.parse(await readFile(fakeStatePath, 'utf8')) as { turns: Array<{ items: Array<{ type: string; clientId?: string }> }> };
+        return state.turns.some(turn => turn.items.some(item => item.type === 'userMessage' && item.clientId === id));
+      } catch { return false; } // The fake engine may be in the middle of its test-owned write.
+    },
     async createPartner(dependencies: Omit<PartnerDependencies, 'appServer'> = {}) { partner = await createPartner(config, credentials, { ...dependencies, appServer }); return partner; },
     async chatPhase(value: 'partial' | 'message-completed' | 'finish' | 'fail') {
       // The fake provider must never interpret a truncated control file as Finish.

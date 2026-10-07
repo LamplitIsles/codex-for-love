@@ -53,14 +53,14 @@ test('native Keet ingress retains display source, private context, images and re
     for (const entry of [group, dm]) {
       assert.equal((await post(entry)).status, 202);
       const id = `keet:webhook:${entry.eventId}`;
-      await eventually(async () => view?.messages.some(m => m.id === id && m.delivery === 'consumed') === true);
+      await eventually(async () => view?.messages.some(m => m.id === id && m.turnId !== null) === true);
       const m = view!.messages.find(m => m.id === id)!;
       assert.equal(m.text, entry.text + (entry.destination.kind === 'dm'
         ? '\n[Keet images: 1 attached; 0 unavailable.]'
         : '\n[Keet images: 1 present; 1 unavailable. Image bytes are not included in Group context.]'));
       assert.deepEqual(m.source, { kind: 'keet', channel: entry.destination.kind, senderLabel: entry.senderLabel, destination: entry.destination.groupName });
       assert.equal(m.operationId, id);
-      assert.equal(m.delivery, (await partner.chatReceipt(id)).state);
+      assert.equal((await partner.chatReceipt(id))?.state, 'submitted');
       assert.equal(m.images?.length ?? 0, entry.destination.kind === 'dm' ? 1 : 0);
       assert.equal(m.role, 'user'); visible.set(id, m);
     }
@@ -74,7 +74,7 @@ test('native Keet ingress retains display source, private context, images and re
     assert.doesNotMatch(JSON.stringify(view), /native-only context sentinel|owned-fake-kfa-key|reactionContext|localTime|deviceId/);
     await assert.rejects(client.submit({ operationId: randomUUID(), text: 'forged', source: { kind: 'keet', channel: 'dm', senderLabel: 'Forge', destination: 'Peer' } } as never));
     const webId = randomUUID(); await client.submit({ operationId: webId, text: 'ordinary web' });
-    await eventually(async () => view?.messages.some(m => m.id === webId && m.delivery === 'consumed') === true);
+    await eventually(async () => view?.messages.some(m => m.id === webId && m.turnId !== null) === true);
     assert.equal(view!.messages.find(m => m.id === webId)!.source, undefined);
     client.close(); view = undefined; client = await connect();
     await eventually(async () => [...visible.keys()].every(id => view?.messages.some(m => m.id === id)));

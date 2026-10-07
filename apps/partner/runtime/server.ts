@@ -262,7 +262,7 @@ export function createWebServer(partner: Partner, assets: string, options: { aut
     if (request.method !== 'GET' || !target || !allowed || (!await authorize(request))) { socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n'); return; }
     target.handleUpgrade(request, socket, head, ws => target.emit('connection', ws, request));
   });
-  return { server, async close() {
+  return { server, chatSockets: chat.sockets, async close() {
     voice.close();
     await chat.close();
     for (const response of streams) response.end();

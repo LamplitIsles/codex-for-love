@@ -217,7 +217,7 @@ CFL does not copy conversation history into its own database. Results are limite
 to that workspace and show highlighted excerpts. Opening a result shows the
 complete message or compaction summary and nearby context in the search panel,
 without changing the active conversation or draft. The shared `/` reader
-uses authenticated `lamplit.chat.v1.search` and `searchRead` socket methods backed
+uses authenticated `lamplit.chat.v2.search` and `searchRead` socket methods backed
 by the same configured helper as native HTTP. FlickLog matching, ranking, its
 20-hit limit and estimated total remain unchanged; only `sessions` are scanned,
 never `archived_sessions`. Context keeps native source indexes, up to eight
@@ -383,19 +383,19 @@ remain visible. Text and selected images appear immediately as normal outgoing b
 upload or receipt. Offline sends retain the draft. Definite failure before durable
 admission restores text and images alongside newer edits; ambiguous delivery is
 reconciled without automatic replay. Durable rejection retains explicit recovery.
-See [current artifact and isolated acceptance](docs/default-shared-frontend.md).
+See [submission semantics and immutable acceptance](docs/native-durable-submissions.md).
 
 The official app-server remains the sole execution/history owner. Completed
 message IDs are presentation metadata; no reply text is duplicated in a new
 transcript. Each completed agent message, including commentary, becomes visible
 while the turn continues; unfinished text stays hidden. Sending ends when CFL
 commits the validated input, attachment metadata and immutable operation identity
-together in SQLite. The accepted receipt means the input is retained; native
+together in SQLite. The `submitted` receipt means the input is retained; native
 start/steer and history reconciliation continue independently. It does not
 promise exactly-once Codex execution. Native activity drives typing before
 reply completion, and official user items establish consumption. Reconnect
 lookup and same-operation retries recover the saved receipt without resubmitting
-ambiguous native input; rejection and uncertainty remain visible. Failure and stop produce independent timeline
+ambiguous native input. Lookup returns `null` while no definitive result exists; it never authorizes recovery or replay. Failure and stop produce independent timeline
 notices; successful replies end quietly. Completed messages survive reconnect and restart.
 Browser origins must match the host; existing gateway authentication
 still applies. Use an independent development instance and do not publicly expose
@@ -403,7 +403,7 @@ an unauthenticated host. See `lamplit-app/docs/integration.md` for build and
 connection commands.
 
 The app owns the public TypeScript/TypeBox schemas. CFL implements six bounded
-reads on `lamplit.chat.v1` over that same connection:
+reads on `lamplit.chat.v2` over that same connection:
 
 | Read | Native authority | Bound |
 | --- | --- | --- |
@@ -498,12 +498,13 @@ execution; changed identity, incomplete references and foreign operations fail.
 Authenticated `GET /api/chat/media/{id}/{original|preview|model}` returns `no-store`
 media or a visible missing result. Native-origin originals need no uploaded variants.
 
-Recovery refreshes official history and exposes submitted text/images. Only a
-verified app-server invalid-request rejection is eligible for replacement;
-internal errors, lost responses, interruptions and unresolved native input remain
-uncertain. Recovery never automatically executes. Restore/edit sends a fresh UUID
-and replaces only eligible sources; consumed/replaced input cannot return. Missing
-originals leave text editable and require explicit removal or a new selection.
+Recovery refreshes official history and exposes only confirmed recoverable text/images.
+Definite rolled-back admission returns `failed`; a durably received input remains
+`submitted` after a verified native rejection or pre-processing withdrawal and may
+offer recovery. Internal errors, lost responses and unresolved native input never
+create a recovery offer. Replies fail or stop independently of submission. Restore/edit
+uses a fresh UUID and replaces only eligible sources; consumed/replaced input cannot
+return. Missing originals require explicit removal or a new selection.
 The shared App at `/` uses these native routes.
 
 See [the shared image protocol and isolated acceptance recipe](docs/image-send-recovery.md).

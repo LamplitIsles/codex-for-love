@@ -2,12 +2,15 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { once } from 'node:events';
 import { join } from 'node:path';
-import { readFile, rm, writeFile } from 'node:fs/promises';
+import { readFile, rm, writeFile, mkdir } from 'node:fs/promises';
 import { fixture, eventually } from './fixture.ts';
 import { fixtureImage } from './panels-seed.ts';
 import { createWebServer } from '../runtime/server.ts';
 import { createCodexChatBackend } from '../runtime/chat.ts';
 import { imagePath, imageLimits } from '../runtime/images.ts';
+import { DatabaseSync } from 'node:sqlite';
+import { Store } from '../runtime/store.ts';
+import { partnerPaths } from '../runtime/storage-paths.ts';
 import { MAX_UPLOAD_BODY_BYTES, type ImageUpload } from '@lamplit/contracts';
 
 const jpeg = Buffer.from([255, 216, 255, 217]).toString('base64');
@@ -62,7 +65,7 @@ test('bounded authenticated HTTP staging is immutable, operation-owned and separ
     await assert.rejects(partner.submitShared({ ...submission, text: 'changed' }));
     const steer = upload(input.sessionId); const uploadedSteer = await partner.uploadImages(steer);
     await partner.submitShared({ operationId: steer.operationId, text: 'steer', images: uploadedSteer.images });
-    await eventually(async () => (await partner.chatReceipt(steer.operationId)).state === 'consumed');
+    await eventually(async () => await f.consumed(steer.operationId));
     const requests = (await f.requests()).filter(r => r.method === 'turn/start' || r.method === 'turn/steer');
     assert.equal(requests.filter(r => r.method === 'turn/start').length, 1);
     for (const request of requests) {
@@ -110,7 +113,7 @@ test('verified native rejection permits atomic edited replacement; uncertainty, 
     await assert.rejects(partner.submitShared({ ...replacement, replacementSourceIds: [crypto.randomUUID()] }));
     assert.equal((await partner.snapshot()).messages.length, 1);
     await setMode('consumed'); await partner.submitShared(replacement);
-    await eventually(async () => (await partner.chatReceipt(replacement.operationId)).state === 'consumed');
+    await eventually(async () => await f.consumed(replacement.operationId));
     await partner.submitShared(replacement); // reconcile before evaluating the now replaced source
     await assert.rejects(partner.submitShared({ ...replacement, text: 'mutated' }));
     await assert.rejects(partner.submitShared({ ...replacement, operationId: crypto.randomUUID() }));
@@ -120,13 +123,12 @@ test('verified native rejection permits atomic edited replacement; uncertainty, 
     await setMode('uncertain');
     const uncertain = { operationId: crypto.randomUUID(), text: 'unknown' };
     await partner.submitShared(uncertain);
-    await eventually(async () => (await partner.sharedRecovery()).some(r => r.sourceId === uncertain.operationId));
-    assert.equal((await partner.sharedRecovery())[0]?.state, 'uncertain');
-    assert.equal((await partner.sharedRecovery())[0]?.replacementEligible, false);
+    await eventually(async () => (await f.requests()).some(r => r.method === 'turn/start' && (r.params as { clientUserMessageId?: string }).clientUserMessageId === uncertain.operationId));
+    assert.equal((await partner.sharedRecovery()).some(r => r.sourceId === uncertain.operationId), false);
     await assert.rejects(partner.submitShared({ operationId: crypto.randomUUID(), text: 'never blind replay', replacementSourceIds: [uncertain.operationId] }));
     const starts = (await f.requests()).filter(r => r.method === 'turn/start').length;
     await partner.close(); partner = await f.createPartner();
-    assert.equal((await partner.sharedRecovery())[0]?.state, 'uncertain');
+    assert.equal((await partner.sharedRecovery()).some(r => r.sourceId === uncertain.operationId), false);
     assert.equal((await f.requests()).filter(r => r.method === 'turn/start').length, starts);
     assert.equal((await partner.sharedRecovery()).some(r => r.sourceId === nativeId), false);
   } finally { await partner.close(); await f.close(); }
@@ -140,18 +142,19 @@ test('rejected uppercase shared UUIDs retain their identity through recovery, re
   const partner = await f.createPartner();
   try {
     const operationId = 'ABCDEF01-ABCD-ABCD-ABCD-ABCDEF012345';
-    assert.equal((await partner.submitShared({ operationId, text: 'uppercase original' })).state, 'accepted');
-    await eventually(async () => (await partner.chatReceipt(operationId)).state === 'rejected');
+    assert.equal((await partner.submitShared({ operationId, text: 'uppercase original' })).state, 'submitted');
+    await eventually(async () => (await partner.sharedRecovery()).some(r => r.sourceId === operationId));
+    assert.equal((await partner.chatReceipt(operationId))?.state, 'submitted');
     const recovery = (await createCodexChatBackend(partner).read()).recovery;
     assert.equal(recovery.length, 1);
-    assert.deepEqual(recovery[0], { sourceId: operationId, operationId, text: 'uppercase original', images: [], state: 'rejected', replacementEligible: true });
+    assert.deepEqual(recovery[0], { sourceId: operationId, operationId, text: 'uppercase original', images: [], replacementEligible: true });
     assert.equal((await partner.snapshot()).messages[0]?.id, operationId);
     await assert.rejects(partner.submitShared({ operationId: 'A'.repeat(36), text: 'malformed' }));
     await assert.rejects(partner.submitShared({ operationId: crypto.randomUUID(), text: 'wrong case identity', replacementSourceIds: [operationId.toLowerCase()] }));
     await setMode('consumed');
     const replacement = { operationId: crypto.randomUUID(), text: 'edited uppercase original', replacementSourceIds: [operationId] };
     await partner.submitShared(replacement);
-    await eventually(async () => (await partner.chatReceipt(replacement.operationId)).state === 'consumed');
+    await eventually(async () => await f.consumed(replacement.operationId));
     await partner.submitShared(replacement);
     assert.equal((await partner.sharedRecovery()).length, 0);
     assert.equal((await f.requests()).filter(r => r.method === 'turn/start').length, 2);
@@ -177,4 +180,40 @@ test('existing 32 MiB native generated originals are readable independently of 5
     assert.equal((await backend.album({ sessionId: view.sessionId, cursor: null })).images[0]?.origin, 'agent');
     assert.equal((await fetch(origin + `/api/chat/media/${image.id}/preview`)).status, 404);
   } finally { await app.close(); await f.close(); }
+});
+
+
+test('rolled-back native admission persists failed text/image recovery across restart and atomically replaces once', async () => {
+  const f = await fixture(); await f.holdProvider(true);
+  const paths = partnerPaths(f.workspace);
+  await mkdir(paths.managedRoot, { recursive: true });
+  const seed = new Store(paths.database); await seed.close();
+  const db = new DatabaseSync(paths.database);
+  db.exec("CREATE TRIGGER reject_fixture BEFORE INSERT ON pending_inputs WHEN NEW.input='definite rollback' BEGIN SELECT RAISE(ABORT, 'fixture rollback'); END"); db.close();
+  let partner = await f.createPartner();
+  try {
+    const uploadInput = upload((await partner.snapshot()).sessionId);
+    const staged = await partner.uploadImages(uploadInput);
+    const original = { operationId: uploadInput.operationId, text: 'definite rollback', images: staged.images };
+    assert.equal((await partner.submitShared(original)).state, 'failed');
+    assert.equal((await partner.submitShared(original)).state, 'failed');
+    await assert.rejects(partner.submitShared({ ...original, text: 'conflict' }));
+    assert.equal((await createCodexChatBackend(partner).read()).messages.length, 0);
+    assert.equal((await partner.conversationImages()).images.length, 0);
+    await partner.close(); partner = await f.createPartner();
+    assert.equal((await partner.chatReceipt(original.operationId))?.state, 'failed');
+    const recovery = await partner.sharedRecovery();
+    assert.deepEqual(recovery[0], { sourceId: original.operationId, operationId: original.operationId, text: original.text, images: staged.images, replacementEligible: true });
+    assert.deepEqual((await partner.sharedMedia(staged.images[0]!.attachmentId, 'original'))?.bytes, fixtureImage);
+    const replacementUpload = upload((await partner.snapshot()).sessionId);
+    const replacementImages = await partner.uploadImages(replacementUpload);
+    const replacement = { operationId: replacementUpload.operationId, text: 'edited replacement', images: replacementImages.images, replacementSourceIds: [original.operationId] };
+    assert.equal((await partner.submitShared(replacement)).state, 'submitted');
+    assert.equal((await partner.submitShared(replacement)).state, 'submitted');
+    await eventually(async () => await f.consumed(replacement.operationId));
+    assert.equal((await partner.sharedRecovery()).length, 0);
+    assert.equal((await partner.chatReceipt(original.operationId))?.state, 'failed');
+    await assert.rejects(partner.submitShared({ ...replacement, operationId: crypto.randomUUID() }));
+    assert.equal((await f.requests()).filter(r => r.method === 'turn/start').length, 1);
+  } finally { await partner.close(); await f.close(); }
 });

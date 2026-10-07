@@ -3,11 +3,11 @@ import { lstatSync, readFileSync, readlinkSync } from 'node:fs';
 import { readFile, readdir } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { join, sep } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 
 export const root = fileURLToPath(new URL('../', import.meta.url));
 export const prepared = join(root, '.generated/shared-app');
-export const source = join(root, '../lamplit-app');
+export const source = process.env.CFL_APP_SOURCE ? resolve(process.env.CFL_APP_SOURCE) : join(root, '../lamplit-app');
 export async function readPin(path = join(root, 'lamplit-app.sha')) {
   const pin = (await readFile(path, 'utf8')).trim();
   if (!/^[a-f0-9]{40}$/u.test(pin)) throw new Error('lamplit-app.sha must contain one full lowercase commit SHA.');
@@ -20,7 +20,7 @@ export function identity(directory = source) {
     status = execFileSync('git', ['status', '--porcelain', '--untracked-files=normal'], { cwd: directory, encoding: 'utf8' });
     diff = execFileSync('git', ['diff', 'HEAD', '--binary'], { cwd: directory, maxBuffer: 64 * 1024 * 1024 });
     untracked = execFileSync('git', ['ls-files', '--others', '--exclude-standard', '-z'], { cwd: directory });
-  } catch { throw new Error('Adjacent lamplit-app source is unavailable; checkout the recorded SHA next to CFL.'); }
+  } catch { throw new Error(`Selected App source is unavailable at ${directory}; checkout the recorded SHA.`); }
   const fingerprint = createHash('sha256');
   const frame = value => {
     const bytes = Buffer.isBuffer(value) ? value : Buffer.from(value);

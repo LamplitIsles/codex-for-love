@@ -24,10 +24,10 @@ Rust build, native release, external provider or production state is involved.
   Originals are revalidated and re-hashed before admission. Uploads alone do not
   create messages, execution or album membership. Admission/replacement facts
   commit together in the existing native SQLite store before execution. The
-  accepted receipt ends sending at that commit without waiting for native
+  `submitted` receipt ends sending at that commit without waiting for native
   start/steer or history. It promises retention, not exactly-once execution;
   lookup recovers a lost receipt and identical retries never replay an ambiguous
-  native attempt. Later rejection/uncertainty remains visible.
+  native attempt. Reply outcomes never revoke submission; definite pre-processing rejection may offer recovery.
 - `GET /api/chat/media/{attachmentId}/{original|preview|model}` authenticates each
   request. Native stored metadata or operation-owned staging determines ownership;
   opaque ID knowledge is insufficient. Originals retain a finite 32 MiB read bound,
@@ -38,21 +38,22 @@ Rust build, native release, external provider or production state is involved.
   image-only messages and completed agent images have real media references;
   workspace inspection and staging never add album membership.
 
-`view.recovery` has at most 20 `{ sourceId, operationId, text, images, state,
-replacementEligible }` entries, including native-frontend inputs. Native history
-is reconciled at startup and before replacement validation. Shared view reads
-publish current durable recovery and known native activity without waiting for
-history reconciliation; subsequent events publish updated facts. Durable invalid-request
-rejection proves eligibility; generic internal errors and unresolved inputs remain
-`uncertain` and ineligible. Receipt consumption uses actual native user items.
-No absence of an item, turn completion or disconnect is converted to unconsumption.
-Inspection never executes; same-operation retries reconcile before checking an
-already-replaced source. A fresh edited resend cannot resurrect consumed/replaced
-input. Native manual recovery remains available through its existing private routes.
+`view.recovery` has at most 20 `{ sourceId, operationId, text, images,
+replacementEligible }` entries, including native-frontend inputs. It contains only
+confirmed recoverable content: rolled-back admission, verified native invalid-request
+rejection, or withdrawal before consumption. Durable admission stays `submitted`
+after withdrawal; failed/stopped replies and generic internal errors never create
+recovery. Native history is reconciled at startup and before replacement validation.
+Shared view reads publish current facts without waiting for history reconciliation.
+Internal consumed-input bookkeeping still uses actual native user items; absence,
+turn completion or disconnect alone proves nothing. Identical retries reconcile;
+a fresh edited resend cannot resurrect consumed/replaced input. Native manual
+inspection remains available through existing private routes. See
+[native submission acceptance](native-durable-submissions.md) for the current gate.
 
-## Reviewed artifacts
+## Historical reviewed artifacts
 
-Consume the Owner-approved `artifacts-review2` handoff: browser/contracts retain
+Historical spec #3098 used the Owner-approved `artifacts-review2` handoff: browser/contracts retain
 product HEAD `ebde803fb955349c8bd05de259f13ca14b63f668`; the runner is from
 `091c0def66abdb45728906785e6defd55c60d50c`. Authoritative spec #3098 records
 Owner approval; preserve the immutable identity JSON's original review label.
@@ -109,7 +110,7 @@ node .scratch/image-send-recovery/review2/acceptance/route-lifecycle-browser.mjs
 Controls are **test infrastructure only**, in a separate loopback server. Reset
 clears only that fixture's state. `mode` drives explicit fake-server rejection,
 consumption or ambiguous internal failure; `unconsumed` uses a verified rejection
-and is projected truthfully as rejected. `nativeRecovery` appends native-origin
+and is projected as confirmed recovery while its durable receipt stays submitted. `nativeRecovery` appends native-origin
 sources through real native admission. `consume` appends actual official user
 items; `complete` emits a completed agent image/reply; `history` appends 32 completed
 native replies. `missing` removes only recovery originals; storage controls inject

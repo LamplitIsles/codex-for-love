@@ -291,3 +291,15 @@ App owns the Keet avatar, DM/Group attribution and Framework7 bubble accents.
 CFL persisted-provenance mapping and native fixtures are original integration
 work; no legacy ingress modules were imported. Obsolete Keet contract/frontend
 archives are removed in favor of main’s single pinned source preparation path.
+
+### Native durable submissions
+
+The current source pin is App PR16 commit
+`3aaa48a384549f72cc417a6cb3e6108fe0999b37`. App owns `lamplit.chat.v2`,
+view2 and the submitted/failed nullable-lookup contracts, browser resources and
+acceptance runners. CFL consumes compiled contracts and licenses through its
+existing source preparation. Immutable native acceptance uses the separately
+approved archive `a921c9d47f041cf6978653c5af6cda5d65a28e6cde3ceb5e91b0ecb5a5c301d1`;
+its bytes are acceptance evidence, not a runtime archive fallback. CFL's admission
+adapter, failure receipts and native timing/fault fixtures are original integration
+work. [Submission acceptance](native-durable-submissions.md) records the boundary.
