@@ -225,8 +225,12 @@ never sends an automatic Keet response.
 
 Each qualifying trigger appears in the single Companion timeline as a Keet DM
 or Group bubble with its original text, sender label and destination, including
-after page reload, pagination or Partner restart. Ordinary Group lines remain
-bounded context and do not appear as separate bubbles. CFL submits trigger text
+after page reload, reconnect, pagination or Partner restart in the shared App.
+Available DM images use authenticated shared media; Group images retain their
+existing explanatory note without attached bytes. Stored trigger text and image
+notes supply display content; group/reaction/model context stays private. Web
+submissions cannot supply Keet or reminder source attribution. Ordinary Group
+lines remain bounded context and do not appear as separate bubbles. CFL submits trigger text
 and DM images as native input; routing facts are application context and preceding
 Group lines are untrusted context. No repeated Keet tool tutorial is included.
 `trigger_aliases` adds case-sensitive literal substring matches to otherwise

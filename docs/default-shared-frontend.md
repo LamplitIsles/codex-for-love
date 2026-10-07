@@ -78,6 +78,84 @@ native hosts below use a fake official engine and test-owned state. Record sourc
 identities and resource hashes around acceptance; never use real conversations,
 providers or installed service state as fixtures.
 
+## Keet acceptance identities
+
+Current source pin is merged App PR15 `75f6d3fe7789c8cc28922ae98caa8385459e4c65`,
+with the exact reviewed tree of `7061b0972266ef1a525ff9430278cde2384ea1e1`.
+Main’s source preparation/build contract supersedes vendored archive installation.
+Historical acceptance used product source `09bf71009ff931cfdc75c675d9b16037bbb1d881`:
+
+| Artifact | SHA256 | Files |
+| --- | --- | ---: |
+| Full archive | `c7219de5bf1596af8b27de3da38e3e75d375c7b8e7a9a975d822690a1aef31c2` | — |
+| Browser manifest | `ef04e0a23d06bce0f09e445035c2ee33fa82f40d17553f5816d7ec0099172aa7` | 265 |
+| Contracts manifest | `96d418e9f32c5f4b3f0359400f544d47a6f3f5a7e43c9702ecb7402aebd5caa3` | 27 |
+| Acceptance manifest | `5ebc355ddc51e0fac5e98ef16dc1b40bfac7239695161f5b97d0e6c98d2ec6c0` | 15 |
+
+The historical 307 manifested archive files and separate corrected runner remain
+immutable evidence in test-owned scratch. They are not runtime dependencies.
+Do not edit or refreeze those artifacts. Current source builds record their own
+browser/contracts/license hashes through the existing prepared source manifest.
+
+## Keet display and native acceptance
+
+The shared adapter maps persisted `m.keet` to backend-owned display source
+`{ kind: 'keet', channel, senderLabel, destination }` and original text plus the
+stored `imageNote`. It retains native images, IDs and delivery receipts in live
+views, reconnect reads and older pages. Group/reaction/model context stays private;
+web submissions cannot supply a source. Keet messages render incoming with K avatar,
+DM/Group attribution and muted accented bubbles in light/dark.
+
+CFL fetches available DM images through existing KFA admission and serves them via
+its authenticated shared media route. Group images retain the native explanatory
+note and have no attached bytes. This change adds no image materializer, trigger,
+prompt, webhook provisioning or hosted credential/routing surface. The existing
+loopback ingress and browser same-origin/auth guards remain required.
+
+The isolated native host uses actual CFL webhook, Partner storage, fake official
+app-server transport, fake loopback KFA media, and the prepared browser from the pinned App source:
+
+```sh
+node apps/partner/tests/keet-acceptance-host.ts apps/partner/build <owned-evidence>
+```
+
+The separate approved runner is from App HEAD
+`7061b0972266ef1a525ff9430278cde2384ea1e1`. Archive SHA256:
+`effb16db242eaa7686623bf07cb1469919c91d79340528ba9fe44422078e3c42`;
+11-file manifest SHA256:
+`87adc869dfe70d4d5e41b1967f07dd51e21d947cd74256c6d7fb0ef62a31dacd`;
+runner SHA256:
+`d9d2f05eb051dcda9a5334ab706f5edae0c7dbb2035753d62f7f0fe0a800a7eb`.
+Extract it alongside the original archive so `runner/` is separate from
+`acceptance/`. Verify all 11 files and `RUNNER_HEAD`, then install with
+`bun install --frozen-lockfile` in `contracts/package` and `runner`, in that order.
+Both locks are inherited unchanged from the approved artifact.
+
+From `runner/`, use the native host's printed URLs and test-owned evidence:
+
+```sh
+APP_ACCEPTANCE_URL=<origin>/ \
+APP_ACCEPTANCE_CONTROL_URL=<control-url> \
+APP_ACCEPTANCE_EVIDENCE=<owned-browser-evidence> bun keet-browser.mjs
+```
+
+CFL uses the default `dm` acceptance profile. The corrected control contract maps
+`hasImage` to real native image-bearing ingress and returns the actual persisted
+`imageNote` when bytes are absent. Historical native joint acceptance at CFL `64b0c151` passed at 390/1280/320px
+in light/dark: DM decode/reload/history, Group original text/explanation, safe labels
+and Markdown, ordinary chat/reminders, reconnect draft and older-page persistence.
+The runner's `actualJointAcceptance: pending Orc` field reserves final cross-repo
+acceptance for the Orc; `backend: actual-host` records this CFL native run.
+
+Controls acknowledge only after native persistence and an authenticated shared
+socket observer sees the settled view. History fixtures admit Keet through native
+ingress, create only later empty test-owned metadata for pagination, and restart
+the same test-owned Partner. Group/reaction facts carry `native-only context
+sentinel` to verify display privacy. `keet-shared.test.ts` also verifies restart,
+source forgery rejection, image bytes, receipt preservation and ordinary reminders.
+No live credentials, conversations, external sends, service restarts or deployment
+are part of this acceptance.
+
 ## Actual native fixtures
 
 From the repository root, start a fixture using the extracted `browser` directory:

@@ -291,7 +291,11 @@ remain context only. Qualifying Group and DM messages may include a bounded
 snapshot of aggregate external reactions to the Partner's recent Keet messages.
 CFL displays qualifying Keet messages in the Companion timeline with their
 original text, DM or Group kind, sender label, and destination, including after
-reload and restart. Optional `[keet]` `trusted_groups` names designate ordinary
+reload, reconnect, restart and paginated history in the shared App. DM images use
+the existing authenticated media contract; Group images show their native
+availability explanation without attached bytes. Model/group/reaction context
+stays private, and web submissions cannot forge Keet attribution. Optional
+`[keet]` `trusted_groups` names designate ordinary
 shared conversations; `trigger_aliases` such as `shio` and `汐` add case-sensitive
 literal Group text triggers. Both lists use exact configured strings and take
 effect after restart. Trusted Groups still wait for a trigger, and Keet sources

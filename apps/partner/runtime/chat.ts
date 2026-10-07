@@ -20,7 +20,14 @@ export function createCodexChatBackend(partner: Partner, authorize: () => Promis
       const state = receipts.get(m.id)!.state;
       const delivery = state === 'accepted' ? 'pending' : state === 'missing' ? 'uncertain' : state;
       const images = (await Promise.all(m.inputImages.map(image => partner.sharedImageRef(image.id)))).filter((ref): ref is ImageRef => !!ref);
-      ordered.push({ order: m.sequence * 2, message: { id: m.id, role: 'user', text: m.input, ...(images.length ? { images } : {}), delivery, createdAt: m.created, operationId: m.id, turnId: m.turnId, ...(m.alarm ? { source: { kind: 'reminder' as const, reminderId: m.id.split(':')[1]!, occurrenceId: m.id } } : {}) } });
+      const source: ChatMessage['source'] = m.keet
+        ? { kind: 'keet', channel: m.keet.kind, destination: m.keet.destination, senderLabel: m.keet.senderLabel }
+        : m.alarm ? { kind: 'reminder', reminderId: m.id.split(':')[1]!, occurrenceId: m.id } : undefined;
+      ordered.push({ order: m.sequence * 2, message: {
+        id: m.id, role: 'user', text: m.keet ? `${m.keet.text}${m.keet.imageNote ?? ''}` : m.input,
+        ...(images.length ? { images } : {}), delivery, createdAt: m.created,
+        operationId: m.id, turnId: m.turnId, ...(source ? { source } : {}),
+      } });
     }
     for (const r of snapshot.results) {
       const source = snapshot.messages.find(m => m.id === r.sourceIds.at(-1));

@@ -261,8 +261,8 @@ The default Framework7/Svelte frontend and `@lamplit/contracts` public exports
 are built together from Apache-2.0 `LamplitIsles/lamplit-app`, initially
 `26ab708799f8ef4d99d974e1ab60c4d14a38267a`. `lamplit-app.sha` is the authoritative
 current pin. The latest update consumes reviewed merged App
-main `7d3834f12c5be11655b93a3d9b045e787bdf3460` (App PRs #12 and #14), including
-quiet timeline notice pills and readable native gallery photo drafts, without
+main `75f6d3fe7789c8cc28922ae98caa8385459e4c65` (App PRs #12, #14 and #15), including
+quiet timeline notice pills, readable native gallery photo drafts and Keet source presentation, without
 App source or public-contract modifications in CFL. Both browser resources and compiled
 contracts come from that same revision. The preparation step consumes adjacent
 source with its frozen Bun lock, and materializes compiled package exports without private UI imports.
@@ -276,3 +276,18 @@ contracts and prepared-license hashes in `vendor/source.json`. CFL’s explicitl
 pinned Rolldown 1.2.8 (MIT) bundles the runtime and Companion MCP; browser building
 remains in App. Removing the unused CFL frontend does not change the pinned
 App presentation or its resource bytes.
+
+### Keet source restoration acceptance
+
+App PR15 merged source has the exact tree of reviewed
+`7061b0972266ef1a525ff9430278cde2384ea1e1`; its browser/contracts retain the
+accepted product source `09bf71009ff931cfdc75c675d9b16037bbb1d881`.
+The historical acceptance archive SHA256 is
+`c7219de5bf1596af8b27de3da38e3e75d375c7b8e7a9a975d822690a1aef31c2`;
+the separate corrected runner archive is
+`effb16db242eaa7686623bf07cb1469919c91d79340528ba9fe44422078e3c42`.
+These are acceptance evidence, not current runtime dependencies.
+App owns the Keet avatar, DM/Group attribution and Framework7 bubble accents.
+CFL persisted-provenance mapping and native fixtures are original integration
+work; no legacy ingress modules were imported. Obsolete Keet contract/frontend
+archives are removed in favor of main’s single pinned source preparation path.
