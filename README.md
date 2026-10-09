@@ -283,11 +283,16 @@ loopback KFA MCP endpoint and the existing stdin-managed `keet` credential, then
 point KFA's `KEET_WEBHOOK_URL` at `http://127.0.0.1:<CFL port>/api/keet/events`
 without a webhook Bearer token. The ingress accepts direct loopback peers only;
 do not publish this unauthenticated route through a reverse proxy. Ordinary
-Group messages are bounded context until a trigger, each DM starts a turn, and
-Broadcast messages start none. Pure-image and captioned DM images are fetched
+Group messages are bounded context until CFL classifies a trigger, each DM starts
+a turn, and Broadcast messages start none. KFA supplies required factual
+`addressing: { mentionsIdentity, replyToIdentity?, identityLabel? }`; the obsolete
+wire `trigger` field is rejected. A native identity mention takes precedence over
+a case-sensitive identity-label literal match, then a verified identity reply,
+then a configured alias match. Unknown reply ownership is omitted and never
+promotes a turn. Label and alias matches require nonblank Group text. Pure-image and captioned DM images are fetched
 from KFA with the existing bearer and attached to native input. Unavailable
 images are reported in the input without dropping the message. Group images
-remain context only. Qualifying Group and DM messages may include a bounded
+remain context only. Group and DM messages may include a bounded
 snapshot of aggregate external reactions to the Partner's recent Keet messages.
 CFL displays qualifying Keet messages in the Companion timeline with their
 original text, DM or Group kind, sender label, and destination, including after
@@ -302,9 +307,10 @@ effect after restart. Trusted Groups still wait for a trigger, and Keet sources
 never inherit the web Human's administrative authority.
 
 CFL supplies each new destination, target, emoji, and count fact as bounded
-untrusted context at most once; a changed count can appear again. Alias-only
-triggers may have no reaction snapshot because KFA sends it only for triggers
-it classified itself. Reaction changes alone do not start a turn, and CFL never
+untrusted context on accepted turns at most once; a changed count can appear again.
+KFA supplies reaction facts independently of turn classification, so alias turns
+can consume them too. CFL ignores facts on ordinary Group events; Broadcasts
+have no reaction snapshot. Reaction changes alone do not start a turn, and CFL never
 automatically replies or reacts.
 For a chosen response, Keet MCP `send_message` requires text and can also
 request one emoji reaction to a known Group message or this DM turn's trigger.

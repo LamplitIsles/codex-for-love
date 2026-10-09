@@ -7,14 +7,14 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import sharp from 'sharp';
 import { createWebServer, isLoopbackPeer } from '../runtime/server.ts';
-import { keetEvent } from '../runtime/keet.ts';
+import { classifyKeetTrigger, keetEvent } from '../runtime/keet.ts';
 import { partnerPaths } from '../runtime/storage-paths.ts';
 import { Store } from '../runtime/store.ts';
 import { fixture, eventually } from './fixture.ts';
 
-function message(sequence: number, text: string, kind: 'group' | 'dm' | 'broadcast' = 'group', trigger?: 'mention' | 'dm') {
+function message(sequence: number, text: string, kind: 'group' | 'dm' | 'broadcast' = 'group', mentionsIdentity = false) {
   return { type: 'message', eventId: randomUUID(), sequence, messageId: { deviceId: 'peer', seq: sequence }, timestamp: sequence,
-    destination: { groupName: kind === 'dm' ? 'Peer DM' : kind === 'broadcast' ? 'News' : 'Friends', kind }, senderLabel: 'Alice', text, ...(trigger ? { trigger } : {}) };
+    destination: { groupName: kind === 'dm' ? 'Peer DM' : kind === 'broadcast' ? 'News' : 'Friends', kind }, senderLabel: 'Alice', text, addressing: { mentionsIdentity } };
 }
 
 async function host(partner: Awaited<ReturnType<Awaited<ReturnType<typeof fixture>>['createPartner']>>, directory: string) {
@@ -40,7 +40,7 @@ test('local webhook buffers Group, triggers Group and DM, ignores Broadcast, and
     await app.app.close(); app = undefined;
     partner = await f.createPartner({ now: () => now }); app = await host(partner, f.directory);
     assert.equal((await app.post(ordinary)).status, 202);
-    const triggered = message(3, 'please answer', 'group', 'mention');
+    const triggered = message(3, 'please answer', 'group', true);
     assert.equal((await app.post(triggered)).status, 202);
     await eventually(async () => (await starts(f)).length === 1);
     const first = (await starts(f))[0]!;
@@ -58,7 +58,7 @@ test('local webhook buffers Group, triggers Group and DM, ignores Broadcast, and
     const keet = snapshot.messages.find(row => row.id === `keet:webhook:${triggered.eventId}`)?.keet;
     assert.deepEqual(keet && { kind: keet.kind, destination: keet.destination, senderLabel: keet.senderLabel, text: keet.text }, { kind: 'group', destination: 'Friends', senderLabel: 'Alice', text: 'please answer' });
     assert.equal((await app.post(triggered)).status, 202);
-    const dm = message(4, 'DM caption text', 'dm', 'dm');
+    const dm = message(4, 'DM caption text', 'dm');
     assert.equal((await app.post(dm)).status, 202);
     await eventually(async () => (await starts(f)).length === 2);
     assert.match(JSON.stringify((await starts(f))[1]!.params), /DM caption text/);
@@ -67,12 +67,75 @@ test('local webhook buffers Group, triggers Group and DM, ignores Broadcast, and
   } finally { await app?.app.close(); await f.close(); }
 });
 
+test('factual Group addressing admits one turn with local precedence and preserves ordinary facts', async () => {
+  const f = await fixture();
+  f.config.keet = { endpoint: 'http://127.0.0.1:8765', trigger_aliases: ['shio'] }; f.credentials.keet = 'test-only';
+  let app: Awaited<ReturnType<typeof host>> | undefined;
+  const fact = { targetMessageId: { deviceId: 'self', seq: 7 }, targetText: 'earlier reply', emoji: '👍', externalCount: 1 };
+  try {
+    const partner = await f.createPartner(); app = await host(partner, f.directory);
+    const replyTo = { deviceId: 'self', seq: 7 };
+    for (const addressing of [{ mentionsIdentity: false }, { mentionsIdentity: false, replyToIdentity: false }, { mentionsIdentity: false, identityLabel: 'LUNA' }]) {
+      assert.equal((await app.post({ ...message(1, 'unknown or non-own reply'), eventId: randomUUID(), replyTo, addressing, reactionContext: [fact] })).status, 202);
+    }
+    assert.equal((await starts(f)).length, 0);
+    const cases = [
+      { text: 'shio Luna', addressing: { mentionsIdentity: true, identityLabel: 'Luna', replyToIdentity: true }, reason: 'mention' },
+      { text: 'hello Luna', addressing: { mentionsIdentity: false, identityLabel: 'Luna', replyToIdentity: true }, reason: 'label' },
+      { text: 'shio', addressing: { mentionsIdentity: false, replyToIdentity: true }, reason: 'reply' },
+      { text: 'hello shio', addressing: { mentionsIdentity: false }, reason: 'label' },
+    ];
+    for (const [index, entry] of cases.entries()) {
+      const event = { ...message(index + 2, entry.text), replyTo, addressing: entry.addressing, reactionContext: [fact] };
+      assert.equal(classifyKeetTrigger(keetEvent.parse(event), ['shio']), entry.reason);
+      assert.equal((await app.post(event)).status, 202);
+      await eventually(async () => (await starts(f)).length === index + 1);
+      assert.equal((await app.post(event)).status, 202);
+      const turn = (await starts(f))[index]!.params as { input: Array<{ text: string }>; additionalContext: Record<string, { value: string }> };
+      assert.equal(turn.input[0]!.text, entry.text);
+      if (index === 0) {
+        assert.match(turn.additionalContext['codex-for-love.keet-group-context']!.value, /unknown or non-own reply/);
+        assert.match(turn.additionalContext['codex-for-love.keet-reactions']!.value, /earlier reply/);
+      } else assert.equal(turn.additionalContext['codex-for-love.keet-reactions'], undefined);
+    }
+    assert.equal((await starts(f)).length, cases.length);
+    const broadcast = { ...message(9, 'Luna shio', 'broadcast'), replyTo, addressing: cases[0]!.addressing };
+    assert.equal(classifyKeetTrigger(keetEvent.parse(broadcast), ['shio']), undefined);
+    assert.equal((await app.post(broadcast)).status, 202);
+    assert.equal((await starts(f)).length, cases.length);
+    const blank = { ...message(10, '   '), images: [{ status: 'unavailable', mediaType: 'image/png' }], addressing: { mentionsIdentity: false, identityLabel: 'Luna' } };
+    assert.equal(classifyKeetTrigger(keetEvent.parse(blank), ['shio']), undefined);
+    assert.equal((await app.post(blank)).status, 202);
+    assert.equal((await starts(f)).length, cases.length);
+  } finally { await app?.app.close(); await f.close(); }
+});
+
+test('webhook rejects missing, malformed, private and obsolete addressing fields', async () => {
+  const f = await fixture(); f.config.keet = { endpoint: 'http://127.0.0.1:8765' }; f.credentials.keet = 'test-only';
+  let app: Awaited<ReturnType<typeof host>> | undefined;
+  try {
+    const partner = await f.createPartner(); app = await host(partner, f.directory);
+    const valid = message(1, 'hello');
+    const { addressing: _addressing, ...missing } = valid;
+    for (const event of [missing, ...[
+      null, {}, { mentionsIdentity: 'true' }, { mentionsIdentity: false, replyToIdentity: 'false' },
+      { mentionsIdentity: false, replyToIdentity: true }, { mentionsIdentity: false, identityLabel: '' },
+      { mentionsIdentity: false, identityLabel: ' Luna' }, { mentionsIdentity: false, identityLabel: 'Luna\nname' },
+      { mentionsIdentity: false, identityLabel: '😀'.repeat(513) }, { mentionsIdentity: false, memberId: 'private' },
+    ].map(addressing => ({ ...valid, addressing })),
+      { ...valid, trigger: 'mention' }, { ...message(2, 'DM', 'dm'), trigger: 'dm' },
+    ]) assert.equal((await app.post(event)).status, 422);
+    assert.equal((await app.post({ ...valid, addressing: { mentionsIdentity: false, identityLabel: '😀'.repeat(512) } })).status, 202);
+    assert.equal((await starts(f)).length, 0);
+  } finally { await app?.app.close(); await f.close(); }
+});
+
 test('an older Companion page retains Keet source attribution after Partner restart', async () => {
   const f = await fixture(); f.config.keet = { endpoint: 'http://127.0.0.1:8765' }; f.credentials.keet = 'mcp-only-credential';
   let app: Awaited<ReturnType<typeof host>> | undefined;
   try {
     const partner = await f.createPartner(); app = await host(partner, f.directory);
-    const trigger = message(1, 'original Keet text', 'group', 'mention');
+    const trigger = message(1, 'original Keet text', 'group', true);
     assert.equal((await app.post(trigger)).status, 202);
     await eventually(async () => (await starts(f)).length === 1);
     await app.app.close(); app = undefined;
@@ -101,7 +164,7 @@ test('reaction facts are supplied once, survive restart, and changed counts beco
   const fact = { targetMessageId: { deviceId: 'self', seq: 7 }, targetText: 'my earlier message', emoji: '👍', externalCount: 2 };
   try {
     let partner = await f.createPartner(); app = await host(partner, f.directory);
-    const first = { ...message(1, 'first trigger', 'group', 'mention'), reactionContext: [fact] };
+    const first = { ...message(1, 'first trigger', 'group', true), reactionContext: [fact] };
     assert.equal((await app.post(first)).status, 202);
     await eventually(async () => (await starts(f)).length === 1);
     const input = (await starts(f))[0]!.params as { input: Array<{ text: string }> };
@@ -112,10 +175,10 @@ test('reaction facts are supplied once, survive restart, and changed counts beco
     assert.equal((await app.post(first)).status, 202);
     await app.app.close(); app = undefined;
     partner = await f.createPartner(); app = await host(partner, f.directory);
-    assert.equal((await app.post({ ...message(2, 'second trigger', 'group', 'mention'), reactionContext: [fact] })).status, 202);
+    assert.equal((await app.post({ ...message(2, 'second trigger', 'group', true), reactionContext: [fact] })).status, 202);
     await eventually(async () => (await starts(f)).length === 2);
     assert.doesNotMatch(JSON.stringify(((await starts(f))[1]!.params as { additionalContext: unknown }).additionalContext), /my earlier message/);
-    assert.equal((await app.post({ ...message(3, 'third trigger', 'group', 'mention'), reactionContext: [{ ...fact, externalCount: 3 }] })).status, 202);
+    assert.equal((await app.post({ ...message(3, 'third trigger', 'group', true), reactionContext: [{ ...fact, externalCount: 3 }] })).status, 202);
     await eventually(async () => (await starts(f)).length === 3);
     assert.match(JSON.stringify(((await starts(f))[2]!.params as { additionalContext: unknown }).additionalContext), /my earlier message.*👍.*3 external/);
   } finally { await app?.app.close(); await f.close(); }
@@ -127,7 +190,7 @@ test('queued DMs retain their own reaction targets in model-visible input', asyn
   try {
     await f.holdProvider(true);
     const partner = await f.createPartner(); app = await host(partner, f.directory);
-    const a = message(1, 'DM A', 'dm', 'dm'); const b = message(2, 'DM B', 'dm', 'dm');
+    const a = message(1, 'DM A', 'dm'); const b = message(2, 'DM B', 'dm');
     assert.equal((await app.post(a)).status, 202);
     await eventually(async () => (await starts(f)).length === 1);
     assert.equal((await app.post(b)).status, 202);
@@ -149,7 +212,7 @@ test('Group input favors triggering text and fresh facts over older buffered tex
   try {
     const partner = await f.createPartner(); app = await host(partner, f.directory);
     assert.equal((await app.post(message(1, `old-marker ${'x'.repeat(15_500)}`))).status, 202);
-    const trigger = { ...message(2, 'current trigger', 'group', 'mention'), reactionContext: [{ targetMessageId: { deviceId: 'self', seq: 8 }, targetText: 'prior', emoji: ':thumbsup:', externalCount: 1 }] };
+    const trigger = { ...message(2, 'current trigger', 'group', true), reactionContext: [{ targetMessageId: { deviceId: 'self', seq: 8 }, targetText: 'prior', emoji: ':thumbsup:', externalCount: 1 }] };
     assert.equal((await app.post(trigger)).status, 202);
     await eventually(async () => (await starts(f)).length === 1);
     const input = ((await starts(f))[0]!.params as { input: Array<{ text: string }> }).input[0]!.text;
@@ -207,12 +270,11 @@ test('webhook rejects unsupported bodies and acknowledges only successful admiss
     }
     const fact = { targetMessageId: { deviceId: 'self', seq: 1 }, targetText: 'prior', emoji: '👍', externalCount: 1 };
     for (const bad of [
-      { ...valid, reactionContext: [fact] },
       { ...valid, destination: { groupName: 'News', kind: 'broadcast' }, reactionContext: [fact] },
-      { ...valid, trigger: 'mention', reactionContext: [] },
-      { ...valid, trigger: 'mention', reactionContext: [fact, ...Array(16).fill(fact)] },
-      { ...valid, trigger: 'mention', reactionContext: [{ ...fact, emoji: 'not emoji' }] },
-      { ...valid, trigger: 'mention', reactionContext: [{ ...fact, externalCount: 0 }] },
+      { ...valid, reactionContext: [] },
+      { ...valid, reactionContext: [fact, ...Array(16).fill(fact)] },
+      { ...valid, reactionContext: [{ ...fact, emoji: 'not emoji' }] },
+      { ...valid, reactionContext: [{ ...fact, externalCount: 0 }] },
     ]) assert.equal((await app.post(bad)).status, 422);
     assert.equal((await app.post({ ...valid, text: 'x'.repeat(140_000) })).status, 400);
     assert.equal((await starts(f)).length, 0);
@@ -291,7 +353,7 @@ test('pure-image and captioned DMs fetch via bearer, persist attachments, and de
   try {
     let partner = await f.createPartner(); app = await host(partner, f.directory);
     const entry = { status: 'available', mediaType: 'image/png', ref: `${randomUUID()}.png` };
-    const pure = { ...message(1, '', 'dm', 'dm'), images: [entry] };
+    const pure = { ...message(1, '', 'dm'), images: [entry] };
     assert.equal((await app.post(pure)).status, 202);
     await eventually(async () => (await starts(f)).length === 1);
     const first = (await starts(f))[0]!.params as { input: Array<{ type: string; text?: string; path?: string }> };
@@ -317,7 +379,7 @@ test('pure-image and captioned DMs fetch via bearer, persist attachments, and de
     assert.deepEqual(Buffer.from(await restoredResponse.arrayBuffer()), image);
     assert.equal((await app.post(pure)).status, 202);
     assert.equal(requests.length, 1);
-    const caption = { ...message(2, 'What is this?', 'dm', 'dm'), images: [entry] };
+    const caption = { ...message(2, 'What is this?', 'dm'), images: [entry] };
     assert.equal((await app.post(caption)).status, 202);
     await eventually(async () => (await starts(f)).length === 2);
     const second = (await starts(f))[1]!.params as { input: Array<{ type: string; text?: string }> };
@@ -341,10 +403,10 @@ test('unavailable images preserve DM input while Group and Broadcast images do n
     assert.equal((await app.post({ ...message(1, '', 'group'), images: [unavailable] })).status, 202);
     assert.equal((await app.post({ ...message(2, '', 'broadcast'), images: [unavailable] })).status, 202);
     assert.equal((await starts(f)).length, 0);
-    assert.equal((await app.post({ ...message(3, 'group trigger', 'group', 'mention'), images: [unavailable] })).status, 202);
+    assert.equal((await app.post({ ...message(3, 'group trigger', 'group', true), images: [unavailable] })).status, 202);
     await eventually(async () => (await starts(f)).length === 1);
     assert.match(JSON.stringify((await starts(f))[0]!.params), /Keet images: 1 present; 1 unavailable/);
-    assert.equal((await app.post({ ...message(4, '', 'dm', 'dm'), images: [missing, unavailable, ...Array(5).fill(unavailable)] })).status, 202);
+    assert.equal((await app.post({ ...message(4, '', 'dm'), images: [missing, unavailable, ...Array(5).fill(unavailable)] })).status, 202);
     await eventually(async () => (await starts(f)).length === 2);
     const second = (await starts(f))[1]!.params as { input: Array<{ type: string; text?: string }> };
     assert.match(second.input[0]!.text!, /0 attached; 7 unavailable/);
@@ -364,7 +426,7 @@ test('oversized KFA original is resized into native image limits', async () => {
   let app: Awaited<ReturnType<typeof host>> | undefined;
   try {
     const partner = await f.createPartner(); app = await host(partner, f.directory);
-    assert.equal((await app.post({ ...message(1, '', 'dm', 'dm'), images: [{ status: 'available', mediaType: 'image/jpeg', ref: `${randomUUID()}.jpg` }] })).status, 202);
+    assert.equal((await app.post({ ...message(1, '', 'dm'), images: [{ status: 'available', mediaType: 'image/jpeg', ref: `${randomUUID()}.jpg` }] })).status, 202);
     await eventually(async () => (await starts(f)).length === 1);
     const items = ((await starts(f))[0]!.params as { input: Array<{ type: string; path?: string; text?: string }> }).input;
     const bytes = await readFile(items.find(item => item.type === 'localImage')!.path!);
@@ -388,7 +450,7 @@ test('attachment storage failure returns 503 and the same KFA event succeeds onc
     const attachments = partnerPaths(f.workspace).attachments;
     await rm(attachments, { recursive: true });
     await writeFile(attachments, 'test-owned storage obstruction');
-    const event = { ...message(1, '', 'dm', 'dm'), images: [{ status: 'available', mediaType: 'image/png', ref: `${randomUUID()}.png` }] };
+    const event = { ...message(1, '', 'dm'), images: [{ status: 'available', mediaType: 'image/png', ref: `${randomUUID()}.png` }] };
     assert.equal((await app.post(event)).status, 503);
     assert.equal((await starts(f)).length, 0);
     await rm(attachments);
@@ -418,7 +480,7 @@ test('KFA image redirects are unavailable without following the location', async
   try {
     const partner = await f.createPartner(); app = await host(partner, f.directory);
     const ref = `${randomUUID()}.png`;
-    assert.equal((await app.post({ ...message(1, '', 'dm', 'dm'), images: [{ status: 'available', mediaType: 'image/png', ref }] })).status, 202);
+    assert.equal((await app.post({ ...message(1, '', 'dm'), images: [{ status: 'available', mediaType: 'image/png', ref }] })).status, 202);
     await eventually(async () => (await starts(f)).length === 1);
     const items = ((await starts(f))[0]!.params as { input: Array<{ type: string; text?: string }> }).input;
     assert.match(items[0]!.text!, /0 attached; 1 unavailable/);

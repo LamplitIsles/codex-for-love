@@ -103,12 +103,18 @@ Companion MCP 提供 `create_alarm`、`list_alarms`、`edit_alarm` 和 `delete_a
 
 ### 可选 Keet 入站
 
-Partner 可通过 `POST /api/keet/events` 接收 KFA 的纯文本事件。配置本机回环 KFA MCP
+Partner 可通过 `POST /api/keet/events` 接收 KFA 的文本与图片事件。配置本机回环 KFA MCP
 地址和现有的、经标准输入写入的 `keet` 凭据，再将 KFA 的 `KEET_WEBHOOK_URL`
 设为 `http://127.0.0.1:<CFL 端口>/api/keet/events`，不要配置 webhook Bearer
 令牌。此入站接口无需认证，只接受直接来自回环地址的连接；不要通过反向代理公开。
 普通群消息进入有界上下文，直到触发消息到来；每条 DM 都开始一轮，广播消息不会开始一轮。
-带说明文字的图片只传文字，纯图片消息不会发送。CFL 不会自动回复 Keet 消息。
+KFA 必须提供事实字段 `addressing: { mentionsIdentity, replyToIdentity?, identityLabel? }`，
+旧的 `trigger` 字段会被拒绝。CFL 自行按原生身份提及、身份名称的区分大小写字面匹配、
+已验证的身份消息回复、配置别名的顺序判断群触发。未知回复归属省略，不触发；名称与
+别名匹配需要非空文字。带说明文字和纯图片 DM 会从 KFA 获取可用图片并进入原生输入；
+群图片只保留为上下文，广播不触发。群和 DM 的有界聚合表情事实与触发判断无关，
+CFL 只在接纳的一轮中消费并去重，普通群消息不消费，表情变化不单独触发。
+CFL 不会自动回复或添加表情。
 详见[运维指南](docs/operator-guide.md#optional-keet-ingress)。
 
 Android 端可以安装最新的 [Lamplit Mobile 版本](https://github.com/LamplitIsles/lamplit-mobile/releases/latest)，再填入手机能够访问的 CFL HTTP(S) 地址。

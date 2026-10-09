@@ -136,7 +136,7 @@ An image accompanying an admitted external Keet message, including an image-only
 _Avoid_: webhook image bytes, local shared media path
 
 **Keet Trigger（Keet 触发）**:
-An external Keet message classified as one that may start a Partner turn. A Group Trigger is a verified native mention, a current identity-label or configured trigger-alias match, or a reply to an identity-authored Keet message; every external DM message is a separate trigger. Broadcasts have no Keet Trigger.
+An external Keet message classified by its receiving Partner as one that may start a turn. The gateway supplies addressing facts; the receiver owns this decision. A Group Trigger is a verified native mention, a current identity-label or configured trigger-alias match, or a reply to an identity-authored Keet message; every external DM message is a separate trigger. Broadcasts have no Keet Trigger.
 _Avoid_: every Group message, outgoing Keet message, automatic reply
 
 **Keet trigger alias（Keet 触发别名）**:
@@ -148,7 +148,7 @@ The bounded per-Group sequence of ordinary external Group messages retained unti
 _Avoid_: global group history, a Broadcast buffer, standalone turn queue
 
 **Keet Reaction Context（Keet 表情回应上下文）**:
-The aggregate state of others' emoji reactions to the Partner's Keet messages, supplied with the next Keet Trigger in that destination. It is untrusted context, has no reactor identity, and does not independently start a Partner turn.
+The aggregate state of others' emoji reactions to the Partner's Keet messages, supplied with admitted Group or DM messages independently of turn classification and used by the receiving Partner on a qualifying turn. It is untrusted context, has no reactor identity, and does not independently start a Partner turn.
 _Avoid_: reaction-triggered turn, attributed reaction, standalone message
 
 **Keet Reaction Response（Keet 表情回应）**:

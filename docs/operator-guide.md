@@ -208,8 +208,19 @@ administrative authority. Changes to these lists apply after Partner restart
 and only to newly admitted events.
 
 KFA sends admitted text and image messages, including ordinary Group and
-Broadcast events. CFL buffers ordinary Group messages per Group until a mention,
-identity-label, or reply trigger drains that Group into one turn. Every DM,
+Broadcast events. Each body requires strict factual
+`addressing: { mentionsIdentity: boolean, replyToIdentity?: boolean, identityLabel?: string }`.
+The identity label, when present, must be nonempty, trimmed, single-line and at
+most 512 Unicode code points. A reply ownership fact requires the canonical
+`replyTo` anchor; unknown ownership is omitted. Extra addressing keys and the
+obsolete wire `trigger` are rejected with 422. No private member/group IDs or
+remote history lookups are needed by CFL.
+
+CFL buffers ordinary Group messages per Group and classifies locally in order:
+native identity mention, case-sensitive literal identity-label match, verified
+`replyToIdentity: true`, then configured literal alias. Label/alias matches require
+nonblank text. Unknown or false reply ownership does not promote a turn. One
+qualifying event drains that Group into one turn. Every DM,
 including a pure-image DM, starts a turn after active work; Broadcast messages
 start none. For a triggered DM, CFL fetches available originals from KFA's
 `GET /images/{ref}` using the existing MCP bearer, verifies them, and stores
@@ -238,18 +249,20 @@ ordinary admitted Group text. It does not alter DM, Broadcast, native mention,
 identity-label or reply handling, and it does not make a trusted Group respond to
 every line. An image-only Group message cannot match an alias.
 
-On a qualifying Group or DM text trigger, KFA may include up to 16 aggregate
+On any admitted Group or DM message, KFA may include up to 16 aggregate
 external reaction facts for recent messages authored by its identity. CFL
 quotes the target excerpt as bounded untrusted context and records
 each supplied destination, canonical target, emoji, and count fact in SQLite.
 Webhook retries, restarts, and later triggers do not repeat that unchanged
-fact. A changed external count is eligible again. Broadcast and ordinary
-Group events have no reaction context; reactions alone do not wake the Agent.
+fact. A changed external count is eligible again. CFL ignores reaction facts on
+ordinary Group events without consuming receipts; a later accepted turn can use
+the same facts. Broadcast events have no reaction context; reactions alone do
+not wake the Agent.
 The snapshot contains no reactor identity, so the Agent must not attribute a
 reaction to a person.
-KFA supplies this snapshot only for triggers it classified itself; a turn
-triggered solely by a CFL alias may have no reaction snapshot. CFL does not
-re-fetch or infer one.
+KFA supplies these facts independently of CFL turn classification, including for
+Group events that match only a configured alias. CFL does not re-fetch or infer
+a snapshot when none is supplied.
 
 The Keet MCP `send_message` call requires nonblank `text` and may include
 `reaction: { targetMessageId: { deviceId, seq }, emoji }` for one Unicode emoji.

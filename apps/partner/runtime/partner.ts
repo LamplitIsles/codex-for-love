@@ -34,7 +34,7 @@ import {
 } from './images.ts';
 import { transcribeAudio } from './speech.ts';
 import { Store, type MessageMeta, type MessagePageOptions, type StoredImage, type StoredInput, type StoredInputSegment } from './store.ts';
-import type { KeetEventBody } from './keet.ts';
+import { classifyKeetTrigger, type KeetEventBody } from './keet.ts';
 import { materializeKeetImages } from './keet-images.ts';
 import type { CompanionState } from './relationship-domain.ts';
 import { MOOD_LABELS, affinityStage } from './relationship-domain.ts';
@@ -1624,9 +1624,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
       if (!keetEnabled || closing) throw new Error('Keet ingress unavailable');
       const inputId = `keet:webhook:${message.eventId}`;
       if (await store.hasKeetEvent(message.eventId)) return;
-      const aliasTrigger = message.destination.kind === 'group' && !message.trigger && Boolean(message.text.trim())
-        && (config.keet?.trigger_aliases ?? []).some(alias => message.text.includes(alias));
-      const trigger = message.trigger ?? (aliasTrigger ? 'label' : undefined);
+      const trigger = classifyKeetTrigger(message, config.keet?.trigger_aliases);
       const isDm = message.destination.kind === 'dm';
       const fetched = isDm && message.images?.length
         ? await materializeKeetImages(paths.workspaceRoot, config.keet!.endpoint!, credentials.keet!, inputId, message.images)
