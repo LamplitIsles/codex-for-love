@@ -124,7 +124,7 @@ An external Matrix participant's admitted text in the Partner's single conversat
 _Avoid_: Human message, Keet message, self-set reminder
 
 **Matrix Trigger（Matrix 触发）**:
-An external Matrix message selected by the receiving Partner because it natively mentions the Partner or contains a configured literal trigger alias. Every room follows this same rule; a direct conversation or reply relationship alone is insufficient.
+A nonblank external Matrix message selected by the receiving Partner because it natively mentions the Partner, replies to a verified Partner-authored Matrix message, or contains a configured literal trigger alias, in that order. Every room follows this same rule; a direct conversation alone is insufficient, and an unknown reply author does not establish ownership.
 _Avoid_: every room message, display-name match, automatic reply
 
 **Matrix Room Context Buffer（Matrix 房间上下文缓冲）**:

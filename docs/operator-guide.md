@@ -727,19 +727,25 @@ and ignored self messages); disabled intake returns 404, nonlocal delivery 403,
 malformed JSON or a body exceeding 256 KiB 400, invalid envelopes 422, and temporary
 admission unavailability 503 for MFA's existing finite retry.
 
-The unchanged envelope has `type = "message"`, `event_id`, `room_id`, `sender_id`,
+The strict envelope has `type = "message"`, `event_id`, `room_id`, `sender_id`,
 `sender_display_name`, `timestamp`, `body`, `mentions`, optional `reply_to_event_id`
-and `truncated`. No extra keys are accepted. Body/display may be empty or whitespace;
+and `reply_to_sender_id`, and `truncated`. A supplied reply author must be a full
+Matrix user ID (`@localpart:server`, no whitespace), at most 255 UTF-16 code units,
+and requires a nonempty reply target ID. Invalid/orphan authors return 422 without
+admission; identities are never clipped. Omission means the author is unknown.
+No extra keys are accepted. Body/display may be empty or whitespace;
 body is capped at 16,000 UTF-16 code units, ID/display/mention entries at 255,
 mentions at 100 strings. Harmless nonmatching or empty mention strings remain
 valid; identity comparisons are exact. Timestamp is a safe integer. Reply and
 truncation are retained facts, not trigger policy.
 
-Every room, including a room used as a DM, follows group policy: native mentions
-containing discovered self trigger first; otherwise a nonblank body containing a
-configured case-sensitive literal alias triggers. There is no implicit display-name,
-DM or reply-owner trigger. Native mention can trigger an empty body. Self sender is
-ignored. Other text buffers by exact room ID, capped at 64 records and 16,000
+Every room, including a room used as a DM, follows group policy for nonblank text:
+native mentions containing discovered self trigger first, then a verified reply
+author exactly equal to the current startup-discovered identity, then a configured
+case-sensitive literal alias. Other/unknown reply authors allow independent
+mention/alias matching. There is no implicit display-name or DM trigger. Empty or
+whitespace text never wakes, even with a mention/reply; self sender is ignored.
+Other text buffers by exact room ID, capped at 64 records and 16,000
 characters including attribution; oldest records are discarded to stay within the
 budget. A trigger receives at most 800 UTF-8 bytes of preceding same-room context,
 marked untrusted along with authored body/display/mention text. Transport IDs,
@@ -754,8 +760,9 @@ is supported. See [Matrix source acceptance](matrix-source-ui.md).
 Receiver receipts use room plus event ID. The first accepted content stays immutable;
 receipt, buffer update or clearing, provenance and pending input creation are one
 SQLite transaction. Pending inputs retain original sender, room, event, body,
-mentions, reply, timestamp and truncation. Matrix and Keet share the official native
-execution queue; active turns and compaction delay intake execution, and admitted
+mentions, reply target/author, timestamp and truncation in private provenance.
+The native reason is `mention`, `reply` or `alias`; public source fields are unchanged.
+Matrix and Keet share the official native execution queue; active turns and compaction delay intake execution, and admitted
 pending inputs resume after startup/restart and native idle completion. This adds no
 separate execution owner, App UI/contract changes or persona prompt redesign.
 

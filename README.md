@@ -338,12 +338,16 @@ tools remain agent actions. Point MFA's `MATRIX_WEBHOOK_URL` to
 `MATRIX_WEBHOOK_BEARER_TOKEN` unset. The webhook admits loopback peers only;
 do not publish it through a proxy. The account token is exclusively for MCP.
 
-All rooms follow group policy: exact native self-mention first, then a configured
-literal alias in nonblank text. Names, DMs and reply relationships do not trigger.
+All rooms follow group policy for nonblank, nonself text: exact native self-mention
+first, then a verified reply to the current Matrix identity, then a configured
+literal alias. Names and DMs do not independently trigger. MFA may supply optional
+`reply_to_sender_id`, the original target author's exact full Matrix user ID, only
+with a nonempty `reply_to_event_id`. Invalid/orphan authors are rejected, not clipped;
+an omitted author means unknown. Other/unknown authors still allow mention/alias wake.
 Other nonself text forms bounded per-room context (64 records / 16,000 characters,
-with at most 800 UTF-8 bytes supplied on a turn). Empty text can still trigger by
-native mention. Bodies are bounded at 16,000 UTF-16 code units; ID/display fields
-at 255 and mention arrays at 100 bounded strings. Triggered messages show a Matrix
+with at most 800 UTF-8 bytes supplied on a turn). Empty/whitespace bodies never
+wake, including native mentions or replies. Bodies are bounded at 16,000 UTF-16
+code units; ID/display fields at 255 and mention arrays at 100 bounded strings. Triggered messages show a Matrix
 header with the original display name (exact sender ID when empty), sender ID and
 exact room ID. The bubble retains the original body separately from attribution,
 and its authored time survives initial load, reconnect, older history and restart.

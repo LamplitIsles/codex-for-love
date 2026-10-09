@@ -86,7 +86,64 @@ test('actual HTTP buffers all rooms, mention wins, exact aliases qualify, and im
   } finally { await http?.app.close(); await s.close(); }
 });
 
-test('real HTTP enforces producer schema/bounds, preserves blank native mentions, and reports unavailable admission safely', async (t) => {
+test('actual HTTP reply wake keeps precedence, private provenance, room isolation and immutable restart receipts', async () => {
+  const s = await setup(), { f, gateway } = s;
+  let http: Awaited<ReturnType<typeof host>> | undefined;
+  try {
+    let partner = await f.createPartner(); http = await host(partner, f.directory);
+    const own = { ...event('$own-reply', 'ordinary reply'), reply_to_event_id: '$target', reply_to_sender_id: '@self:test' };
+    for (const value of [
+      { ...own, event_id: '$other-reply', body: 'nonown context', reply_to_sender_id: '@self:elsewhere' },
+      { ...event('$unknown-reply', 'unknown context'), reply_to_event_id: '$target' },
+      { ...own, event_id: '$isolated', room_id: '!isolated:test', body: 'other-room context', reply_to_sender_id: '@another:test' },
+      { ...own, event_id: '$self-reply', sender_id: '@self:test', body: 'PartnerAlias', mentions: ['@self:test'] },
+      ...['', ' \n\t'].map((body, n) => ({ ...own, event_id: `$blank-reply-${n}`, body, mentions: ['@self:test'] })),
+    ]) assert.equal((await http.post(value)).status, 202);
+    assert.equal((await starts(f)).length, 0);
+    assert.equal((await http.post(own)).status, 202);
+    await eventually(async () => (await starts(f)).length === 1);
+    const first = (await starts(f))[0]!.params as Turn;
+    assert.equal(first.clientUserMessageId, matrixInputId(own));
+    assert.equal(first.input[0]!.text.split('\n').slice(1).join('\n'), own.body);
+    const metadata = JSON.parse(first.additionalContext['codex-for-love.matrix-metadata']!.value);
+    assert.equal(metadata.trigger, 'reply'); assert.equal(metadata.reply_to_sender_id, own.reply_to_sender_id);
+    assert.equal(metadata.reply_to_event_id, own.reply_to_event_id); assert.equal(metadata.timestamp, own.timestamp);
+    assert.match(first.additionalContext['codex-for-love.matrix-room-context']!.value, /nonown context/);
+    assert.match(first.additionalContext['codex-for-love.matrix-room-context']!.value, /unknown context/);
+    assert.doesNotMatch(first.additionalContext['codex-for-love.matrix-room-context']!.value, /other-room context/);
+    for (const [n, value, reason] of [
+      [2, { ...own, event_id: '$precedence-mention', body: 'PartnerAlias', mentions: ['@self:test'] }, 'mention'],
+      [3, { ...own, event_id: '$precedence-reply', body: 'PartnerAlias' }, 'reply'],
+      [4, { ...own, event_id: '$precedence-alias', body: 'PartnerAlias', reply_to_sender_id: '@another:test' }, 'alias'],
+      [5, { ...own, event_id: '$unknown-alias', body: 'PartnerAlias', reply_to_sender_id: undefined }, 'alias'],
+      [6, { ...own, event_id: '$nonown-mention', mentions: ['@self:test'], reply_to_sender_id: '@another:test' }, 'mention'],
+      [7, { ...own, room_id: '!isolated:test' }, 'reply'],
+    ] as const) {
+      assert.equal((await http.post(value)).status, 202);
+      await eventually(async () => (await starts(f)).length === n);
+      assert.equal(JSON.parse(((await starts(f))[n - 1]!.params as Turn).additionalContext['codex-for-love.matrix-metadata']!.value).trigger, reason);
+    }
+    const row = (await partner.snapshot()).messages.find(row => row.id === matrixInputId(own))!;
+    assert.equal(row.created, own.timestamp); assert.equal(row.matrix?.body, own.body);
+    assert.doesNotMatch(JSON.stringify(row.matrix), /reply_to/);
+    await http.app.close(); http = undefined;
+    partner = await f.createPartner(); http = await host(partner, f.directory);
+    for (const value of [own, { ...own, body: 'changed conflict', reply_to_sender_id: '@another:test' },
+      { ...own, event_id: '$other-reply', body: 'PartnerAlias', reply_to_sender_id: '@self:test' }])
+      assert.equal((await http.post(value)).status, 202);
+    assert.equal((await starts(f)).length, 7);
+    assert.deepEqual((await partner.snapshot()).messages.find(row => row.id === matrixInputId(own))!.matrix, row.matrix);
+    await http.app.close(); http = undefined;
+    const db = new DatabaseSync(partnerPaths(f.workspace).database, { readOnly: true });
+    try {
+      const context = JSON.parse(String(db.prepare('SELECT context FROM matrix_sources WHERE message_id=?').get(matrixInputId(own))!.context));
+      assert.deepEqual(context.provenance, own);
+    } finally { db.close(); }
+    assert.equal(gateway.requests.filter(item => item.tool === 'whoami').length, 2);
+  } finally { await http?.app.close(); await s.close(); }
+});
+
+test('real HTTP enforces producer schema/bounds, excludes blank native mentions, and reports unavailable admission safely', async (t) => {
   const s = await setup(), { f } = s;
   let http: Awaited<ReturnType<typeof host>> | undefined;
   try {
@@ -98,6 +155,11 @@ test('real HTTP enforces producer schema/bounds, preserves blank native mentions
       { ...valid, mentions: Array(101).fill('') }, { ...valid, body: '😀'.repeat(8001) }, { ...valid, sender_display_name: 'x'.repeat(256) }, { ...valid, sender_display_name: '😀'.repeat(128) },
       { ...valid, timestamp: '1' }, { ...valid, timestamp: 1.5 }, { ...valid, truncated: 1 }, { ...valid, reply_to_event_id: null }, { ...valid, event_id: '' }])
       assert.equal((await http.post(value)).status, 422);
+    for (const author of [null, false, '', '@missing', 'display name', '@self:test ', '@self:te\nst', '@a:b'.padEnd(256, 'x'), `@${'😀'.repeat(125)}:test`])
+      assert.equal((await http.post({ ...valid, reply_to_event_id: '$target', reply_to_sender_id: author })).status, 422);
+    for (const target of [undefined, ''])
+      assert.equal((await http.post({ ...valid, reply_to_event_id: target, reply_to_sender_id: '@self:test' })).status, 422);
+    assert(matrixEvent.safeParse({ ...valid, reply_to_event_id: '$target', reply_to_sender_id: '@a:b'.padEnd(255, 'x') }).success);
     assert.equal((await fetch(`${http.base}/api/matrix/events`, { method: 'POST', body: 'x'.repeat(256 * 1024 + 1) })).status, 400);
     assert.equal((await http.post({ ...event('$empty', ''), sender_display_name: '', mentions: ['', 'not-a-user'] })).status, 202);
     assert.equal((await http.post({ ...event('$white', '   '), sender_display_name: '   ' })).status, 202);
@@ -105,8 +167,10 @@ test('real HTTP enforces producer schema/bounds, preserves blank native mentions
     for (const [index, body] of ['', '   ', '😀'.repeat(8000)].entries()) {
       const value = { ...event(`$blank-${index}`, body, '!blank:test', ['@self:test']), sender_display_name: '' };
       assert.equal((await http.post(value)).status, 202);
-      await eventually(async () => (await starts(f)).length === index + 1);
-      assert.equal(((await starts(f))[index]!.params as Turn).input[0]!.text.split('\n').slice(1).join('\n'), body);
+      if (body.trim()) {
+        await eventually(async () => (await starts(f)).length === 1);
+        assert.equal(((await starts(f))[0]!.params as Turn).input[0]!.text.split('\n').slice(1).join('\n'), body);
+      } else assert.equal((await starts(f)).length, 0);
     }
     t.mock.method(partner, 'ingestMatrix', async () => { throw new Error('synthetic-matrix-only-token'); });
     const failed = await http.post(valid); assert.equal(failed.status, 503); assert.doesNotMatch(await failed.text(), /synthetic-matrix-only-token/);
@@ -130,7 +194,7 @@ test('Matrix and Keet pending inputs resume with original source/time and never 
     await f.holdProvider(true);
     let partner = await f.createPartner(); http = await host(partner, f.directory);
     const first = event('$first', 'PartnerAlias hold');
-    const queued = event('$queued', 'PartnerAlias queued'); queued.timestamp -= 100_000;
+    const queued = { ...event('$queued', 'reply queued'), reply_to_event_id: '$first', reply_to_sender_id: '@self:test' }; queued.timestamp -= 100_000;
     assert.equal((await http.post(first)).status, 202);
     await eventually(async () => (await starts(f)).length === 1);
     assert.equal((await http.post(queued)).status, 202);
@@ -145,6 +209,7 @@ test('Matrix and Keet pending inputs resume with original source/time and never 
     const turns = (await starts(f)).map(row => row.params as Turn);
     assert.equal(turns[1]!.clientUserMessageId, matrixInputId(queued));
     assert.equal(JSON.parse(turns[1]!.additionalContext['codex-for-love.matrix-metadata']!.value).timestamp, queued.timestamp);
+    assert.equal(JSON.parse(turns[1]!.additionalContext['codex-for-love.matrix-metadata']!.value).trigger, 'reply');
     assert.match(turns[1]!.additionalContext['codex-for-love.message-time']!.value, /Qualifying Matrix input/);
     assert.equal(turns[1]!.additionalContext['codex-for-love.keet-kind'], undefined);
     assert.equal(turns[2]!.additionalContext['codex-for-love.keet-kind']!.value, 'Keet dm');

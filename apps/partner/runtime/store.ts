@@ -328,7 +328,7 @@ export class Store {
     });
   }
 
-  async recordMatrixEvent(event: MatrixEvent, trigger?: 'mention' | 'alias'): Promise<boolean> {
+  async recordMatrixEvent(event: MatrixEvent, trigger?: MatrixContext['trigger']): Promise<boolean> {
     return this.transaction(() => {
       if (this.db.prepare('SELECT 1 FROM matrix_receipts WHERE room_id=? AND event_id=?').get(event.room_id, event.event_id)) return false;
       this.db.prepare('INSERT INTO matrix_receipts(room_id,event_id) VALUES(?,?)').run(event.room_id, event.event_id);
