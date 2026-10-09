@@ -41,7 +41,7 @@ test('native Keet ingress retains display source, private context, images and re
     type: 'message', eventId: randomUUID(), sequence, timestamp: sequence,
     messageId: { deviceId: 'owned-peer', seq: sequence },
     destination: { kind: channel, groupName: channel === 'dm' ? 'Peer' : 'Room' },
-    senderLabel: 'Alice', text, ...(trigger ? { trigger: channel === 'dm' ? 'dm' : 'mention' } : {}),
+    senderLabel: 'Alice', text, addressing: { mentionsIdentity: trigger && channel === 'group' },
   });
   const visible = new Map<string, ChatMessage>();
   try {

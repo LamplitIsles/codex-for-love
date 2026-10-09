@@ -119,6 +119,35 @@ CFL 不会自动回复或添加表情。
 
 Android 端可以安装最新的 [Lamplit Mobile 版本](https://github.com/LamplitIsles/lamplit-mobile/releases/latest)，再填入手机能够访问的 CFL HTTP(S) 地址。
 
+### 可选 Matrix 文本入站
+
+在 `[matrix]` 配置本机 MFA 的裸回环地址，例如
+`endpoint = "http://127.0.0.1:18770"`，以及可选的、区分大小写的字面别名
+`trigger_aliases = ["shio", "汐"]`。通过
+`codex-for-love credential /path/to/partner.toml matrix --stdin` 保存 Matrix
+账户 token；它只保存在私有凭据中，不写入配置或工作区。地址与凭据必须同时提供。
+启动时通过有时限的 MCP `whoami` 查询自身身份，网关不可用或身份无效会安全地拒绝启动。
+
+也可在运行环境提供 `MATRIX_ACCESS_TOKEN`：存在时仅覆盖已保存的 Matrix token，
+空值会报错，不会写入凭据文件；其他私密凭据保持原样。
+官方 `matrix` HTTP MCP 使用 `CFL_MATRIX_TOKEN` 环境变量提供 Bearer，保留原始的
+`whoami`、`list_rooms`、`list_room_members`、`read_messages`、`send_message` 工具。
+将 MFA 的 `MATRIX_WEBHOOK_URL` 设为
+`http://127.0.0.1:<CFL 端口>/api/matrix/events`，不设置
+`MATRIX_WEBHOOK_BEARER_TOKEN`。Webhook 仅接收回环来源，不能通过反向代理公开；
+账户 token 只用于 MCP。
+
+所有房间都按群聊处理：原生 mention 精确包含自身 ID 时优先触发，否则非空白正文中
+出现配置别名才触发。显示名、DM 和回复关系不隐式触发；自身消息忽略。其他文本按房间
+缓冲，最多 64 条／16,000 字符，下一次触发最多提供 800 UTF-8 字节上下文。空正文仍可
+通过原生 mention 触发。正文上限为 16,000 UTF-16 码元，ID／显示名上限 255，
+mention 最多 100 个有界字符串。时间线中的文本保留 Matrix 发送者与房间归属，
+队列重启恢复保留原始正文、事件、时间、回复和截断信息；外部发送者没有网页 Human 的管理权限。
+
+房间＋事件去重、缓冲清理与待执行输入原子落盘，重试保留首次内容，Matrix 与 Keet 串行执行。
+没有自动发送、轮询或回填。MFA 的临时队列与有限重试不保证停机期间投递；读历史恢复和回复
+由 Agent 明确调用工具。详见[运维指南](docs/operator-guide.md#optional-matrix-text-intake)。
+
 ## 路线图
 
 CFL 已经是汐每天生活的地方，但它还会继续长大。接下来的方向包括：

@@ -1,3 +1,4 @@
+import { matrixInput, matrixInputId, type MatrixEvent, type MatrixContext } from './matrix.ts';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { DatabaseSync } from 'node:sqlite';
@@ -132,6 +133,9 @@ export class Store {
           revision INTEGER PRIMARY KEY AUTOINCREMENT,
           message_id TEXT NOT NULL UNIQUE REFERENCES message_meta(id) ON DELETE CASCADE
         );
+        CREATE TABLE IF NOT EXISTS matrix_receipts (room_id TEXT NOT NULL, event_id TEXT NOT NULL, PRIMARY KEY(room_id,event_id));
+        CREATE TABLE IF NOT EXISTS matrix_room_buffers (room_id TEXT PRIMARY KEY, records TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS matrix_sources (message_id TEXT PRIMARY KEY REFERENCES message_meta(id) ON DELETE CASCADE, context TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS keet_webhook_events (event_id TEXT PRIMARY KEY, sequence INTEGER NOT NULL);
         CREATE TABLE IF NOT EXISTS keet_group_buffers (group_name TEXT PRIMARY KEY, records TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS keet_reaction_receipts (fact_key TEXT PRIMARY KEY);
@@ -321,6 +325,39 @@ export class Store {
       this.db.prepare('INSERT INTO keet_sources(message_id,context) VALUES(?,?)').run(event.input.id, JSON.stringify(context));
       if (event.destination.kind === 'group') this.db.prepare('DELETE FROM keet_group_buffers WHERE group_name=?').run(event.destination.groupName);
       return true;
+    });
+  }
+
+  async recordMatrixEvent(event: MatrixEvent, trigger?: 'mention' | 'alias'): Promise<boolean> {
+    return this.transaction(() => {
+      if (this.db.prepare('SELECT 1 FROM matrix_receipts WHERE room_id=? AND event_id=?').get(event.room_id, event.event_id)) return false;
+      this.db.prepare('INSERT INTO matrix_receipts(room_id,event_id) VALUES(?,?)').run(event.room_id, event.event_id);
+      const row = this.db.prepare('SELECT records FROM matrix_room_buffers WHERE room_id=?').get(event.room_id) as { records: string } | undefined;
+      const records: MatrixEvent[] = row ? JSON.parse(row.records) : [];
+      if (!trigger) {
+        records.push(event);
+        while (records.length > 64 || records.reduce((size, item) => size + matrixInput(item).length, 0) > 16_000) records.shift();
+        this.db.prepare('INSERT INTO matrix_room_buffers(room_id,records) VALUES(?,?) ON CONFLICT(room_id) DO UPDATE SET records=excluded.records').run(event.room_id, JSON.stringify(records));
+        return true;
+      }
+      const lines = records.map(matrixInput);
+      while (lines.length > 1 && Buffer.byteLength(lines.join('\n')) > CONTEXT_LIMIT) lines.shift();
+      const context: MatrixContext = { provenance: event, trigger, ...(lines.length ? { roomContext: bounded(lines.join('\n')) } : {}) };
+      const id = matrixInputId(event), input = matrixInput(event);
+      const fingerprint = createHash('sha256').update(JSON.stringify([input, []])).digest('hex');
+      this.db.prepare('INSERT INTO message_meta(id,created,fingerprint) VALUES(?,?,?)').run(id, event.timestamp, fingerprint);
+      this.db.prepare('INSERT INTO pending_inputs(message_id,input) VALUES(?,?)').run(id, input);
+      this.db.prepare('INSERT INTO matrix_sources(message_id,context) VALUES(?,?)').run(id, JSON.stringify(context));
+      this.addRevision(id);
+      this.db.prepare('DELETE FROM matrix_room_buffers WHERE room_id=?').run(event.room_id);
+      return true;
+    });
+  }
+
+  async matrixContext(id: string): Promise<MatrixContext | undefined> {
+    return this.transaction(() => {
+      const row = this.db.prepare('SELECT context FROM matrix_sources WHERE message_id=?').get(id) as { context: string } | undefined;
+      return row ? JSON.parse(row.context) : undefined;
     });
   }
 

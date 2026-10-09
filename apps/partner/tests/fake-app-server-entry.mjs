@@ -8,6 +8,7 @@ import { writeFileSync } from 'node:fs';
 if (process.env.FAKE_SERVER_ARGS) writeFileSync(process.env.FAKE_SERVER_ARGS, JSON.stringify(process.argv.slice(2)));
 if (process.env.FAKE_SERVER_CONTEXT) writeFileSync(process.env.FAKE_SERVER_CONTEXT, JSON.stringify({
   cwd: process.cwd(),
+  matrixTokenMatches: Boolean(process.env.FAKE_EXPECT_MATRIX_TOKEN && process.env.CFL_MATRIX_TOKEN === process.env.FAKE_EXPECT_MATRIX_TOKEN),
   codexHome: process.env.CODEX_HOME ?? null,
   sentinel: process.env.FAKE_SERVER_SENTINEL ?? null,
 }));

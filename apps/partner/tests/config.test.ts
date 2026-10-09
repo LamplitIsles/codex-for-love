@@ -1,9 +1,24 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { loadConfig } from '../runtime/config.ts';
+import { loadConfig, loadCredentials } from '../runtime/config.ts';
+
+test('Matrix environment credential is authoritative and never persisted', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'lamplit-credentials-test-'));
+  try {
+    assert.deepEqual(await loadCredentials(directory, {}), {});
+    assert.deepEqual(await loadCredentials(directory, { MATRIX_ACCESS_TOKEN: 'owned-env-token' }), { matrix: 'owned-env-token' });
+    await assert.rejects(readFile(join(directory, 'credentials.json')), { code: 'ENOENT' });
+    const stored = JSON.stringify({ speech: 'owned-speech', tts: 'owned-tts', keet: 'owned-keet', matrix: 'owned-file-token' });
+    await writeFile(join(directory, 'credentials.json'), stored);
+    assert.deepEqual(await loadCredentials(directory, {}), JSON.parse(stored));
+    assert.deepEqual(await loadCredentials(directory, { MATRIX_ACCESS_TOKEN: 'owned-env-token' }), { ...JSON.parse(stored), matrix: 'owned-env-token' });
+    await assert.rejects(loadCredentials(directory, { MATRIX_ACCESS_TOKEN: '' }), /matrix/);
+    assert.equal(await readFile(join(directory, 'credentials.json'), 'utf8'), stored);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
 
 test('CFL config fixes execution to a direct app-server', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'lamplit-config-test-'));

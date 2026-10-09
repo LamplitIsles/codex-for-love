@@ -115,6 +115,22 @@ _Avoid_: deployment profile, auto-provisioned integration
 The actual positive increase in affinity recorded for one relationship change. A change with unchanged or decreased affinity has no growth.
 _Avoid_: requested increase, cumulative growth
 
+**Matrix identity（Matrix 身份）**:
+The Partner's own Matrix account identity, distinct from the Human's account and from the Partner's Keet identity.
+_Avoid_: shared Human account, Keet identity
+
+**Matrix-sourced message（Matrix 来源消息）**:
+An external Matrix participant's admitted text in the Partner's single conversation, retaining its sender and room attribution. It does not inherit the Human's administrative authority.
+_Avoid_: Human message, Keet message, self-set reminder
+
+**Matrix Trigger（Matrix 触发）**:
+An external Matrix message selected by the receiving Partner because it natively mentions the Partner or contains a configured literal trigger alias. Every room follows this same rule; a direct conversation or reply relationship alone is insufficient.
+_Avoid_: every room message, display-name match, automatic reply
+
+**Matrix Room Context Buffer（Matrix 房间上下文缓冲）**:
+The bounded sequence of ordinary external text retained for one room until its next Matrix Trigger. It accompanies that trigger as context without independently starting a turn.
+_Avoid_: replay history, durable gateway inbox, Keet Group Context Buffer
+
 **Keet identity**:
 The Partner's own peer-to-peer identity for participating in Keet conversations. It is distinct from the Human's personal Keet identity.
 _Avoid_: shared Keet account, Keet mailbox

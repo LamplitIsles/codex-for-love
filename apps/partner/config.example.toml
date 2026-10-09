@@ -45,6 +45,13 @@ context_round_limit = 10
 #trusted_groups = ["Our little home"] # Exact admitted Group names; conversational trust only.
 #trigger_aliases = ["shio", "汐"] # Case-sensitive literal substrings in admitted Group text.
 
+# Optional Matrix text intake. Both endpoint and stdin-managed `matrix`
+# account credential are required. MFA webhook -> /api/matrix/events;
+# leave MATRIX_WEBHOOK_BEARER_TOKEN unset. All rooms use group policy.
+#[matrix]
+#endpoint = "http://127.0.0.1:18770"
+#trigger_aliases = ["shio", "汐"] # Case-sensitive literal substrings; no implicit display-name match.
+
 # Optional DashScope STT and tool-delivered Voice messages.
 [speech]
 [speech.tts]

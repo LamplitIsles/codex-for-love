@@ -1,3 +1,4 @@
+import { matrixEvent } from './matrix.ts';
 import { APPEARANCE_PATH } from '@lamplit/contracts';
 import { imageHttp } from '@lamplit/contracts/server';
 import { createChatSocket } from './chat.ts';
@@ -95,6 +96,18 @@ export function createWebServer(partner: Partner, assets: string, options: { aut
       }
       if (path === VOICE_CAPABILITY_PATH) return json(response, request.method === 'GET' ? { available: voice.available() } : { code: 'method_not_allowed' }, request.method === 'GET' ? 200 : 405);
       if (path === VOICE_STREAM_PATH) return json(response, { code: 'upgrade_required' }, 426);
+      if (path === '/api/matrix/events' && request.method === 'POST') {
+        if (!partner.matrixEnabled) return json(response, { error: 'Matrix ingress unavailable' }, 404);
+        if (!isLoopbackPeer(request.socket.remoteAddress)) return json(response, { error: 'Local delivery only' }, 403);
+        let raw: unknown;
+        try { raw = await body(request, 256 * 1024); }
+        catch { return json(response, { error: 'Invalid Matrix event' }, 400); }
+        const parsed = matrixEvent.safeParse(raw);
+        if (!parsed.success) return json(response, { error: 'Invalid Matrix event' }, 422);
+        try { await partner.ingestMatrix(parsed.data); }
+        catch { return json(response, { error: 'Matrix admission unavailable' }, 503); }
+        return json(response, { accepted: true }, 202);
+      }
       if (path === '/api/keet/events' && request.method === 'POST') {
         if (!partner.keetEnabled) return json(response, { error: 'Keet ingress unavailable' }, 404);
         const peer = request.socket.remoteAddress;

@@ -75,12 +75,12 @@ export async function keetAcceptanceHost(assets: string, evidence?: string) {
     // Buffered native context and reaction facts deliberately never enter the display DTO.
     if (input.channel === 'group') await partner.ingestKeet({ type: 'message', eventId: crypto.randomUUID(), sequence: ++sequence,
       messageId: { deviceId: 'fixture-peer', seq: sequence }, timestamp: clock, destination: { kind: 'group', groupName: input.destination },
-      senderLabel: 'Context', text: 'native-only context sentinel' });
+      senderLabel: 'Context', text: 'native-only context sentinel', addressing: { mentionsIdentity: false } });
     const eventId = crypto.randomUUID();
     const response = await fetch(origin + '/api/keet/events', { method: 'POST', headers: { 'content-type': 'application/json', cookie: 'keet-test-owner=1' }, body: JSON.stringify({
       type: 'message', eventId, sequence: ++sequence, messageId: { deviceId: 'fixture-peer', seq: sequence }, timestamp: clock,
       destination: { kind: input.channel, groupName: input.destination }, senderLabel: input.senderLabel, text: input.text,
-      trigger: input.channel === 'dm' ? 'dm' : 'mention',
+      addressing: { mentionsIdentity: input.channel === 'group' },
       reactionContext: [{ targetMessageId: { deviceId: 'self', seq: 0 }, targetText: 'native-only context sentinel', emoji: '👍', externalCount: 1 }],
       ...(input.hasImage || input.images?.length ? { images: [{ status: 'available', mediaType: 'image/png', name: 'keet-original.png', ref: `${crypto.randomUUID()}.png` }] } : {}),
     }) });

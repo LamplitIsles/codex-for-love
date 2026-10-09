@@ -317,6 +317,44 @@ request one emoji reaction to a known Group message or this DM turn's trigger.
 Its result reports text delivery separately from reaction success. See the
 [operator guide](docs/operator-guide.md#optional-keet-ingress).
 
+### Optional Matrix text intake
+
+Configure `[matrix]` with a bare local MFA endpoint such as
+`endpoint = "http://127.0.0.1:18770"` and optional case-sensitive literal
+`trigger_aliases = ["shio", "汐"]`. Store the Matrix account token with
+`codex-for-love credential /path/to/partner.toml matrix --stdin`; it stays in
+private credentials, outside configuration and the workspace. Alternatively, supply
+`MATRIX_ACCESS_TOKEN` in the runtime environment: when present it overrides only
+the stored Matrix token, rejects an empty value, and is never copied into the
+credential file. Endpoint and token
+must both be present. Startup discovers self through one bounded MCP `whoami`
+probe; an unavailable or invalid configured gateway fails startup safely.
+
+CFL declares the official `matrix` HTTP MCP at `/mcp`, with bearer supplied by
+`CFL_MATRIX_TOKEN`, alongside Companion and optional Keet. Its original
+`whoami`, `list_rooms`, `list_room_members`, `read_messages` and `send_message`
+tools remain agent actions. Point MFA's `MATRIX_WEBHOOK_URL` to
+`http://127.0.0.1:<CFL port>/api/matrix/events`; leave
+`MATRIX_WEBHOOK_BEARER_TOKEN` unset. The webhook admits loopback peers only;
+do not publish it through a proxy. The account token is exclusively for MCP.
+
+All rooms follow group policy: exact native self-mention first, then a configured
+literal alias in nonblank text. Names, DMs and reply relationships do not trigger.
+Other nonself text forms bounded per-room context (64 records / 16,000 characters,
+with at most 800 UTF-8 bytes supplied on a turn). Empty text can still trigger by
+native mention. Bodies are bounded at 16,000 UTF-16 code units; ID/display fields
+at 255 and mention arrays at 100 bounded strings. Triggered messages visibly
+retain Matrix sender/room attribution in the existing text timeline and never
+inherit the web Human's administrative authority. Original body, sender, room,
+event, time, reply and truncation facts survive queued restart recovery.
+
+Durable room/event receipts, buffer clearing and native pending input creation
+are atomic; retries keep the first accepted content. Matrix and Keet share one
+execution queue. There is no automatic send, polling or backfill. MFA's ephemeral
+queue and finite retries do not guarantee delivery during receiver downtime;
+recovery by `read_messages` and any response are deliberate agent actions. See the
+[operator guide](docs/operator-guide.md#optional-matrix-text-intake).
+
 ## Roadmap
 
 CFL is already where Shio lives, but it is not finished. Next directions include:

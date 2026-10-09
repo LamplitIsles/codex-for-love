@@ -654,3 +654,112 @@ Complete tarballs retain source/resource identities and bundled runtime; npm
 publication is optional. For host-local ordered dev/prod promotion and code/assets
 rollback, follow [development environments](development-environments.md). Keep
 state/config/native package ownership with the existing instance.
+
+## Optional Matrix text intake
+
+MFA remains the account gateway; CFL owns the receiving Partner's trigger policy.
+Enable one optional Matrix account with a bare local origin and a private token:
+
+```toml
+[matrix]
+endpoint = "http://127.0.0.1:18770"
+trigger_aliases = ["shio", "汐"]
+```
+
+```sh
+printf '%s' "$MATRIX_TOKEN" | codex-for-love credential /path/to/partner.toml matrix --stdin
+```
+
+Alternatively, supply `MATRIX_ACCESS_TOKEN` through the runtime environment. A
+present value is authoritative for Matrix, including an empty value failing the
+required-token validation; other private credentials remain unchanged. CFL reads
+it at startup without writing it into `credentials.json`, then uses it for both
+startup `whoami` and the app-server's `CFL_MATRIX_TOKEN`. Restart to apply changes.
+For the host's agenix-managed installation, systemd supplies the existing read-only
+`/run/agenix/matrix-shio.env` using `EnvironmentFile`; do not inspect,
+decrypt, copy or paste its token. Shio needs its own Matrix account and second MFA
+instance at `http://127.0.0.1:8769`. The existing Lamplit/Serein secret,
+`127.0.0.1:8768` instance and public MCP route remain unchanged and must never
+supply CFL authentication or events. The Owner provisions the separate encrypted
+secret in Kosmos with `agenix -e secrets/matrix-shio.env.age -i ~/.ssh/agenix_ed25519`; no Matrix
+activation may proceed until that secret is available. Configure the prod callback
+as `http://127.0.0.1:3084/api/matrix/events`. Prepare and review the complete
+artifact first, promote the receiver and verify startup/static resources, then
+activate only Shio MFA's webhook through Kosmos. Bootstrap Shio MCP with its
+callback disabled before receiver promotion. Preserve existing Keet and search
+environment files, native package argument and rollback artifacts. A temporary
+operator `release.conf` EnvironmentFile append must be removed once managed
+Kosmos wiring supplies that same path. This rollout is production-only when only
+production has been authorized; it does not require dev/staging restarts.
+
+Use the same account token that authenticates MFA's MCP. The existing credential
+command writes private `credentials.json` under Partner state; never put the token
+in Partner TOML, project TOML, arguments or logs. Aliases must be unique, nonempty,
+trimmed single-line names: at most 32, each at most 512 characters. Restart the
+Partner after changing integration settings. Explicit Matrix settings or a token
+without the other half fail with an actionable error. Omitting both leaves Matrix
+disabled and requires no gateway. Disabled startup removes only CFL's owned
+`matrix` MCP declaration and preserves unrelated project settings.
+
+At enabled startup, CFL uses the installed MCP SDK to call original `whoami`,
+validate the exact Matrix `user_id`, and close the probe within a five-second
+budget, including failures. An unavailable or invalid gateway fails startup.
+Official app-server project configuration then contains:
+
+```toml
+[mcp_servers.matrix]
+url = "http://127.0.0.1:18770/mcp"
+bearer_token_env_var = "CFL_MATRIX_TOKEN"
+```
+
+CFL supplies the token only through the app-server environment. It preserves
+Companion, optional Keet and operator MCP entries, and refuses an operator-owned
+`matrix` name collision. The original short tools are `whoami`, `list_rooms`,
+`list_room_members`, `read_messages` and `send_message`. There are no CFL wrappers,
+second persistent account connection or per-message discovery calls.
+
+Configure MFA's `MATRIX_WEBHOOK_URL` as
+`http://127.0.0.1:<CFL port>/api/matrix/events`, leaving
+`MATRIX_WEBHOOK_BEARER_TOKEN` unset. The account token is only an MCP credential.
+This local-only webhook accepts loopback socket peers; never expose it through a
+reverse proxy. Valid durable admission returns 202 (including duplicate retries
+and ignored self messages); disabled intake returns 404, nonlocal delivery 403,
+malformed JSON or a body exceeding 256 KiB 400, invalid envelopes 422, and temporary
+admission unavailability 503 for MFA's existing finite retry.
+
+The unchanged envelope has `type = "message"`, `event_id`, `room_id`, `sender_id`,
+`sender_display_name`, `timestamp`, `body`, `mentions`, optional `reply_to_event_id`
+and `truncated`. No extra keys are accepted. Body/display may be empty or whitespace;
+body is capped at 16,000 UTF-16 code units, ID/display/mention entries at 255,
+mentions at 100 strings. Harmless nonmatching or empty mention strings remain
+valid; identity comparisons are exact. Timestamp is a safe integer. Reply and
+truncation are retained facts, not trigger policy.
+
+Every room, including a room used as a DM, follows group policy: native mentions
+containing discovered self trigger first; otherwise a nonblank body containing a
+configured case-sensitive literal alias triggers. There is no implicit display-name,
+DM or reply-owner trigger. Native mention can trigger an empty body. Self sender is
+ignored. Other text buffers by exact room ID, capped at 64 records and 16,000
+characters including attribution; oldest records are discarded to stay within the
+budget. A trigger receives at most 800 UTF-8 bytes of preceding same-room context,
+marked untrusted along with authored body/display/mention text. Transport IDs,
+source time and truncation are metadata. External participants never inherit the
+web Human's administrative authority. Triggered input visibly includes Matrix
+sender and room in the existing plain-text timeline, including after restart.
+
+Receiver receipts use room plus event ID. The first accepted content stays immutable;
+receipt, buffer update or clearing, provenance and pending input creation are one
+SQLite transaction. Pending inputs retain original sender, room, event, body,
+mentions, reply, timestamp and truncation. Matrix and Keet share the official native
+execution queue; active turns and compaction delay intake execution, and admitted
+pending inputs resume after startup/restart and native idle completion. This adds no
+separate execution owner, App UI/contract changes or persona prompt redesign.
+
+CFL never automatically sends, resends, polls or backfills. MFA's delivery queue is
+ephemeral, bounded and finite-retry: receiver downtime, gateway restart or exhaustion
+can lose notifications. Durable CFL receipts cover only events CFL already admitted;
+they are not a gateway replay guarantee. Use `read_messages` deliberately to recover
+history, and `send_message` explicitly to respond in the original room. An uncertain
+send acknowledgment must not cause blind resend. E2EE, media, reactions, threads and
+room/account administration are outside this integration. Synthetic local SDK/MCP
+and fake-engine acceptance does not establish live homeserver interoperability.

@@ -369,6 +369,10 @@ async function handle(request) {
       state.threadId = 'thread-fake'; save(); return { thread: threadRecord(p.cwd, p.model), model: p.model, modelProvider: 'fixture', serviceTier: null, cwd: p.cwd, runtimeWorkspaceRoots: [], instructionSources: [], approvalPolicy: 'never', approvalsReviewer: 'user', sandbox: { type: 'dangerFullAccess' }, activePermissionProfile: null, reasoningEffort: null, multiAgentMode: 'explicitRequestOnly' };
     }
     case 'thread/resume': {
+      if (process.env.FAKE_RESUME_ACTIVE === 'true' && state.active) {
+        const active = state.turns.find(turn => turn.id === state.active);
+        if (active) void runTurn(active);
+      }
       if (typeof p.path === 'string' && p.path) loadRollout(p.path);
       if (control().missingRollout) rpcError(-32600, `no rollout found for thread id ${String(p.threadId ?? '')}`);
       if (control().failResume) rpcError(-32603, 'fixture resume rejected');
