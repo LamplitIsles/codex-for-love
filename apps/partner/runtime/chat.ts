@@ -20,10 +20,11 @@ export function createCodexChatBackend(partner: Partner, authorize: () => Promis
       const images = (await Promise.all(m.inputImages.map(image => partner.sharedImageRef(image.id)))).filter((ref): ref is ImageRef => !!ref);
       const source: ChatMessage['source'] = m.keet
         ? { kind: 'keet', channel: m.keet.kind, destination: m.keet.destination, senderLabel: m.keet.senderLabel }
+        : m.matrix ? { kind: 'matrix', senderId: m.matrix.sender_id, senderDisplayName: m.matrix.sender_display_name, roomId: m.matrix.room_id }
         : m.alarm ? { kind: 'reminder', reminderId: m.id.split(':')[1]!, occurrenceId: m.id } : undefined;
       ordered.push({ order: m.sequence * 2, message: {
-        id: m.id, role: 'user', text: m.keet ? `${m.keet.text}${m.keet.imageNote ?? ''}` : m.input,
-        ...(images.length ? { images } : {}), createdAt: m.created,
+        id: m.id, role: 'user', text: m.keet ? `${m.keet.text}${m.keet.imageNote ?? ''}` : m.matrix ? m.matrix.body : m.input,
+        ...(images.length ? { images } : {}), createdAt: m.matrix?.timestamp ?? m.created,
         operationId: m.id, turnId: m.turnId, ...(source ? { source } : {}),
       } });
     }

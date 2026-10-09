@@ -1776,6 +1776,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
       const outcomes = await store.outcomes(page.messages.map((message) => message.id));
       const inputMeta = await store.inputImageMetadata(page.messages.map((message) => message.id));
       const keetContexts = await store.keetContexts(page.messages.map((message) => message.id));
+      const matrixSources = await store.matrixSources(page.messages.map((message) => message.id));
       const pageIds = new Set(page.messages.map((message) => message.id));
       const pageTurns = [...turnResults.values()]
         .filter((result) => result.sourceIds.some((id) => pageIds.has(id)))
@@ -1805,6 +1806,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
           turnId: turn?.id ?? null,
           input: source.input,
           ...(keetContexts.get(meta.id) ? { keet: keetContexts.get(meta.id)!.provenance } : {}),
+          ...(matrixSources.get(meta.id) ? { matrix: matrixSources.get(meta.id)! } : {}),
           ...(meta.id.startsWith('alarm:') ? { alarm: true } : {}),
           created: meta.created,
           sequence: meta.sequence,

@@ -744,8 +744,12 @@ characters including attribution; oldest records are discarded to stay within th
 budget. A trigger receives at most 800 UTF-8 bytes of preceding same-room context,
 marked untrusted along with authored body/display/mention text. Transport IDs,
 source time and truncation are metadata. External participants never inherit the
-web Human's administrative authority. Triggered input visibly includes Matrix
-sender and room in the existing plain-text timeline, including after restart.
+web Human's administrative authority. Triggered input shows the original Matrix
+display name (sender ID when empty), sender ID and exact room ID in a wrapping,
+escaped source header. The original body is separate from attribution; public
+history/reconnect/restart retain authored time. Private attribution input and
+model context remain unchanged. No room-name lookup or browser-supplied source
+is supported. See [Matrix source acceptance](matrix-source-ui.md).
 
 Receiver receipts use room plus event ID. The first accepted content stays immutable;
 receipt, buffer update or clearing, provenance and pending input creation are one

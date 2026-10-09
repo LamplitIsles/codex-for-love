@@ -294,7 +294,7 @@ archives are removed in favor of main’s single pinned source preparation path.
 
 ### Native durable submissions
 
-The current source pin is App PR16 commit
+The historical durable-submission source pin was App PR16 commit
 `3aaa48a384549f72cc417a6cb3e6108fe0999b37`. App owns `lamplit.chat.v2`,
 view2 and the submitted/failed nullable-lookup contracts, browser resources and
 acceptance runners. CFL consumes compiled contracts and licenses through its
@@ -303,3 +303,18 @@ approved archive `a921c9d47f041cf6978653c5af6cda5d65a28e6cde3ceb5e91b0ecb5a5c301
 its bytes are acceptance evidence, not a runtime archive fallback. CFL's admission
 adapter, failure receipts and native timing/fault fixtures are original integration
 work. [Submission acceptance](native-durable-submissions.md) records the boundary.
+
+### Matrix source presentation
+
+`lamplit-app.sha` selects actual App PR18 merged main
+`132d7dedd8c52eecefa8ea6bb9bb6038d5cdc9e8`, whose tree
+`ac660d08d4f7ccb0b3845de11ac185df5c50301a` equals reviewed App #3560 candidate
+`3e95c3385ac00ba8317d21b85b76484637ce3fc6`. Its Apache-2.0 public Matrix source
+schema, shared source header and existing collapsed-thinking UI are consumed
+through the same source preparation; CFL adds no private UI source. Immutable
+native acceptance uses the approved complete archive SHA256
+`5b8fa6d5c2265017582465abafac6e684fffd44e2fa7150166e7c657bc9b0a6a`.
+CFL's durable association projection and fake gateway/engine acceptance controls
+are original integration code. [Matrix acceptance](matrix-source-ui.md) records
+all three manifests and the verified candidate-to-merged-source mapping. Licenses remain
+unchanged; the archive is test-owned evidence, not a runtime fallback.

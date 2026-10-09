@@ -75,6 +75,10 @@ and OIDC guards. Local execution is not evidence of hosted Actions success.
 
 ## Native source acceptance
 
+Matrix spec #3562 uses the exact approved App #3560 candidate and native control
+contract in [Matrix source display and acceptance](matrix-source-ui.md). Its
+frozen browser/contracts/runner evidence is separate from source-built resources.
+
 Browser runners and UI-only assertions live in App; obsolete CFL browser-copy
 runners have been removed. CFL retains the native acceptance hosts and native
 unit/integration tests. For spec #3437, use the unchanged Orc-approved extracted App runners and frozen

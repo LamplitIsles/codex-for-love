@@ -343,9 +343,14 @@ literal alias in nonblank text. Names, DMs and reply relationships do not trigge
 Other nonself text forms bounded per-room context (64 records / 16,000 characters,
 with at most 800 UTF-8 bytes supplied on a turn). Empty text can still trigger by
 native mention. Bodies are bounded at 16,000 UTF-16 code units; ID/display fields
-at 255 and mention arrays at 100 bounded strings. Triggered messages visibly
-retain Matrix sender/room attribution in the existing text timeline and never
-inherit the web Human's administrative authority. Original body, sender, room,
+at 255 and mention arrays at 100 bounded strings. Triggered messages show a Matrix
+header with the original display name (exact sender ID when empty), sender ID and
+exact room ID. The bubble retains the original body separately from attribution,
+and its authored time survives initial load, reconnect, older history and restart.
+Labels are escaped and wrap on mobile; no room-name lookup is performed. Public
+source excludes event payloads and private model context, and web submissions
+cannot supply it. See [Matrix source display and acceptance](docs/matrix-source-ui.md).
+External participants never inherit the web Human's administrative authority. Original body, sender, room,
 event, time, reply and truncation facts survive queued restart recovery.
 
 Durable room/event receipts, buffer clearing and native pending input creation

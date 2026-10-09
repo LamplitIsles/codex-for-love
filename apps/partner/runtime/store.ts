@@ -374,6 +374,21 @@ export class Store {
     return result;
   }
 
+  async matrixSources(ids: readonly string[]) {
+    return this.transaction(() => {
+      const result = new Map<string, Pick<MatrixEvent, 'sender_id' | 'sender_display_name' | 'room_id' | 'body' | 'timestamp'>>();
+      const read = this.db.prepare('SELECT context FROM matrix_sources WHERE message_id=?');
+      for (const id of ids) {
+        const row = read.get(id) as { context: string } | undefined;
+        if (row) {
+          const { sender_id, sender_display_name, room_id, body, timestamp } = (JSON.parse(row.context) as MatrixContext).provenance;
+          result.set(id, { sender_id, sender_display_name, room_id, body, timestamp });
+        }
+      }
+      return result;
+    });
+  }
+
   async ensureMessage(id: string, created: number, input?: string, images: readonly StoredImage[] = []): Promise<MessageMeta> {
     return this.transaction(() => {
       const existing = this.db.prepare('SELECT sequence,id,created FROM message_meta WHERE id=?').get(id) as { sequence: number; id: string; created: number } | undefined;
