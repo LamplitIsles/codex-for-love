@@ -14,6 +14,7 @@ import { classifyMatrixTrigger, discoverMatrixSelf, matrixEvent, matrixInputId, 
 import { createWebServer, isLoopbackPeer } from '../runtime/server.ts';
 import { partnerPaths } from '../runtime/storage-paths.ts';
 import { Store } from '../runtime/store.ts';
+import { createCodexChatBackend } from '../runtime/chat.ts';
 import { fixture, eventually } from './fixture.ts';
 import { matrixGateway } from './matrix-fixture.ts';
 
@@ -34,6 +35,90 @@ async function setup() {
   f.config.matrix = { endpoint: gateway.endpoint, trigger_aliases: ['PartnerAlias'] }; f.credentials.matrix = gateway.token;
   return { gateway, f, async close() { await f.close(); await gateway.close(); } };
 }
+
+test('marked DM admission protects SQLite, native context and public history across list changes and restart', async () => {
+  const s = await setup(), { f } = s;
+  f.config.matrix!.dm_allow_list = ['@other:test'];
+  let http: Awaited<ReturnType<typeof host>> | undefined;
+  const denied = 'DENIED_DM_PRIVATE_SENTINEL';
+  const allowed = { ...event('$allowed-dm', 'ordinary DM'), conversation_type: 'dm' as const };
+  try {
+    let partner = await f.createPartner(); http = await host(partner, f.directory);
+    for (const [n, addressing] of [
+      { mentions: ['@self:test'] },
+      { reply_to_event_id: '$self', reply_to_sender_id: '@self:test' },
+      { body: `${denied} PartnerAlias` },
+    ].entries()) assert.equal((await http.post({ ...allowed, event_id: `$denied-${n}`, sender_id: '@denied:test', body: denied, ...addressing })).status, 202);
+    for (const [n, body] of ['', ' \n\t'].entries()) assert.equal((await http.post({ ...allowed, event_id: `$blank-dm-${n}`, body, mentions: ['@self:test'] })).status, 202);
+    assert.equal((await http.post({ ...allowed, event_id: '$own-dm', sender_id: '@self:test', mentions: ['@self:test'] })).status, 202);
+    assert.equal((await starts(f)).length, 0);
+    assert.equal((await http.post(allowed)).status, 202);
+    await eventually(async () => (await starts(f)).length === 1 && !(await partner.snapshot()).typing);
+    const first = (await starts(f))[0]!.params as Turn;
+    assert.equal(JSON.parse(first.additionalContext['codex-for-love.matrix-metadata']!.value).trigger, 'dm');
+    assert.doesNotMatch(JSON.stringify(first), new RegExp(denied));
+    const original = (await partner.snapshot()).messages.find(row => row.id === matrixInputId(allowed));
+    assert(original);
+    assert.doesNotMatch(JSON.stringify(await createCodexChatBackend(partner).read()), new RegExp(denied));
+    await http.app.close(); http = undefined;
+    f.config.matrix!.dm_allow_list = [];
+    partner = await f.createPartner(); http = await host(partner, f.directory);
+    for (const value of [allowed, { ...allowed, body: 'conflicting admitted retry' },
+      { ...allowed, event_id: '$empty-list', body: `${denied} PartnerAlias`, mentions: ['@self:test'] }]) assert.equal((await http.post(value)).status, 202);
+    assert.equal((await starts(f)).length, 1);
+    assert.deepEqual((await partner.snapshot()).messages.find(row => row.id === matrixInputId(allowed)), original);
+    const room = { ...event('$later-room', 'PartnerAlias later room'), conversation_type: 'room' as const };
+    assert.equal((await http.post(room)).status, 202);
+    await eventually(async () => (await starts(f)).length === 2 && !(await partner.snapshot()).typing);
+    assert.doesNotMatch(JSON.stringify(await f.requests()), new RegExp(denied));
+    assert.doesNotMatch(JSON.stringify(await createCodexChatBackend(partner).read()), new RegExp(denied));
+    await http.app.close(); http = undefined;
+    const db = new DatabaseSync(partnerPaths(f.workspace).database, { readOnly: true });
+    try {
+      assert.equal(db.prepare("SELECT count(*) AS n FROM matrix_receipts WHERE event_id LIKE '$denied-%' OR event_id='$empty-list'").get()!.n, 0);
+      for (const table of ['matrix_room_buffers', 'matrix_sources', 'pending_inputs', 'message_meta'])
+        assert.doesNotMatch(JSON.stringify(db.prepare(`SELECT * FROM ${table}`).all()), new RegExp(denied));
+    } finally { db.close(); }
+    assert(!Buffer.from(await readFile(partnerPaths(f.workspace).database)).includes(Buffer.from(denied)), 'denied body never persisted, including freed SQLite pages');
+  } finally { await http?.app.close(); await s.close(); }
+});
+
+test('DM lists are receiver-local, missing means deny-all, and unmarked rooms keep group rules', async () => {
+  for (const allowList of [undefined, [], ['@other:test'], ['@Other:test']]) {
+    const s = await setup(), { f } = s;
+    f.config.matrix!.dm_allow_list = allowList;
+    let http: Awaited<ReturnType<typeof host>> | undefined;
+    try {
+      const partner = await f.createPartner(); http = await host(partner, f.directory);
+      const dm = { ...event('$same', 'ordinary'), conversation_type: 'dm' };
+      assert.equal((await http.post(dm)).status, 202);
+      const expected = allowList?.includes('@other:test') ? 1 : 0;
+      if (expected) await eventually(async () => (await starts(f)).length === expected);
+      assert.equal((await starts(f)).length, expected);
+      assert.equal((await http.post({ ...dm, event_id: '$addressed', body: 'PartnerAlias', mentions: ['@self:test'] })).status, 202);
+      if (expected) await eventually(async () => (await starts(f)).length === 2);
+      assert.equal((await starts(f)).length, expected * 2);
+      assert.equal((await http.post(event('$unmarked', 'unmarked room context'))).status, 202);
+      assert.equal((await http.post(event('$group', 'PartnerAlias'))).status, 202);
+      await eventually(async () => (await starts(f)).length === expected * 2 + 1);
+      const turn = (await starts(f)).at(-1)!.params as Turn;
+      assert.equal(JSON.parse(turn.additionalContext['codex-for-love.matrix-metadata']!.value).trigger, 'alias');
+      assert.match(turn.additionalContext['codex-for-love.matrix-room-context']!.value, /unmarked room context/);
+    } finally { await http?.app.close(); await s.close(); }
+  }
+});
+
+test('strict optional conversation kind rejects invalid facts before policy denial', async () => {
+  const s = await setup(); let http: Awaited<ReturnType<typeof host>> | undefined;
+  try {
+    const partner = await s.f.createPartner(); http = await host(partner, s.f.directory);
+    for (const conversation_type of [null, false, '', 'DM', 'unknown', [], {}])
+      assert.equal((await http.post({ ...event('$invalid'), conversation_type })).status, 400);
+    assert.equal((await http.post({ ...event('$invalid-envelope'), conversation_type: 'dm', extra: true })).status, 422);
+    assert.equal((await fetch(`${http.base}/api/matrix/events`, { method: 'POST', body: JSON.stringify({ ...event('$denied-origin'), conversation_type: 'dm' }), headers: { origin: 'http://untrusted.invalid' } })).status, 403);
+    assert.equal((await starts(s.f)).length, 0);
+  } finally { await http?.app.close(); await s.close(); }
+});
 
 test('actual HTTP buffers all rooms, mention wins, exact aliases qualify, and immutable room receipts survive restart', async () => {
   const s = await setup(), { f, gateway } = s;
@@ -189,12 +274,13 @@ test('Matrix and Keet pending inputs resume with original source/time and never 
   const s = await setup(), { f } = s;
   f.appServer.env.FAKE_RESUME_ACTIVE = 'true';
   f.config.keet = { endpoint: 'http://127.0.0.1:8765' }; f.credentials.keet = 'test-only-keet';
+  f.config.matrix!.dm_allow_list = ['@other:test'];
   let http: Awaited<ReturnType<typeof host>> | undefined;
   try {
     await f.holdProvider(true);
     let partner = await f.createPartner(); http = await host(partner, f.directory);
     const first = event('$first', 'PartnerAlias hold');
-    const queued = { ...event('$queued', 'reply queued'), reply_to_event_id: '$first', reply_to_sender_id: '@self:test' }; queued.timestamp -= 100_000;
+    const queued = { ...event('$queued', 'ordinary DM queued'), conversation_type: 'dm' as const }; queued.timestamp -= 100_000;
     assert.equal((await http.post(first)).status, 202);
     await eventually(async () => (await starts(f)).length === 1);
     assert.equal((await http.post(queued)).status, 202);
@@ -209,7 +295,7 @@ test('Matrix and Keet pending inputs resume with original source/time and never 
     const turns = (await starts(f)).map(row => row.params as Turn);
     assert.equal(turns[1]!.clientUserMessageId, matrixInputId(queued));
     assert.equal(JSON.parse(turns[1]!.additionalContext['codex-for-love.matrix-metadata']!.value).timestamp, queued.timestamp);
-    assert.equal(JSON.parse(turns[1]!.additionalContext['codex-for-love.matrix-metadata']!.value).trigger, 'reply');
+    assert.equal(JSON.parse(turns[1]!.additionalContext['codex-for-love.matrix-metadata']!.value).trigger, 'dm');
     assert.match(turns[1]!.additionalContext['codex-for-love.message-time']!.value, /Qualifying Matrix input/);
     assert.equal(turns[1]!.additionalContext['codex-for-love.keet-kind'], undefined);
     assert.equal(turns[2]!.additionalContext['codex-for-love.keet-kind']!.value, 'Keet dm');
@@ -301,12 +387,31 @@ test('durable room buffers enforce count and character caps before any trigger',
   } finally { if (!closed) await store.close(); await f.close(); }
 });
 
+test('Matrix DM config validates exact bounded unique full IDs without normalization', async () => {
+  const f = await fixture(), path = join(f.directory, 'partner.toml');
+  const base = 'name="Mica"\npersona="persona.md"\n[matrix]\n';
+  try {
+    for (const list of [[], ['@Other:test', '@other:test'], [`@${'😀'.repeat(124)}:test`], Array.from({ length: 64 }, (_, n) => `@${n}:${'x'.repeat(253 - String(n).length)}`)]) {
+      await writeFile(path, `${base}dm_allow_list=${JSON.stringify(list)}\n`);
+      assert.deepEqual((await loadConfig(path)).matrix!.dm_allow_list, list);
+    }
+    for (const list of [null, false, '@other:test', [1], ['@other:test', '@other:test'],
+      ['other:test'], ['@missing'], ['@a:b '], [' @a:b'], ['@a:te\nst'], ['@a:b'.padEnd(256, 'x')],
+      [`@${'😀'.repeat(125)}:test`], Array.from({ length: 65 }, (_, n) => `@${n}:test`)]) {
+      await writeFile(path, `${base}dm_allow_list=${JSON.stringify(list)}\n`);
+      await assert.rejects(loadConfig(path));
+    }
+    await writeFile(path, `${base}dm_allow_list=["@a:b"]\nunknown=true\n`); await assert.rejects(loadConfig(path));
+    await writeFile(path, 'name="Mica"\npersona="persona.md"\n[keet]\ndm_allow_list=["@a:b"]\n'); await assert.rejects(loadConfig(path));
+  } finally { await f.close(); }
+});
+
 test('Matrix config, private credential, MCP ownership and environment preserve unrelated settings', async () => {
   const s = await setup(), { f, gateway } = s;
   const path = join(f.directory, 'partner.toml');
   try {
     const base = `name="Mica"\npersona="persona.md"\nstate="."\n[matrix]\nendpoint="${gateway.endpoint}"\ntrigger_aliases=["Alias"]\n`;
-    await writeFile(path, base); assert.deepEqual((await loadConfig(path)).matrix, { endpoint: gateway.endpoint, trigger_aliases: ['Alias'] });
+    await writeFile(path, base); assert.deepEqual((await loadConfig(path)).matrix, { endpoint: gateway.endpoint, trigger_aliases: ['Alias'], dm_allow_list: [] });
     for (const aliases of ['["Alias","Alias"]', '[""]', '[" untrimmed"]', JSON.stringify(Array.from({ length: 33 }, (_, i) => `A${i}`))]) {
       await writeFile(path, base.replace('["Alias"]', aliases)); await assert.rejects(loadConfig(path));
     }

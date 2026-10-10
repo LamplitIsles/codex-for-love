@@ -124,8 +124,16 @@ An external Matrix participant's admitted text in the Partner's single conversat
 _Avoid_: Human message, Keet message, self-set reminder
 
 **Matrix Trigger（Matrix 触发）**:
-A nonblank external Matrix message selected by the receiving Partner because it natively mentions the Partner, replies to a verified Partner-authored Matrix message, or contains a configured literal trigger alias, in that order. Every room follows this same rule; a direct conversation alone is insufficient, and an unknown reply author does not establish ownership.
+A nonblank external Matrix message selected by the receiving Partner: an admitted marked DM starts a turn directly; other rooms require a native mention, a verified reply to the Partner, or a configured literal trigger alias, in that order. An unknown reply author does not establish ownership.
 _Avoid_: every room message, display-name match, automatic reply
+
+**Matrix direct conversation（Matrix 直接会话）**:
+A room marked direct from the observed Matrix account's perspective. That marking is account-relative and does not require exactly two members; an unmarked room follows ordinary room policy.
+_Avoid_: two-member heuristic, room-name inference, universally private room
+
+**Matrix DM allow list（Matrix 私信接纳名单）**:
+The receiving Partner's exact full Matrix sender identities permitted to contribute marked DM text to its conversation. An empty list admits none; addressing cannot grant a sender admission. This conversational admission does not grant the Human's authority or determine independent tool access.
+_Avoid_: display-name list, gateway-wide permission, tool authorization
 
 **Matrix Room Context Buffer（Matrix 房间上下文缓冲）**:
 The bounded sequence of ordinary external text retained for one room until its next Matrix Trigger. It accompanies that trigger as context without independently starting a turn.

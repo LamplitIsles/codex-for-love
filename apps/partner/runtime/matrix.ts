@@ -10,17 +10,19 @@ export const matrixEvent = z.object({
   sender_display_name: boundedId, timestamp: z.number().int().refine(Number.isSafeInteger),
   body: z.string().refine(value => value.length <= 16_000), mentions: z.array(boundedId).max(100),
   reply_to_event_id: boundedId.optional(),
+  conversation_type: z.enum(['dm', 'room']).optional(),
   reply_to_sender_id: boundedId.regex(/^@[^\s:]+:[^\s]+$/u).optional(), truncated: z.boolean(),
 }).strict().refine(event => event.reply_to_sender_id === undefined || Boolean(event.reply_to_event_id), {
   message: 'Reply author requires a nonempty reply target', path: ['reply_to_sender_id'],
 });
 export type MatrixEvent = z.infer<typeof matrixEvent>;
-export type MatrixContext = { provenance: MatrixEvent; trigger: 'mention' | 'reply' | 'alias'; roomContext?: string };
+export type MatrixContext = { provenance: MatrixEvent; trigger: 'dm' | 'mention' | 'reply' | 'alias'; roomContext?: string };
 export function matrixInputId(event: MatrixEvent): string {
   return `matrix:webhook:${createHash('sha256').update(JSON.stringify([event.room_id, event.event_id])).digest('hex')}`;
 }
-export function classifyMatrixTrigger(event: MatrixEvent, self: string, aliases: readonly string[] = []): MatrixContext['trigger'] | undefined {
+export function classifyMatrixTrigger(event: MatrixEvent, self: string, aliases: readonly string[] = [], dmAllowList: readonly string[] = []): MatrixContext['trigger'] | undefined {
   if (event.sender_id === self || !event.body.trim()) return undefined;
+  if (event.conversation_type === 'dm') return dmAllowList.includes(event.sender_id) ? 'dm' : undefined;
   if (event.mentions.includes(self)) return 'mention';
   if (event.reply_to_sender_id === self) return 'reply';
   if (aliases.some(alias => event.body.includes(alias))) return 'alias';

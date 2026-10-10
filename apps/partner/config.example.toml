@@ -47,8 +47,9 @@ context_round_limit = 10
 
 # Optional Matrix text intake. Both endpoint and stdin-managed `matrix`
 # account credential are required. MFA webhook -> /api/matrix/events;
-# leave MATRIX_WEBHOOK_BEARER_TOKEN unset. All rooms use group policy.
+# leave MATRIX_WEBHOOK_BEARER_TOKEN unset. Unmarked rooms use group policy.
 #[matrix]
+#dm_allow_list = ["@alice:example.org"] # Exact full IDs; omitted/empty denies all marked plaintext DMs.
 #endpoint = "http://127.0.0.1:18770"
 #trigger_aliases = ["shio", "汐"] # Case-sensitive literal substrings; no implicit display-name match.
 

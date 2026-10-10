@@ -44,7 +44,11 @@ const schema = z.object({
     trusted_groups: keetNames.optional(),
     trigger_aliases: keetNames.optional(),
   }).strict().optional(),
-  matrix: z.object({ endpoint: z.string().min(1).optional(), trigger_aliases: keetNames.optional() }).strict().optional(),
+  matrix: z.object({
+    endpoint: z.string().min(1).optional(), trigger_aliases: keetNames.optional(),
+    dm_allow_list: z.array(z.string().regex(/^@[^\s:]+:[^\s]+$/u).refine(value => value.length <= 255)).max(64)
+      .refine(values => new Set(values).size === values.length, 'Matrix DM identities must be unique').optional(),
+  }).strict().optional(),
   pet: z.object({ enabled: z.boolean().default(false) }).strict().default({ enabled: false }),
 }).strict();
 
@@ -71,7 +75,7 @@ export async function loadConfig(path: string): Promise<Config> {
       ...config.codex,
       home: config.codex.home ? resolve(base, config.codex.home) : undefined,
     },
-    matrix: config.matrix ? { ...(config.matrix.endpoint ? { endpoint: matrixEndpoint(config.matrix.endpoint) } : {}), trigger_aliases: config.matrix.trigger_aliases ?? [] } : undefined,
+    matrix: config.matrix ? { ...(config.matrix.endpoint ? { endpoint: matrixEndpoint(config.matrix.endpoint) } : {}), trigger_aliases: config.matrix.trigger_aliases ?? [], dm_allow_list: config.matrix.dm_allow_list ?? [] } : undefined,
     keet: config.keet ? {
       ...(config.keet.endpoint ? { endpoint: keetEndpoint(config.keet.endpoint) } : {}),
       trusted_groups: config.keet.trusted_groups ?? [],

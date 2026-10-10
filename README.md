@@ -338,9 +338,23 @@ tools remain agent actions. Point MFA's `MATRIX_WEBHOOK_URL` to
 `MATRIX_WEBHOOK_BEARER_TOKEN` unset. The webhook admits loopback peers only;
 do not publish it through a proxy. The account token is exclusively for MCP.
 
-All rooms follow group policy for nonblank, nonself text: exact native self-mention
-first, then a verified reply to the current Matrix identity, then a configured
-literal alias. Names and DMs do not independently trigger. MFA may supply optional
+For marked plaintext DMs, configure `[matrix]` `dm_allow_list = ["@alice:example.org"]`.
+Manually accept/join the room and mark it direct for MFA's observed account.
+MFA reports `conversation_type = "dm"` from that account's synchronized `m.direct`;
+CFL never guesses from names or member counts. Exact allowed senders' nonblank,
+nonself text auto-wakes. Missing/empty lists deny every marked DM; denied bodies
+never enter context, queues, history or stored original payloads, even with a
+mention, reply or alias. Lists are independent per Partner, with at most 64 unique
+full Matrix user IDs, each at most 255 UTF-16 units and without whitespace. No
+trimming, case folding or display-name matching occurs. Restart to apply changes.
+
+Unmarked rooms and webhooks omitting `conversation_type` follow group policy:
+exact native self-mention first, then a verified reply to the current Matrix
+identity, then a configured literal alias. Supplied kinds must be exactly `dm` or
+`room`; invalid kinds return 400. Direct marking is account-relative and can
+include more than two members; the list is not general two-person-room access
+control. There is no automatic joining, account-data write, list synchronization,
+encrypted/media intake or restriction on independently authorized MCP tools. MFA may supply optional
 `reply_to_sender_id`, the original target author's exact full Matrix user ID, only
 with a nonempty `reply_to_event_id`. Invalid/orphan authors are rejected, not clipped;
 an omitted author means unknown. Other/unknown authors still allow mention/alias wake.

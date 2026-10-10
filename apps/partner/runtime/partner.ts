@@ -1646,8 +1646,10 @@ export async function createPartner(config: Config, credentials: Credentials, de
     async ingestMatrix(message: MatrixEvent) {
       if (!matrixEnabled || closing || storageError) throw new Error('Matrix ingress unavailable');
       if (message.sender_id === matrixSelf) return;
-      const trigger = classifyMatrixTrigger(message, matrixSelf!, config.matrix?.trigger_aliases);
-      const accepted = await store.recordMatrixEvent(message, trigger);
+      const allowList = config.matrix?.dm_allow_list ?? [];
+      const admitted = message.conversation_type !== 'dm' || allowList.includes(message.sender_id);
+      const trigger = classifyMatrixTrigger(message, matrixSelf!, config.matrix?.trigger_aliases, allowList);
+      const accepted = await store.recordMatrixEvent(message, trigger, admitted);
       if (accepted) {
         if (trigger) messageIds.add(matrixInputId(message));
         drainExternal(); notify();

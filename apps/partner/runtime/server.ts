@@ -103,7 +103,7 @@ export function createWebServer(partner: Partner, assets: string, options: { aut
         try { raw = await body(request, 256 * 1024); }
         catch { return json(response, { error: 'Invalid Matrix event' }, 400); }
         const parsed = matrixEvent.safeParse(raw);
-        if (!parsed.success) return json(response, { error: 'Invalid Matrix event' }, 422);
+        if (!parsed.success) return json(response, { error: 'Invalid Matrix event' }, parsed.error.issues.some(issue => issue.path[0] === 'conversation_type') ? 400 : 422);
         try { await partner.ingestMatrix(parsed.data); }
         catch { return json(response, { error: 'Matrix admission unavailable' }, 503); }
         return json(response, { accepted: true }, 202);
