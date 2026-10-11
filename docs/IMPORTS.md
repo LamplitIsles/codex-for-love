@@ -260,11 +260,12 @@ original integration work. FlickLog itself and prompt semantics are unchanged.
 The default Framework7/Svelte frontend and `@lamplit/contracts` public exports
 are built together from Apache-2.0 `LamplitIsles/lamplit-app`, initially
 `26ab708799f8ef4d99d974e1ab60c4d14a38267a`. `lamplit-app.sha` is the authoritative
-current pin. The latest update consumes reviewed merged App
-main `75f6d3fe7789c8cc28922ae98caa8385459e4c65` (App PRs #12, #14 and #15), including
-quiet timeline notice pills, readable native gallery photo drafts and Keet source presentation, without
-App source or public-contract modifications in CFL. Both browser resources and compiled
-contracts come from that same revision. The preparation step consumes adjacent
+current pin. The current source is reviewed merged App PR19
+`e535143b428b70129e2804cb6d191e53a26e26d4`, tree
+`ec72b7ab5321f7a7205de1b1fa7b772dacb29e63` (Apache-2.0). Browser resources and
+compiled public contracts come from that same revision; upstream licenses and
+source attribution remain in the retained App LICENSE and IMPORTS payload.
+The preparation step consumes adjacent
 source with its frozen Bun lock, and materializes compiled package exports without private UI imports.
 The former frontend and appearance-contract archives are removed. Earlier
 archive entries above describe historical integration work; their runtime domain
@@ -306,7 +307,7 @@ work. [Submission acceptance](native-durable-submissions.md) records the boundar
 
 ### Matrix source presentation
 
-`lamplit-app.sha` selects actual App PR18 merged main
+The historical Matrix source pin was actual App PR18 merged main
 `132d7dedd8c52eecefa8ea6bb9bb6038d5cdc9e8`, whose tree
 `ac660d08d4f7ccb0b3845de11ac185df5c50301a` equals reviewed App #3560 candidate
 `3e95c3385ac00ba8317d21b85b76484637ce3fc6`. Its Apache-2.0 public Matrix source

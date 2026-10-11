@@ -7,12 +7,26 @@ candidates, pin updates and isolated acceptance. For an approved isolated App so
 `CFL_APP_SOURCE` through preparation, build and packaging; strict checks still
 require the clean exact pin. Native acceptance consumes the separately approved
 frozen artifacts as described in [submission acceptance](docs/native-durable-submissions.md).
-The shared frontend and compiled
-public contracts come from one App revision; CFL owns native integration and
-execution. Task-specific implementation specs live under `.scratch/`. Work in
+The shared frontend and compiled public contracts come from one App revision.
+Task-specific implementation specs live under `.scratch/`. Work in
 this checkout, without worktrees.
 
-Official Codex app-server owns execution, model history, queue, authentication and compaction. This application owns Companion integration, STT, attachments and relationship state; lamplit-app owns the shared UI. Keep one execution owner; remove obsolete naco/DSH paths. Docker, generic migration and deployment cutover are outside this implementation; the explicitly authorized one-time converter for a user-supplied, already-compacted DSH log is the narrow exception documented by its task spec.
+## Repository responsibilities
+
+CFL owns backend orchestration, persistence, native execution integration,
+consumption of App public contracts and resources, complete packaging and
+deployment, including Companion integration, STT, attachments and relationship
+state. lamplit-app owns shared UI implementation, visual and interaction behavior,
+UI documentation and browser acceptance.
+
+For an App pin refresh, default to the pin and necessary import attribution,
+then verify existing CFL consumption, build, packaging and deployment contracts.
+Reuse upstream UI evidence with its exact source and artifact provenance. Add a
+host integration regression only for a concrete host contract change or demonstrated
+defect; existing backend fixtures remain valid. Keep task evidence in ignored
+scratch and UI guides and browser matrices in App.
+
+Official Codex app-server owns execution, model history, queue, authentication and compaction. Keep one execution owner; remove obsolete naco/DSH paths. Docker, generic migration and deployment cutover are outside this implementation; the explicitly authorized one-time converter for a user-supplied, already-compacted DSH log is the narrow exception documented by its task spec.
 
 When an owner can browse a finite conversation-owned collection, Companion MCP must offer the Partner equivalent bounded discovery over the same membership. Material inspected with native tools must never be silently added to that collection.
 
