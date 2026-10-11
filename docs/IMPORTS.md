@@ -260,9 +260,9 @@ original integration work. FlickLog itself and prompt semantics are unchanged.
 The default Framework7/Svelte frontend and `@lamplit/contracts` public exports
 are built together from Apache-2.0 `LamplitIsles/lamplit-app`, initially
 `26ab708799f8ef4d99d974e1ab60c4d14a38267a`. `lamplit-app.sha` is the authoritative
-current pin. The current source is reviewed merged App PR19
-`e535143b428b70129e2804cb6d191e53a26e26d4`, tree
-`ec72b7ab5321f7a7205de1b1fa7b772dacb29e63` (Apache-2.0). Browser resources and
+current pin. The current source is reviewed merged App PR20
+`6c7c479cbccc0a679939f8c1b4044417b97be56b`, tree
+`a6cd39784574850082f4149a9d61ac1bd5728993` (Apache-2.0). Browser resources and
 compiled public contracts come from that same revision; upstream licenses and
 source attribution remain in the retained App LICENSE and IMPORTS payload.
 The preparation step consumes adjacent
