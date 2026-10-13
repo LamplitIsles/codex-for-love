@@ -31,6 +31,14 @@ function userItem(input, clientId) {
   return { type: 'userMessage', id: `user-${clientId}`, clientId, content: input };
 }
 function nowSeconds() { return Math.floor(Date.now() / 1000); }
+function selectTier(p) {
+  if (process.env.FAKE_TIER_ERROR === 'true') rpcError(-32603, 'fixture tier unavailable');
+  state.serviceTier = process.env.FAKE_SELECTED_TIER !== undefined
+    ? JSON.parse(process.env.FAKE_SELECTED_TIER)
+    : p.config?.['features.fast_mode'] === false ? null : p.serviceTier ?? state.serviceTier ?? null;
+  save();
+  return state.serviceTier;
+}
 function threadRecord(cwd, model) {
   const timestamp = nowSeconds();
   return {
@@ -366,7 +374,7 @@ async function handle(request) {
     }] };
     case 'config/batchWrite': state.trusted = true; save(); return { filePath: process.env.FAKE_CONFIG_PATH, status: 'ok', version: 'fixture-1', overriddenMetadata: null };
     case 'thread/start': {
-      state.threadId = 'thread-fake'; save(); return { thread: threadRecord(p.cwd, p.model), model: p.model, modelProvider: 'fixture', serviceTier: null, cwd: p.cwd, runtimeWorkspaceRoots: [], instructionSources: [], approvalPolicy: 'never', approvalsReviewer: 'user', sandbox: { type: 'dangerFullAccess' }, activePermissionProfile: null, reasoningEffort: null, multiAgentMode: 'explicitRequestOnly' };
+      state.threadId = 'thread-fake'; save(); return { thread: threadRecord(p.cwd, p.model), model: p.model, modelProvider: 'fixture', serviceTier: selectTier(p), cwd: p.cwd, runtimeWorkspaceRoots: [], instructionSources: [], approvalPolicy: 'never', approvalsReviewer: 'user', sandbox: { type: 'dangerFullAccess' }, activePermissionProfile: null, reasoningEffort: null, multiAgentMode: 'explicitRequestOnly' };
     }
     case 'thread/resume': {
       if (process.env.FAKE_RESUME_ACTIVE === 'true' && state.active) {
@@ -383,7 +391,7 @@ async function handle(request) {
         runImportedStartupHook();
         save();
       }
-      return { thread: threadRecord(p.cwd, p.model), model: p.model, modelProvider: 'fixture', serviceTier: null, cwd: p.cwd, runtimeWorkspaceRoots: [], instructionSources: [], approvalPolicy: 'never', approvalsReviewer: 'user', sandbox: { type: 'dangerFullAccess' }, activePermissionProfile: null, reasoningEffort: null, multiAgentMode: 'explicitRequestOnly' };
+      return { thread: threadRecord(p.cwd, p.model), model: p.model, modelProvider: 'fixture', serviceTier: selectTier(p), cwd: p.cwd, runtimeWorkspaceRoots: [], instructionSources: [], approvalPolicy: 'never', approvalsReviewer: 'user', sandbox: { type: 'dangerFullAccess' }, activePermissionProfile: null, reasoningEffort: null, multiAgentMode: 'explicitRequestOnly' };
     }
     case 'thread/turns/list': {
       if (process.env.FAKE_HISTORY_ERROR) {
@@ -404,6 +412,7 @@ async function handle(request) {
       if (process.env.FAKE_IMAGES_FIXTURE === 'true' && control().mode === 'uncertain') rpcError(-32603, 'fixture ambiguous delivery');
       if (control().rejectStart) rpcError(-32603, 'fixture turn start temporarily unavailable');
       if (state.active) rpcError(-32600, 'cannot start a turn while another turn is active');
+      state.turnTiers = [...(state.turnTiers ?? []), { threadId: p.threadId, serviceTier: p.serviceTier ?? state.serviceTier ?? 'default' }];
       const turn = startTurn(p.input, p.clientUserMessageId);
       return { turn: process.env.FAKE_SUMMARY_START === 'true' ? turnView(turn, 'summary') : turn };
     }

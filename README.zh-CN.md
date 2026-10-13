@@ -76,6 +76,18 @@ codex-for-love serve /path/to/partner.toml
 
 CFL 会监听 `127.0.0.1`，并打印本地访问地址。开始一段新对话时，请使用新的工作区。
 
+在 Partner TOML 中设置 `[codex] fast = true` 可为新建和恢复的线程请求原生
+Fast（`priority`）档。`false` 或省略时显式使用普通（`default`）档，包括此前
+启用过 Fast 的同一线程。修改后需重启 Partner；原有线程、模型和推理强度保持
+不变。Partner 会在就绪前核对返回档位，未应用时报告错误。可用性由原生服务的
+模型和账号决定；Fast 不保证具体延迟。当前可用性和用量说明见
+[官方速度文档](https://learn.chatgpt.com/docs/agent-configuration/speed#fast-mode)。
+
+```toml
+[codex]
+fast = true
+```
+
 首次发送消息时，Companion 会直接请求浏览器通知权限。这需要 HTTPS、`http://localhost` 或 `http://*.localhost` 地址，例如 `http://prod-lamplit.localhost:17480`；普通 HTTP 局域网地址无法显示浏览器权限请求。Chrome 可能在地址栏显示权限标记，而不是弹出对话框。授权后，已打开但不可见的页面会为每个新完成的 Partner turn 提醒一次。通知只显示 Partner 名字和通用的新消息提示，不包含回复正文。这是页面本地通知，不是 Web Push：关闭或挂起页面、连接中断或拒绝浏览器权限时都无法保证送达，各设备之间也不会同步通知或已读状态。
 
 ### 桌面安装与手机使用

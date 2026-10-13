@@ -518,3 +518,74 @@ test('missing native image capability fails explicitly', async () => {
   await eventually(async () => (await readFile(unavailable.appServer.env!.FAKE_SERVER_LIFECYCLE!, 'utf8')).startsWith('exited:'), 2_000);
   await unavailable.close();
 });
+
+
+test('Fast config applies on start and restart in both directions on the same native thread', async () => {
+  const f = await fixture();
+  try {
+    for (const fast of [true, false, true, false]) {
+      f.config.codex.fast = fast;
+      const partner = await f.createPartner();
+      const id = randomUUID(); await partner.submit(id, 'tier inheritance');
+      await eventually(async () => (await partner.snapshot()).results?.some(result => result.sourceIds.includes(id) && result.answers.length > 0) === true);
+      await partner.close();
+    }
+    const requests = await f.requests();
+    const threads = requests.filter(request => request.method === 'thread/start' || request.method === 'thread/resume');
+    assert.deepEqual(threads.map(request => request.method), ['thread/start', 'thread/resume', 'thread/resume', 'thread/resume']);
+    for (const [index, request] of threads.entries()) {
+      const params = request.params as Record<string, unknown>;
+      assert.equal(params.serviceTier, index % 2 === 0 ? 'priority' : 'default');
+      assert.equal((params.config as Record<string, unknown>)['features.fast_mode'], index % 2 === 0);
+      assert.equal(params.model, 'gpt-5.6-luna');
+      assert.equal('reasoningEffort' in params, false);
+      if (index) assert.equal(params.threadId, 'thread-fake');
+    }
+    const turns = requests.filter(request => request.method === 'turn/start');
+    assert.equal(turns.length, 4);
+    for (const turn of turns) {
+      const params = turn.params as Record<string, unknown>;
+      assert.equal(params.threadId, 'thread-fake');
+      assert.equal('serviceTier' in params, false);
+    }
+    const state = JSON.parse(await readFile(join(f.directory, 'fake-state.json'), 'utf8'));
+    assert.deepEqual(state.turnTiers, [
+      { threadId: 'thread-fake', serviceTier: 'priority' },
+      { threadId: 'thread-fake', serviceTier: 'default' },
+      { threadId: 'thread-fake', serviceTier: 'priority' },
+      { threadId: 'thread-fake', serviceTier: 'default' },
+    ]);
+  } finally { await f.close(); }
+});
+
+test('tier mismatch and native tier errors fail initialization without replacing a stored thread', async () => {
+  const f = await fixture();
+  try {
+    f.config.codex.fast = true;
+    f.appServer.env.FAKE_SELECTED_TIER = 'null';
+    await assert.rejects(f.createPartner(), /fast=true: requested priority, received default/);
+    await eventually(async () => (await readFile(f.appServer.env.FAKE_SERVER_LIFECYCLE!, 'utf8')).startsWith('exited:'), 2_000);
+    const markerPath = join(f.workspace, '.lamplit', 'thread.json');
+    const marker = await readFile(markerPath, 'utf8');
+    for (const tier of ['null', '"default"']) {
+      f.appServer.env.FAKE_SELECTED_TIER = tier;
+      await assert.rejects(f.createPartner(), /requested priority, received default/);
+      assert.equal(await readFile(markerPath, 'utf8'), marker);
+    }
+    delete f.appServer.env.FAKE_SELECTED_TIER;
+    const partner = await f.createPartner(); await partner.close();
+    f.config.codex.fast = false;
+    f.appServer.env.FAKE_SELECTED_TIER = '"priority"';
+    await assert.rejects(f.createPartner(), /fast=false: requested default, received priority/);
+    delete f.appServer.env.FAKE_SELECTED_TIER;
+    f.appServer.env.FAKE_TIER_ERROR = 'true';
+    await assert.rejects(f.createPartner(), /fixture tier unavailable/);
+    const requests = await f.requests();
+    assert.equal(requests.filter(request => request.method === 'thread/start').length, 1);
+    assert.equal(requests.filter(request => request.method === 'turn/start').length, 0);
+    assert.equal(await readFile(markerPath, 'utf8'), marker);
+    delete f.appServer.env.FAKE_TIER_ERROR;
+    f.appServer.env.FAKE_SELECTED_TIER = '"default"';
+    const ordinary = await f.createPartner(); await ordinary.close();
+  } finally { await f.close(); }
+});

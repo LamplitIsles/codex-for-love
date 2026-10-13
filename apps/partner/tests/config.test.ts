@@ -96,3 +96,19 @@ test('background configuration is optional and requires both relative compositio
     await assert.rejects(loadConfig(path));
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
+
+
+test('codex.fast is strictly boolean and defaults false at both nesting levels', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'lamplit-fast-config-'));
+  try {
+    const path = join(directory, 'partner.toml'); const base = 'name = "Mica"\npersona = "persona.md"\n';
+    for (const [entry, expected] of [['', false], ['[codex]\n', false], ['[codex]\nfast = true\n', true], ['[codex]\nfast = false\n', false]] as const) {
+      await writeFile(path, base + entry);
+      assert.equal((await loadConfig(path)).codex.fast, expected);
+    }
+    for (const value of ['"true"', '1', '[]']) {
+      await writeFile(path, `${base}[codex]\nfast = ${value}\n`);
+      await assert.rejects(loadConfig(path), /fast/);
+    }
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});

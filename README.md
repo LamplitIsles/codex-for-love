@@ -87,6 +87,21 @@ codex-for-love serve /path/to/partner.toml
 
 CFL binds to `127.0.0.1` and prints the local URL. Use a fresh workspace for a new conversation.
 
+Set `[codex] fast = true` in Partner TOML to request native Fast (`priority`)
+for both new and resumed threads. `false` or omission explicitly selects the
+ordinary (`default`) tier, including after Fast was previously enabled. Restart
+Partner after changing it; the same stored thread, model and reasoning effort
+are preserved. Partner checks the returned tier before becoming ready and reports
+an error if the requested tier was not applied. Native model/account availability
+still governs Fast; it is a requested tier, not a latency guarantee. See the
+[official Codex speed documentation](https://learn.chatgpt.com/docs/agent-configuration/speed#fast-mode)
+for current availability and usage details.
+
+```toml
+[codex]
+fast = true
+```
+
 On this development host, Shio production runs an isolated complete application artifact with its existing installed CFL native package. Application updates promote reviewed source builds through dev then prod, independently of npm application publication. See [Development-machine Partner environments](docs/development-environments.md) for the exact service and deployment commands.
 
 Optional chat backgrounds are configured in the Partner TOML, separately from browser appearance preferences:

@@ -447,6 +447,21 @@ app-owned wrappers. A missing bundled Companion MCP is an operator-facing
 startup failure; optional integration discovery and authentication failures are
 reported by Codex without stopping the Partner.
 
+Set `[codex] fast = true` in Partner TOML to request native Fast (`priority`)
+for both new and resumed threads. `false` or omission explicitly selects the
+ordinary (`default`) tier, including after Fast was previously enabled. Restart
+Partner after changing it; the same stored thread, model and reasoning effort
+are preserved. Partner checks the returned tier before becoming ready and reports
+an error if the requested tier was not applied. Native model/account availability
+still governs Fast; it is a requested tier, not a latency guarantee. See the
+[official Codex speed documentation](https://learn.chatgpt.com/docs/agent-configuration/speed#fast-mode)
+for current availability and usage details.
+
+```toml
+[codex]
+fast = true
+```
+
 ## Conversation behavior
 
 Messages are admitted once with an optimistic UI projection, then submitted

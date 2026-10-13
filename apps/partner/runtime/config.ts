@@ -32,9 +32,10 @@ const schema = z.object({
     command: z.string().min(1).default('codex-app-server'),
     model: z.string().min(1).default(DEFAULT_CODEX_MODEL),
     home: z.string().min(1).optional(),
+    fast: z.boolean().default(false),
     local_compaction: z.boolean().default(false),
     context_round_limit: z.number().int().min(0).default(DEFAULT_CONTEXT_ROUND_LIMIT),
-  }).strict().default({ command: 'codex-app-server', model: DEFAULT_CODEX_MODEL, local_compaction: false, context_round_limit: DEFAULT_CONTEXT_ROUND_LIMIT }),
+  }).strict().default({ command: 'codex-app-server', model: DEFAULT_CODEX_MODEL, fast: false, local_compaction: false, context_round_limit: DEFAULT_CONTEXT_ROUND_LIMIT }),
   speech: z.object({
     endpoint: z.url().default('https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation'),
     tts: ttsSchema.optional(),
