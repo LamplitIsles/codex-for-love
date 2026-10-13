@@ -231,3 +231,30 @@ acceptance, physical-device keyboard/safe-area/install behavior, real providers,
 production state, or NUC verification. Those remain Owner joint live/device work
 after review. Workers do not merge, publish, deploy, restart or reconfigure live
 services. The standalone App does not register a service worker.
+
+## Local-first voice consumption
+
+Spec #3739 consumes merged App #3734/PR21 source
+`97da354fb27697e530c9be1be9dceb7b2599f71e`, with the identical tree of approved
+`98d55d1019ad102e46dbde8526bf6f1e32af097b`. App owns the entire controller:
+first local PCM establishes recording while remote recognition connects. Early
+Stop flushes and releases local capture, retaining FIFO PCM (at most 160000 bytes;
+FIFO plus socket at most 256 KiB) until ready, then sends exact ordered frames,
+residual PCM and one finish. Startup remains 15 seconds and finalization stages
+20 seconds. Audio stays in memory; final text enters a draft for manual send.
+
+Use the existing text/voice host with the approved frozen browser and
+`voice-browser.mjs` runner, at 390/1280. The fixture's `speech.holdReady` and `ready`
+actions hold/release fake-provider task-started through the actual Node relay.
+Frame/event observations and provider-side equality assertions verify exact
+relay delivery. The runner observes genuine browser tracks, AudioContext and
+AudioWorklet release, and supplies its existing backpressure control. No physical
+microphone, real provider or service state participates. Source preparation and
+packaging use a clean real-Git `CFL_APP_SOURCE` at the same pin; frozen acceptance
+identities in IMPORTS remain separate from source-built resource hashes.
+
+Public GitHub exact-SHA reachability remains a hosted CI prerequisite. Local
+isolated source acceptance does not establish that reachability or hosted CI
+success. The 2026-10-13 Owner authorization in spec #3739 supersedes the
+historical deployment hold. Workers prepare immutable candidates; Orc owns
+current-head review, merge, dev readiness and production promotion.

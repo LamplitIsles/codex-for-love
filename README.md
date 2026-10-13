@@ -100,6 +100,10 @@ portrait = "./workspace/.lamplit/profile/background-portrait.jpg"
 Supply both images or omit `[backgrounds]` to keep the default appearance. Paths resolve relative to the TOML file and must stay inside the workspace. Supported formats are PNG, JPEG, WebP and GIF, up to 20 MiB per file; invalid or missing configured files prevent startup. Restart Partner after changing paths or replacing images. Companion selects the composition from the window shape before the keyboard opens (square windows use portrait), scales it to fill the chat area and crops centrally. The background stays stationary as messages scroll, with a theme-colored soft overlay; message bubbles, attachments, header, composer and drawers retain their own surfaces. Background images do not enter conversation history or the Chat Image Library.
 
 The shared lamplit-app frontend uses Svelte 5, Vite and Framework7 9.2.0.
+Voice recording starts when local PCM arrives while recognition connects. Early
+Stop releases capture and retains ordered startup audio until recognition is
+ready; the final transcript becomes an editable draft for manual send. See
+[voice consumption and isolated acceptance](docs/default-shared-frontend.md#local-first-voice-consumption).
 App owns browser components, localization and browser tests; CFL owns the Node
 runtime and the domain rules it uses. Framework7 owns
 component styles, theme tokens, its app/view shell and Photo Browser navigation;
