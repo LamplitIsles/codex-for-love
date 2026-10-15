@@ -260,16 +260,16 @@ original integration work. FlickLog itself and prompt semantics are unchanged.
 The default Framework7/Svelte frontend and `@lamplit/contracts` public exports
 are built together from Apache-2.0 `LamplitIsles/lamplit-app`, initially
 `26ab708799f8ef4d99d974e1ab60c4d14a38267a`. `lamplit-app.sha` is the authoritative
-current pin. The current source is merged App PR23
-`e09b4800139d6a3902bb3e029dc8f01410c85404`, tree
-`ebe405f2e7cc5e6399b6f85908aa6bfe5ff5b400` (Apache-2.0). Browser resources and
+current pin. The current source is merged App PR24
+`0d151ffc1e31eca1bbcef8e9958a01e8f07e3d36`, tree
+`589e6cb37d04f2dedf9fa2316011782569e18ea5` (Apache-2.0). Browser resources and
 compiled public contracts come from that same revision; upstream licenses and
 source attribution remain in the retained App LICENSE and IMPORTS payload.
 The merged tree is identical to reviewed source
-`a04fe43db0fecd73150b4512fffdc35f00a92e77`; frozen acceptance retains that
-original source label. The previous pin was reviewed merged App PR21
-`97da354fb27697e530c9be1be9dceb7b2599f71e`, tree
-`9e169eef9b3d106d08981de4927fce7a9e188ab5`; its earlier evidence remains historical.
+`3822c263b7ed70b1b32abb5cb0b250616b6a6c76`; frozen acceptance retains that
+original source label. The previous pin was merged App PR23
+`e09b4800139d6a3902bb3e029dc8f01410c85404`, tree
+`ebe405f2e7cc5e6399b6f85908aa6bfe5ff5b400`; its earlier evidence remains historical.
 The preparation step consumes adjacent
 source with its frozen Bun lock, and materializes compiled package exports without private UI imports.
 The former frontend and appearance-contract archives are removed. Earlier
@@ -338,7 +338,7 @@ native fixture's held task-started and transport observations are CFL test code.
 
 ### Structured search and failed-message actions — spec #4007
 
-Current source pin is merged App PR23 `e09b4800139d6a3902bb3e029dc8f01410c85404`,
+The historical source pin was merged App PR23 `e09b4800139d6a3902bb3e029dc8f01410c85404`,
 with tree `ebe405f2e7cc5e6399b6f85908aa6bfe5ff5b400`, identical to reviewed artifact
 HEAD `a04fe43db0fecd73150b4512fffdc35f00a92e77`. App owns snippet segments,
 failed-message actions, public types and browser runners. Frozen acceptance uses
@@ -349,3 +349,24 @@ merged source separately. No upstream files or licenses are modified.
 CFL's Rust CLI mapping, native rejection fence, retry/media association and isolated
 hosts are original integration work. Rust reference source is FlickLog
 `3b0add64cf3d200352fd410dacb82dcc4935c0f6`; it is neither imported nor modified.
+
+### Generated output-image cardinality — spec #4010
+
+App repair spec #4011 / PR24 removes the six-image intake cap from output
+`MessageSchema.images`; input submission, upload and recovery constraints stay
+unchanged. CFL consumes merged source `0d151ffc1e31eca1bbcef8e9958a01e8f07e3d36`,
+whose tree `589e6cb37d04f2dedf9fa2316011782569e18ea5` equals reviewed artifact
+HEAD `3822c263b7ed70b1b32abb5cb0b250616b6a6c76`.
+
+Approved frozen acceptance uses complete archive SHA256
+`8c3386a4500e77b96a9a8b4954eef5285bd4f9d2eb1054445eeb85d99e793a01`
+and clean source archive SHA256
+`f93440139e65c1386fe280ca2924fdc5b51e66b0fa028ed613c107c5a592d686`.
+The browser/contracts/acceptance manifests contain 265/27/44 files. Artifact
+SOURCE_HEAD remains `3822c263b7ed70b1b32abb5cb0b250616b6a6c76`; the export selector
+`--structured-search-snippets` and its #4006 label are historical packaging
+identifiers, separate from repair #4011 and the merged source pin. This newly
+approved archive replaces the #4007 archive for current native acceptance.
+App owns the output contract and unchanged browser presentation; CFL's actual
+native generated-image/history/reconnect regression and fixtures are original
+integration work. Source-built packaging records its own resource hashes.

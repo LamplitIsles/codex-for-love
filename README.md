@@ -150,6 +150,12 @@ instead. Cancel leaves the draft intact and sends nothing. Captured
 files use the same image limits and preview as selected files. Recording uses
 the existing browser microphone permission and speech configuration.
 
+Partner replies retain all generated images in the current conversation view,
+older history and after reconnect. The upload limit applies to Human input;
+it does not cap the image references on a stored Partner reply. Deployment
+readiness must verify Chat initialization as well as static resource serving:
+an HTTP 200 homepage alone does not prove the conversation can load.
+
 CFL has no service worker, offline mode or Web Push. Refresh revalidates the
 current deployment's document and loads its versioned UI assets. An installed
 window uses the same online API and notification limits as a browser tab.
