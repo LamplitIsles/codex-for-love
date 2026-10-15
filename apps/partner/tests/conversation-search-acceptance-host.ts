@@ -18,6 +18,11 @@ export async function conversationSearchHost(browser: string, evidence: string) 
     for (const release of held) release(); held.clear(); heldKey = undefined; failures.clear(); calls = [];
     unsubscribe(); await seeded?.close(); await f.close(); f = await fixture();
     seeded = await seedNativeConversationSearch(f.directory, f.workspace, f.config.codex.home!);
+    if (evidence) {
+      const sources = join(evidence, f.directory.split('/').at(-1)!); await mkdir(sources, { recursive: true });
+      for (const name of ['archive', 'import']) await writeFile(join(sources, name + '.jsonl'), await readFile(join(f.config.codex.home!, 'sessions', name + '.jsonl')));
+      for (const name of ['native-search-identity.json','ingest.json']) await writeFile(join(sources,name),await readFile(join(f.directory,name)));
+    }
     partner = await f.createPartner(); unsubscribe = partner.subscribe(() => { for (const listener of listeners) listener(); });
     for (const listener of listeners) listener();
   }
@@ -56,7 +61,7 @@ export async function conversationSearchHost(browser: string, evidence: string) 
       if (evidence) {
         await mkdir(evidence, { recursive: true });
         await writeFile(join(evidence, 'native-state.json'), JSON.stringify({ ...state, workspace: f.workspace,
-          cli: await readFile(seeded.log, 'utf8'), engine: await f.requests() }, null, 2));
+          cli: await readFile(seeded.log, 'utf8'), identity: JSON.parse(await readFile(join(f.directory, 'native-search-identity.json'), 'utf8')), ingest: JSON.parse(await readFile(join(f.directory,'ingest.json'),'utf8')), engine: await f.requests() }, null, 2));
       }
       response.setHeader('content-type', 'application/json'); response.end(JSON.stringify(state));
     } catch (error) { console.error(error); response.writeHead(500); response.end(String(error)); }

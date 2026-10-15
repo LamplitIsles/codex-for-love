@@ -22,7 +22,8 @@ export async function imageAcceptanceFixture(assets: string, port = 0, controlPo
   const submissions: Submission[] = [];
   const listeners = new Set<() => void>();
   let control: Record<string, unknown> = { hold: true, mode: 'consumed' };
-  let mode = 'submitted', hidden = false, submitCalls = 0, lookupCalls = 0;
+  let mode = 'submitted', hidden = false, submitCalls = 0, lookupCalls = 0, finalizeCalls = 0, retryCalls = 0;
+  let finalizationLost = false, deleteFailure = false;
   let release: (() => void) | undefined, gate: Promise<void> | undefined;
   const heldUpdates: Array<() => void> = [];
   const sendFrame = WebSocket.prototype.send;
@@ -46,21 +47,37 @@ export async function imageAcceptanceFixture(assets: string, port = 0, controlPo
     await store.saveGeneratedImage({ ...generated!, name: 'generated.png' }, 'generated'); await store.close();
     // A real SQLite rollback exercises definite nonadmission, without forging a receipt or recovery row.
     const db = new DatabaseSync(partnerPaths(f.workspace).database);
-    db.exec("CREATE TRIGGER fixture_admission_failure BEFORE INSERT ON pending_inputs WHEN NEW.input IN ('明确拒绝文字图片','拒绝输入') BEGIN SELECT RAISE(ABORT, 'Test-owned admission rejected'); END"); db.close();
+    db.exec("CREATE TRIGGER fixture_admission_failure BEFORE INSERT ON pending_inputs WHEN NEW.input IN ('明确拒绝文字图片','拒绝输入') AND (SELECT COUNT(*) FROM failed_submissions WHERE json_extract(payload,'$.text')=NEW.input)<2 BEGIN SELECT RAISE(ABORT, 'Test-owned admission rejected'); END"); db.close();
     partner = await f.createPartner();
     const subscribe = partner.subscribe.bind(partner);
     partner.subscribe = listener => { listeners.add(listener); const off = subscribe(listener); return () => { listeners.delete(listener); off(); }; };
     const upload = partner.uploadImages.bind(partner), limits = partner.sharedImageLimits.bind(partner), submit = partner.submitShared.bind(partner);
     partner.sharedImageLimits = async () => disabled ? false : limits();
     partner.uploadImages = async (input, authorize) => { if (uploadFailure) throw new Error('Test-owned storage unavailable'); return upload(input, authorize); };
-    partner.submitShared = async input => {
+    partner.submitShared = async (input, authorize) => {
       if (mode === 'null') throw new Error('Test-owned lost acknowledgement before reception');
       if (mode === 'slow') await gate;
-      const result = await submit(input);
+      const result = await submit(input, authorize);
       if (!submissions.some(item => item.operationId === input.operationId)) submissions.push(structuredClone(input));
       if (mode === 'publishFirst') await gate;
       if (mode === 'lost') throw new Error('Test-owned lost acknowledgement after reception');
       return result;
+    };
+    const finalize = partner.finalizeSubmission.bind(partner), retry = partner.retryFailed.bind(partner), remove = partner.deleteFailed.bind(partner);
+    partner.finalizeSubmission = async (input, authorize) => {
+      finalizeCalls++;
+      const result = await finalize(input, authorize);
+      if (finalizationLost) throw new Error('Test-owned lost finalization acknowledgement');
+      return result;
+    };
+    partner.retryFailed = async (input, authorize) => {
+      retryCalls++;
+      if (mode === 'slow') await gate;
+      return retry(input, authorize);
+    };
+    partner.deleteFailed = async (input, authorize) => {
+      if (deleteFailure) throw new Error('Test-owned delete unavailable');
+      return remove(input, authorize);
     };
     app = createWebServer(partner, assets, {
       authorize: async request => request.headers.cookie?.includes('image-fixture-owner=1') === true,
@@ -92,12 +109,12 @@ export async function imageAcceptanceFixture(assets: string, port = 0, controlPo
     const album = await backend.album({ sessionId: view.sessionId, cursor: null });
     const requests = await f.requests();
     return { executions: requests.filter(r => r.fixtureExecution === true).length, submissions, recovery: view.recovery,
-      messages: view.messages, limits: imageLimits, album: album.images, submitCalls, lookupCalls };
+      messages: view.messages, limits: imageLimits, album: album.images, submitCalls, lookupCalls, finalizeCalls, retryCalls };
   }
   async function action(input: { action: string; enabled?: boolean; state?: string }) {
     if (input.action === 'reset') {
       release?.(); publish(); await app.close(); await f.close(); f = await fixture(); disabled = false; uploadFailure = false; submissions.length = 0;
-      mode = 'submitted'; submitCalls = lookupCalls = 0; gate = undefined; release = undefined;
+      mode = 'submitted'; submitCalls = lookupCalls = finalizeCalls = retryCalls = 0; finalizationLost = deleteFailure = false; gate = undefined; release = undefined;
       control = { hold: true, mode: 'consumed' }; await start();
     } else if (input.action === 'mode') {
       release?.(); gate = undefined; release = undefined; mode = input.state!;
@@ -107,6 +124,8 @@ export async function imageAcceptanceFixture(assets: string, port = 0, controlPo
     }
     else if (input.action === 'release') { release?.(); gate = undefined; release = undefined; }
     else if (input.action === 'publish') publish();
+    else if (input.action === 'finalizationLost') finalizationLost = !!input.enabled;
+    else if (input.action === 'deleteFailure') deleteFailure = !!input.enabled;
     else if (input.action === 'replyFailure') await command('replyFailure');
     else if (input.action === 'disabled') { disabled = !!input.enabled; for (const listener of listeners) listener(); }
     else if (input.action === 'uploadFailure') { uploadFailure = !!input.enabled; }

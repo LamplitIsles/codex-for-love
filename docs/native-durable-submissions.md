@@ -90,3 +90,29 @@ test-only; the submission runner accepts the printed image-control URL. Recorded
 CFL-native results establish CFL local evidence only. Orc owns actual cross-repo
 joint acceptance and merge. No live state, credentials, providers, external sends,
 service operations, deployment or native rebuild/release belongs to this fixture.
+
+## Failed-message actions — spec #4007
+
+CFL implements App's mandatory `finalizeSubmission`, `retryFailed`, `deleteFailed`.
+Original submit, retry and finalization share the local input-admission serializer.
+SQLite admission checks retained rejection before inserting an input. Finalization
+returns submitted for durable local admission, including queued/executing/completed
+input; it records failed only after durable nonadmission. Unknown retry association
+returns null. Transport loss and a deadline alone never imply failure.
+
+Retry binds source/session/new attempt, uses server-owned text and exact original
+image bytes, and creates operation-owned references through existing image storage.
+Missing or changed originals reject the whole retry. Duplicate attempts return the
+same receipt; changed source/payload conflicts. A failed retry retires its previous
+failed presentation while preserving both rejection proofs. Delete acknowledges
+failed presentation/recovery removal only; rejection, immutable identity and media
+survive reopen. Accepted/raced sources return deleted false. Native mutations
+recheck the existing authenticated owner and captured session at the final boundary.
+Independent withdrawal recovery and reply-failure notices retain their semantics.
+
+For current acceptance use the approved App #4006 archive/contract hashes and
+equal-tree merged source recorded in IMPORTS. Preserve artifact SOURCE_HEAD
+`a04fe43db0fecd73150b4512fffdc35f00a92e77`; it is distinct from source pin
+`e09b4800139d6a3902bb3e029dc8f01410c85404`. The same native image fixture now
+supports the frozen optimistic runner's lost-finalization acknowledgement and
+delete-failure controls; all receipts still come from actual Partner/SQLite.

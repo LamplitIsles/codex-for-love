@@ -71,6 +71,8 @@ export class Store {
       this.db.exec(`
         CREATE TABLE IF NOT EXISTS staged_images (operation_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, fingerprint TEXT NOT NULL, payload TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS failed_submissions (operation_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, fingerprint TEXT NOT NULL, payload TEXT NOT NULL, error TEXT NOT NULL, replaced_by TEXT);
+        CREATE TABLE IF NOT EXISTS deleted_failures (operation_id TEXT PRIMARY KEY);
+        CREATE TABLE IF NOT EXISTS retry_attempts (attempt_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, source_id TEXT NOT NULL, payload TEXT);
         CREATE TABLE IF NOT EXISTS shared_submissions (operation_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, fingerprint TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS rejected_inputs (message_id TEXT PRIMARY KEY, error TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS chat_completed_items (turn_id TEXT NOT NULL, item_id TEXT PRIMARY KEY);
@@ -181,6 +183,9 @@ export class Store {
 
   async admit(id: string, input: string, images: readonly StoredImage[] = [], shared?: { sessionId: string; input: Submission }): Promise<MessageMeta> {
     return this.transaction(() => {
+      if (this.db.prepare('SELECT 1 FROM failed_submissions WHERE operation_id=?').get(id)) throw identityConflict();
+      const retry = this.db.prepare('SELECT session_id,payload FROM retry_attempts WHERE attempt_id=?').get(id) as { session_id: string; payload: string | null } | undefined;
+      if (retry && (!shared || retry.session_id !== shared.sessionId || retry.payload !== JSON.stringify(shared.input))) throw identityConflict();
       const fingerprint = createHash('sha256').update(JSON.stringify([input, images.map((image) => image.id).sort()])).digest('hex');
       const existing = this.db.prepare('SELECT sequence,id,created,fingerprint FROM message_meta WHERE id=?').get(id) as { sequence: number; id: string; created: number; fingerprint: string | null } | undefined;
       if (existing) {
@@ -193,9 +198,10 @@ export class Store {
       }
       if (shared) {
         for (const sourceId of shared.input.replacementSourceIds ?? []) {
+          if (this.db.prepare('SELECT 1 FROM deleted_failures WHERE operation_id=?').get(sourceId)) throw new Error('Replacement source is not eligible');
           if ((!this.db.prepare('SELECT 1 FROM pending_inputs p JOIN rejected_inputs r ON r.message_id=p.message_id WHERE p.message_id=?').get(sourceId)
             || this.db.prepare("SELECT 1 FROM message_outcomes WHERE message_id=? AND status='replaced'").get(sourceId))
-            && !this.db.prepare('SELECT 1 FROM failed_submissions WHERE operation_id=? AND replaced_by IS NULL').get(sourceId)) throw new Error('Replacement source is not eligible');
+            && !this.db.prepare('SELECT 1 FROM failed_submissions WHERE operation_id=? AND replaced_by IS NULL AND operation_id NOT IN (SELECT operation_id FROM deleted_failures)').get(sourceId)) throw new Error('Replacement source is not eligible');
         }
         this.db.prepare('INSERT INTO shared_submissions(operation_id,session_id,fingerprint) VALUES(?,?,?)').run(id, shared.sessionId, createHash('sha256').update(JSON.stringify(shared.input)).digest('hex'));
         for (const sourceId of shared.input.replacementSourceIds ?? []) {
@@ -256,16 +262,49 @@ export class Store {
     });
   }
   async failedSubmissions(sessionId: string): Promise<Submission[]> {
-    return this.transaction(() => (this.db.prepare('SELECT payload FROM failed_submissions WHERE session_id=? AND replaced_by IS NULL ORDER BY rowid DESC LIMIT 20').all(sessionId) as Array<{ payload: string }>).reverse().map(row => JSON.parse(row.payload)));
+    return this.transaction(() => (this.db.prepare('SELECT payload FROM failed_submissions WHERE session_id=? AND replaced_by IS NULL AND operation_id NOT IN (SELECT operation_id FROM deleted_failures) ORDER BY rowid DESC LIMIT 20').all(sessionId) as Array<{ payload: string }>).reverse().map(row => JSON.parse(row.payload)));
   }
   /** Record definite rolled-back admission, never an execution/transport outcome. */
   async failSubmission(input: Submission, sessionId: string, error: string): Promise<void> {
     await this.transaction(() => {
       if (this.db.prepare('SELECT 1 FROM message_meta WHERE id=?').get(input.operationId)) throw new Error('Cannot fail a durably admitted input');
       const fingerprint = createHash('sha256').update(JSON.stringify(input)).digest('hex');
-      const old = this.db.prepare('SELECT fingerprint FROM failed_submissions WHERE operation_id=?').get(input.operationId) as { fingerprint: string } | undefined;
-      if (old) { if (old.fingerprint !== fingerprint) throw identityConflict(); return; }
+      const retry = this.db.prepare('SELECT session_id,source_id,payload FROM retry_attempts WHERE attempt_id=?').get(input.operationId) as { session_id: string; source_id: string; payload: string | null } | undefined;
+      if (retry && (retry.session_id !== sessionId || retry.payload !== JSON.stringify(input))) throw identityConflict();
+      const old = this.db.prepare('SELECT fingerprint,session_id FROM failed_submissions WHERE operation_id=?').get(input.operationId) as { fingerprint: string; session_id: string } | undefined;
+      if (old) { if (old.fingerprint !== fingerprint || old.session_id !== sessionId) throw identityConflict(); return; }
       this.db.prepare('INSERT INTO failed_submissions(operation_id,session_id,fingerprint,payload,error) VALUES(?,?,?,?,?)').run(input.operationId, sessionId, fingerprint, JSON.stringify(input), error);
+      if (retry) this.db.prepare('UPDATE failed_submissions SET replaced_by=? WHERE operation_id=? AND session_id=? AND replaced_by IS NULL').run(input.operationId,retry.source_id,sessionId);
+    });
+  }
+  async retryAttempt(attemptId: string, sessionId: string, sourceId: string, bind = false): Promise<Submission | null | undefined> {
+    return this.transaction(() => {
+      const row = this.db.prepare('SELECT session_id,source_id,payload FROM retry_attempts WHERE attempt_id=?').get(attemptId) as { session_id: string; source_id: string; payload: string | null } | undefined;
+      if (row) {
+        if (row.session_id !== sessionId || row.source_id !== sourceId) throw identityConflict();
+        return row.payload ? JSON.parse(row.payload) : null;
+      }
+      if (bind) {
+        if (this.db.prepare('SELECT 1 FROM message_meta WHERE id=?').get(attemptId) || this.db.prepare('SELECT 1 FROM failed_submissions WHERE operation_id=?').get(attemptId)) throw identityConflict();
+        this.db.prepare('INSERT INTO retry_attempts(attempt_id,session_id,source_id) VALUES(?,?,?)').run(attemptId,sessionId,sourceId);
+      }
+      return undefined;
+    });
+  }
+  async bindRetry(input: Submission): Promise<void> {
+    await this.transaction(() => {
+      this.db.prepare('UPDATE retry_attempts SET payload=? WHERE attempt_id=? AND payload IS NULL').run(JSON.stringify(input),input.operationId);
+    });
+  }
+  async failureDeleted(id: string): Promise<boolean> {
+    return this.transaction(() => !!this.db.prepare('SELECT 1 FROM deleted_failures WHERE operation_id=?').get(id));
+  }
+  async deleteFailed(id: string, sessionId: string): Promise<boolean> {
+    return this.transaction(() => {
+      if (this.db.prepare('SELECT 1 FROM message_meta WHERE id=?').get(id)) return false;
+      if (!this.db.prepare('SELECT 1 FROM failed_submissions WHERE operation_id=? AND session_id=? AND replaced_by IS NULL').get(id,sessionId)) return false;
+      this.db.prepare('INSERT OR IGNORE INTO deleted_failures(operation_id) VALUES(?)').run(id);
+      return true;
     });
   }
   async markRejected(ids: readonly string[], error: string): Promise<void> {

@@ -160,7 +160,7 @@ export function createWebServer(partner: Partner, assets: string, options: { aut
       }
       if (path.startsWith('/api/conversation-search/') && request.method === 'GET') {
         const id = path.slice('/api/conversation-search/'.length);
-        if (!/^[a-f0-9]{64}$/u.test(id)) return json(response, { error: 'Invalid record id' }, 400);
+        if (!z.uuid().safeParse(id).success) return json(response, { error: 'Invalid record id' }, 400);
         try {
           if (!options.conversationSearch) throw new Error('Search unavailable');
           return json(response, await options.conversationSearch.read(id));

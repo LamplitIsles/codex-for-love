@@ -56,12 +56,15 @@ export function createCodexChatBackend(partner: Partner, authorize: () => Promis
       if (!conversationSearch) throw new Error('Search unavailable');
       const { record: { cwd: _cwd, ...record }, context } = await conversationSearch.read(id);
       return { record, context: { targetSourceRecordIndex: context.targetSourceRecordIndex, truncated: context.truncated,
-        items: context.items.filter(item => item.kind !== 'tool').map(({ phase: _phase, kind, ...item }) => ({ ...item, kind: kind as 'message' | 'compaction' })) } };
+        items: context.items } };
     },
     async read(): Promise<ChatView> { const recovery = await partner.sharedRecovery(false); const p = await page(); return { version: 2, sessionId: p.snapshot.sessionId, name: p.snapshot.name, activeTurnId: p.snapshot.cancellable[0] ?? null, contextUsage: { tokens: p.snapshot.context?.activeTokens ?? null, capacity: p.snapshot.context?.windowTokens ?? null }, compaction: p.snapshot.lifecycle.latest ? { id: p.snapshot.lifecycle.latest.nativeId ?? null, status: p.snapshot.lifecycle.latest.status } : null, messages: p.messages, before: p.before, capabilities: { ...capabilities, images: await partner.sharedImageLimits() }, recovery }; },
     async history(before) { const p = await page(before); return { messages: p.messages, before: p.before }; },
     compact: input => partner.compact({ ...input, authorize }),
-    submit: input => partner.submitShared(input),
+    submit: input => partner.submitShared(input, authorize),
+    finalizeSubmission: input => partner.finalizeSubmission(input, authorize),
+    retryFailed: input => partner.retryFailed(input, authorize),
+    deleteFailed: input => partner.deleteFailed(input, authorize),
     lookup: id => partner.chatReceipt(id),
     async stop(id) { return partner.chatStop(id); },
     async relationship() { return partner.relationship(); },

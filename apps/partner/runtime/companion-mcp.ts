@@ -20,7 +20,7 @@ const configPath = process.argv[3];
 const journal = partnerPaths(workspace).relationshipJournal;
 const conversationImages = partnerPaths(workspace).conversationImages;
 const alarms = partnerPaths(workspace).alarms;
-const conversationSearch = createConversationSearch({ workspace, codexHome: configPath ? (await loadConfig(configPath)).codex.home : undefined });
+const conversationSearch = createConversationSearch({ workspace });
 const cursors = panelCursors();
 const server = new McpServer({ name: 'companion', version: '0.1.0' });
 const reaction = { mood: z.object({ value: z.enum(MOODS), note: z.string().optional(), reason: z.string() }).strict().optional(), affinity: z.object({ delta: z.number().int().min(-10).max(10), reason: z.string() }).strict().optional() };
@@ -52,7 +52,7 @@ server.registerTool('search_conversation', { description: 'Find text in our conv
   try { return { content: [{ type: 'text' as const, text: JSON.stringify(await conversationSearch.search(query, limit ?? 5)) }] }; }
   catch { return { content: [{ type: 'text' as const, text: 'Conversation search is unavailable' }], isError: true }; }
 });
-server.registerTool('read_conversation_record', { description: 'Read one selected conversation search result in full with nearby context.', inputSchema: { id: z.string().regex(/^[a-f0-9]{64}$/u) } }, async ({ id }) => {
+server.registerTool('read_conversation_record', { description: 'Read one selected conversation search result in full with nearby context.', inputSchema: { id: z.uuid() } }, async ({ id }) => {
   try { return { content: [{ type: 'text' as const, text: JSON.stringify(await conversationSearch.read(id)) }] }; }
   catch { return { content: [{ type: 'text' as const, text: 'Conversation record is unavailable' }], isError: true }; }
 });

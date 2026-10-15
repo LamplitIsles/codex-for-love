@@ -61,7 +61,7 @@ if (command === 'credential') {
   const credentials = await loadCredentials(config.state);
   const partner = await createPartner(config, credentials);
   let app: ReturnType<typeof createWebServer>;
-  try { app = createWebServer(partner, assets, { conversationSearch: createConversationSearch({ workspace: config.workspace!, codexHome: config.codex.home }) }); }
+  try { app = createWebServer(partner, assets, { conversationSearch: createConversationSearch({ workspace: config.workspace! }) }); }
   catch (error) { await partner.close(); throw error; }
   app.server.on('error', async (error) => { console.error(error.message); await partner.close(); process.exitCode = 1; });
   app.server.listen(config.port, config.listen_host, () => console.log(`Companion: http://${config.listen_host}:${config.port}`));

@@ -1,23 +1,41 @@
-// Actual FlickLog CLI and Meilisearch; every source log, index and process belongs to this fixture.
-import { spawn } from 'node:child_process';
+// Unchanged Rust release artifact, owned foreground daemon and synthetic source/session/HTTP endpoint.
+import { createHash } from 'node:crypto';
+import { promisify } from 'node:util';
+import { execFile, spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { createServer } from 'node:net';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { createServer as createHttpServer } from 'node:http';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { createConversationSearch } from '../runtime/conversation-search.ts';
 import { eventually } from './fixture.ts';
 
 export async function seedNativeConversationSearch(root: string, workspace: string, codexHome: string) {
-  const source = process.env.CFL_ACCEPTANCE_FLICKLOG_SOURCE;
-  const meilisearch = process.env.CFL_ACCEPTANCE_MEILISEARCH_BIN;
-  if (!source || !meilisearch) throw new Error('Native acceptance requires explicit FlickLog source CLI and a test-owned Meilisearch binary.');
-  const reserve = createServer(); reserve.listen(0, '127.0.0.1'); await once(reserve, 'listening');
-  const port = (reserve.address() as { port: number }).port; await new Promise<void>(done => reserve.close(() => done()));
-  const index = spawn(resolve(meilisearch), ['--http-addr', `127.0.0.1:${port}`, '--db-path', join(root, 'meili'), '--no-analytics', '--max-indexing-threads', '2', '--master-key', 'synthetic-native-acceptance-key'], { cwd: root, env: { PATH: process.env.PATH, HOME: root }, stdio: ['ignore', 'ignore', 'pipe'] });
-  let stderr = ''; index.stderr.on('data', chunk => { stderr = (stderr + chunk).slice(-4000); });
-  const closed = once(index, 'close');
+  const binarySource = process.env.CFL_ACCEPTANCE_FLICKLOG_BIN;
+  if (!binarySource) throw new Error('Native acceptance requires an explicit unchanged Rust FlickLog release artifact.');
+  const binary = resolve(binarySource), data = join(root, 'flicklog-data');
+  await mkdir(data, { recursive: true });
+  const http = createHttpServer(async (request, response) => {
+    // Only this synthetic endpoint participates. Never forward credentials or requests.
+    for await (const _chunk of request) { /* drain synthetic upload */ }
+    if (request.url?.startsWith('/rest/v1/entries')) { response.writeHead(201); response.end('{}'); }
+    else { response.writeHead(503); response.end('synthetic sync unavailable'); }
+  });
+  http.listen(0, '127.0.0.1'); await once(http, 'listening');
+  const endpoint = `http://127.0.0.1:${(http.address() as { port: number }).port}`;
+  await writeFile(join(data, 'config.json'), JSON.stringify({ supabase_url: endpoint, powersync_url: endpoint, publishable_key: 'synthetic-key' }));
+  await writeFile(join(data, 'session.json'), JSON.stringify({ access_token: 'synthetic-access', refresh_token: 'synthetic-refresh', expires_at: null, user: { id: '11111111-1111-1111-1111-111111111111', email: null } }));
+  await writeFile(join(data, 'identity.json'), JSON.stringify({ user_id: '11111111-1111-1111-1111-111111111111', device_id: 'test-device' }));
+  const env = { PATH: process.env.PATH, HOME: root, XDG_CONFIG_HOME: join(root,'config'), XDG_DATA_HOME: join(root,'xdg-data'), CODEX_HOME: codexHome, FLICKLOG_DATA_DIR: data };
+  const daemon = spawn(binary, ['daemon', 'run'], { cwd: workspace, env, stdio: ['ignore','ignore','pipe'] });
+  let stderr = ''; daemon.stderr.on('data', chunk => { stderr = (stderr + chunk).slice(-8000); });
+  const closed = once(daemon, 'close');
+  const run = promisify(execFile);
+  async function stop() { daemon.kill('SIGTERM'); await closed; await new Promise<void>(done => http.close(() => done())); }
   try {
-    await eventually(async () => { if (index.exitCode !== null) throw new Error(stderr); try { return (await fetch(`http://127.0.0.1:${port}/health`)).ok; } catch { return false; } }, 30000);
+    await eventually(async () => {
+      if (daemon.exitCode !== null) throw new Error(stderr);
+      return stderr.includes('FlickLog daemon ready');
+    }, 30000);
     const sessions = join(codexHome, 'sessions'); await mkdir(sessions, { recursive: true });
     const timestamp = '2026-10-02T12:00:00Z';
     const text = (content: string, id: string) => ({ timestamp, type: 'response_item', payload: { type: 'message', id, role: 'user', content: [{ type: 'input_text', text: content }], internal_chat_message_metadata_passthrough: { content_item_kinds: ['user.text'] } } });
@@ -29,7 +47,7 @@ export async function seedNativeConversationSearch(root: string, workspace: stri
       // Preserve real source ordering and keep repeated targets beyond each other's context window.
       for (let n = 0; n < 9; n++) rows.push(text(`path filler ${i}:${n}`, `filler-${i}-${n}`));
       rows.push(text(i === 1 || i === 22 ? 'before imported branch' : 'before original branch', `before-${i}`));
-      const content = `灯塔 lighthouse ${i < 2 ? 'repeated' : i === 2 ? 'archiveSummary3142' : `record ${i}`}${i === 22 ? ' archiveImported3142' : ''} <img src=x onerror=alert(1)>`;
+      const content = `灯塔 lighthouse ${i < 2 ? 'repeated' : i === 2 ? 'archiveSummary3142' : `record ${i}`}${i === 22 ? ' archiveImported3142' : ''} <mark>literal</mark> \`<img src=x onerror=alert(1)>\` 中文😀𠮷`;
       rows.push(i === 2 ? summary(content) : text(content, `record-${i}`));
       rows.push(summary('nearby summary ' + '🌙'.repeat(13000)));
       for (let n = 0; n < 9; n++) rows.push(text(`after filler ${i}:${n}`, `after-${i}-${n}`));
@@ -37,12 +55,13 @@ export async function seedNativeConversationSearch(root: string, workspace: stri
     await writeFile(join(sessions, 'archive.jsonl'), archive.map(row => JSON.stringify(row)).join('\n') + '\n');
     await writeFile(join(sessions, 'import.jsonl'), imported.map(row => JSON.stringify(row)).join('\n') + '\n');
     const log = join(root, 'search-calls.jsonl'); await writeFile(log, '');
-    const binary = join(root, 'flicklog-test-owned');
-    // Delegates every command to unchanged native source; no public DTO or matcher in the fixture.
-    await writeFile(binary, `#!/usr/bin/env bun\nimport { appendFileSync } from 'node:fs';\nimport { spawnSync } from 'node:child_process';\nappendFileSync(${JSON.stringify(log)}, JSON.stringify({args:process.argv.slice(2),cwd:process.cwd(),home:process.env.CODEX_HOME})+'\\n');\nconst result=spawnSync('bun',[${JSON.stringify(resolve(source))},...process.argv.slice(2)],{env:process.env,stdio:'inherit'});\nprocess.exit(result.status??1);\n`, { mode: 0o755 });
-    const search = createConversationSearch({ workspace, codexHome, env: { FLICKLOG_BIN: binary, FLICKLOG_STATE_DIR: join(root, 'flicklog-state'), FLICKLOG_MEILI_URL: `http://127.0.0.1:${port}`, FLICKLOG_MEILI_KEY: 'synthetic-native-acceptance-key', CREDENTIALS_DIRECTORY: root } });
+    const wrapper = join(root, 'flicklog-test-owned');
+    await writeFile(wrapper, `#!${process.execPath}\nimport { appendFileSync } from 'node:fs';\nimport { spawnSync } from 'node:child_process';\nappendFileSync(${JSON.stringify(log)}, JSON.stringify({args:process.argv.slice(2),cwd:process.cwd()})+'\\n');\nconst result=spawnSync(${JSON.stringify(binary)},process.argv.slice(2),{env:process.env,stdio:'inherit'});\nprocess.exit(result.status??1);\n`, { mode: 0o755 });
+    const ingest = await run(binary, ['ingest','--codex-home',codexHome], { cwd: workspace, env, timeout: 30000 });
+    await writeFile(join(root,'ingest.json'), ingest.stdout);
+    const search = createConversationSearch({ workspace, env: { ...env, FLICKLOG_BIN: wrapper } });
     const hits = (await search.search('lighthouse')).hits;
-    const original = hits.filter(hit => hit.snippet.includes('repeated'));
+    const original = hits.filter(hit => hit.snippet.segments.map(segment => segment.text).join('').includes('repeated'));
     const ids: string[] = [];
     for (const hit of original) {
       const { context } = await search.read(hit.id);
@@ -52,8 +71,8 @@ export async function seedNativeConversationSearch(root: string, workspace: stri
     const summaryId = (await search.search('archiveSummary3142')).hits[0]!.id;
     const importedId = (await search.search('archiveImported3142')).hits[0]!.id;
     if (!ids[0] || !ids[1]) throw new Error('Native ranking omitted required repeated records; fixture cannot fabricate them.');
-    await writeFile(join(root, 'native-search-identity.json'), JSON.stringify({ source: resolve(source), meilisearch: resolve(meilisearch), port, recordIds: ids }, null, 2));
+    await writeFile(join(root, 'native-search-identity.json'), JSON.stringify({ binary, sha256: createHash('sha256').update(await readFile(binary)).digest('hex'), recordIds: ids, ingest: JSON.parse(ingest.stdout) }, null, 2));
     return { search, log, recordIds: { original: ids[0], repeated: ids[1], summary: summaryId, imported: importedId },
-      async close() { index.kill('SIGTERM'); await closed; } };
-  } catch (error) { index.kill('SIGTERM'); await closed; throw error; }
+      close: stop };
+  } catch (error) { await stop(); throw error; }
 }

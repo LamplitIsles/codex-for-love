@@ -260,16 +260,16 @@ original integration work. FlickLog itself and prompt semantics are unchanged.
 The default Framework7/Svelte frontend and `@lamplit/contracts` public exports
 are built together from Apache-2.0 `LamplitIsles/lamplit-app`, initially
 `26ab708799f8ef4d99d974e1ab60c4d14a38267a`. `lamplit-app.sha` is the authoritative
-current pin. The current source is merged App PR21
-`97da354fb27697e530c9be1be9dceb7b2599f71e`, tree
-`9e169eef9b3d106d08981de4927fce7a9e188ab5` (Apache-2.0). Browser resources and
+current pin. The current source is merged App PR23
+`e09b4800139d6a3902bb3e029dc8f01410c85404`, tree
+`ebe405f2e7cc5e6399b6f85908aa6bfe5ff5b400` (Apache-2.0). Browser resources and
 compiled public contracts come from that same revision; upstream licenses and
 source attribution remain in the retained App LICENSE and IMPORTS payload.
 The merged tree is identical to reviewed source
-`98d55d1019ad102e46dbde8526bf6f1e32af097b`; frozen acceptance retains that
-original source label. The previous pin was reviewed merged App PR20
-`6c7c479cbccc0a679939f8c1b4044417b97be56b`, tree
-`a6cd39784574850082f4149a9d61ac1bd5728993`; its earlier evidence remains historical.
+`a04fe43db0fecd73150b4512fffdc35f00a92e77`; frozen acceptance retains that
+original source label. The previous pin was reviewed merged App PR21
+`97da354fb27697e530c9be1be9dceb7b2599f71e`, tree
+`9e169eef9b3d106d08981de4927fce7a9e188ab5`; its earlier evidence remains historical.
 The preparation step consumes adjacent
 source with its frozen Bun lock, and materializes compiled package exports without private UI imports.
 The former frontend and appearance-contract archives are removed. Earlier
@@ -328,10 +328,24 @@ unchanged; the archive is test-owned evidence, not a runtime fallback.
 ### Local-first voice acceptance — spec #3739
 
 App #3734 owns capture, readiness, bounded buffering and early Stop. CFL consumes
-the exact reviewed source pin above; public contracts and worklet are unchanged.
+the historical PR21 source pin; voice contracts and worklet are unchanged by the current upgrade.
 Frozen native acceptance uses archive SHA256
 `19e60df148a4e8479e210cf4dbc9f64700fb83038734d3aa79b211bb9b3f7335`
 and voice runner SHA256
 `15241c32c377e3d8a7559a6f4d002107634701c5707c6964a3cc7d69ae6da727`.
 These immutable bytes are separate from CFL source-build hashes. The existing
 native fixture's held task-started and transport observations are CFL test code.
+
+### Structured search and failed-message actions — spec #4007
+
+Current source pin is merged App PR23 `e09b4800139d6a3902bb3e029dc8f01410c85404`,
+with tree `ebe405f2e7cc5e6399b6f85908aa6bfe5ff5b400`, identical to reviewed artifact
+HEAD `a04fe43db0fecd73150b4512fffdc35f00a92e77`. App owns snippet segments,
+failed-message actions, public types and browser runners. Frozen acceptance uses
+archive SHA256 `f81185c325d4ca528f3ad0c7a1ee42add9b4eaf9d3d867b5d421dd7dc675123e`
+and compiled-contract archive `b27b0013e7863a0020a0256057627f765e06fea67154876b34ebdd686f51e90a`.
+Original SOURCE_HEAD remains the artifact HEAD; source-built packaging records
+merged source separately. No upstream files or licenses are modified.
+CFL's Rust CLI mapping, native rejection fence, retry/media association and isolated
+hosts are original integration work. Rust reference source is FlickLog
+`3b0add64cf3d200352fd410dacb82dcc4935c0f6`; it is neither imported nor modified.

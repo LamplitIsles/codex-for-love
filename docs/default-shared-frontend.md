@@ -180,8 +180,7 @@ IMAGE_FIXTURE_EVIDENCE=<evidence> \
   node apps/partner/tests/image-send-recovery-fixture.ts <browser>
 COMPACT_FIXTURE_EVIDENCE=<evidence> \
   node apps/partner/tests/quiet-compaction-fixture.ts <browser>
-CFL_ACCEPTANCE_FLICKLOG_SOURCE=<unchanged-flicklog-checkout>/src/cli.ts \
-CFL_ACCEPTANCE_MEILISEARCH_BIN=<test-owned-meilisearch-binary> \
+CFL_ACCEPTANCE_FLICKLOG_BIN=<test-owned-unchanged-rust-release-binary> \
   node apps/partner/tests/conversation-search-acceptance-host.ts <browser> <evidence>
 ```
 
@@ -190,11 +189,12 @@ its temporary state. Text/voice share one host: run them sequentially because
 reset replaces fixture state. Every public request reaches actual Node/Partner,
 Chord, native storage and adapters. Controls only seed/reset fixture data,
 observe transport, configure fake execution/speech, or delay/fail delivery.
-Search uses the unchanged FlickLog CLI and real test-owned Meilisearch index,
-never the unit-test fake matcher. Supply a downloaded test-owned binary; do not
-invoke an installed service executable or FlickLog setup. The fixture binds a
-fresh loopback port and gives Meilisearch a synthetic key, private DB path and
-isolated environment. Native matching/context semantics remain unchanged.
+Search runs an explicit unchanged Rust release artifact against an owned foreground
+daemon, synthetic session/config, loopback HTTP fake and synthetic Codex ingest.
+All data directories and processes belong to the fixture. The fake endpoint does
+not establish real PowerSync acceptance. CFL does not invoke setup/login/service
+commands, installed executables or a live daemon. Rust owns matching and context
+membership; CFL validates the public DTO and selected-record workspace.
 
 From adjacent `lamplit-app/`, with absolute evidence paths and printed URLs:
 

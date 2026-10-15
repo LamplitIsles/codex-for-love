@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import { openChat } from '@lamplit/contracts/client';
 import { createCodexChatBackend } from '../runtime/chat.ts';
@@ -44,7 +45,7 @@ test('actual socket isolates native failures and oversized reads, retries, and a
   const f = await fixture(); const partner = await f.createPartner();
   const s = await seedConversationSearch(f.directory, f.workspace, f.config.codex.home!);
   let authorized = true;
-  const app = createWebServer(partner, '', { conversationSearch: s.search, authorize: async () => authorized });
+  const app = createWebServer(partner, join(f.directory, 'assets'), { conversationSearch: s.search, authorize: async () => authorized });
   app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening');
   const socket = new WebSocket(`ws://127.0.0.1:${(app.server.address() as { port: number }).port}/api/chat/socket`);
   const client = await openChat(socket, () => {}, () => {});
@@ -68,4 +69,36 @@ test('actual socket isolates native failures and oversized reads, retries, and a
     await assert.rejects(client.search({ query: 'lighthouse' }));
     assert.equal(await readFile(s.log, 'utf8'), logged, 'revoked connection never calls native search');
   } finally { client.close(); socket.close(); await app.close(); await f.close(); }
+});
+
+test('authenticated HTTP and Companion MCP consume the same Rust UUID/segment contract and reject foreign reads', async () => {
+  const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+  const { StdioClientTransport } = await import('@modelcontextprotocol/sdk/client/stdio.js');
+  const { fileURLToPath } = await import('node:url');
+  const f = await fixture(); const partner = await f.createPartner();
+  const s = await seedConversationSearch(f.directory, f.workspace, f.config.codex.home!);
+  const app = createWebServer(partner, join(f.directory,'assets'), { conversationSearch: s.search, authorize: async request => request.headers.authorization === 'test-owner' });
+  app.server.listen(0,'127.0.0.1'); await once(app.server,'listening');
+  const origin = `http://127.0.0.1:${(app.server.address() as { port: number }).port}`;
+  const mcp = new Client({ name: 'owned-search-test', version: '1.0.0' });
+  await mcp.connect(new StdioClientTransport({ command: process.execPath, args: [fileURLToPath(new URL('../runtime/companion-mcp.ts', import.meta.url)), f.workspace], stderr: 'ignore', env: {
+    HOME: f.directory, PATH: process.env.PATH!, FLICKLOG_BIN: join(f.directory,'flicklog-fake'),
+    FLICKLOG_TEST_DATA: s.data, FLICKLOG_TEST_LOG: s.log, FLICKLOG_TEST_CONTROL: s.control,
+  } }));
+  const headers = { authorization: 'test-owner' };
+  try {
+    assert.equal((await fetch(origin + '/api/conversation-search?q=灯塔')).status,401);
+    const http = await (await fetch(origin + '/api/conversation-search?q=灯塔', { headers })).json();
+    assert.equal(http.estimatedTotalHits,23); assert.equal(typeof http.hits[0].snippet.segments[0].highlighted,'boolean');
+    assert.equal((await fetch(origin + '/api/conversation-search/' + s.recordIds.original, { headers })).status,200);
+    assert.equal((await fetch(origin + '/api/conversation-search/not-a-uuid', { headers })).status,400);
+    const find = await mcp.callTool({ name: 'search_conversation', arguments: { query: '灯塔' } }) as { content: Array<{ text: string }> };
+    assert.equal(JSON.parse(find.content[0]!.text).hits.length,5);
+    const read = await mcp.callTool({ name: 'read_conversation_record', arguments: { id: s.recordIds.original } }) as { content: Array<{ text: string }> };
+    assert.equal(JSON.parse(read.content[0]!.text).record.id,s.recordIds.original);
+    const data = JSON.parse(await readFile(s.data,'utf8')); data.records[0].cwd='/foreign'; await writeFile(s.data,JSON.stringify(data));
+    assert.equal((await fetch(origin + '/api/conversation-search/' + s.recordIds.original, { headers })).status,404);
+    assert.equal((await mcp.callTool({ name: 'read_conversation_record', arguments: { id: s.recordIds.original } })).isError,true);
+    assert.equal((await mcp.callTool({ name: 'read_conversation_record', arguments: { id: '--all-projects' } })).isError,true);
+  } finally { await mcp.close(); await app.close(); await f.close(); }
 });

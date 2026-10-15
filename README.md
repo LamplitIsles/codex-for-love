@@ -229,27 +229,25 @@ the [operator guide](docs/operator-guide.md#mobile-keyboard-validation).
 
 ### Optional chat history search
 
-Install and set up `flicklog` on the Partner host to enable the search button in
-the Companion header. Search runs the FlickLog CLI in the Partner's configured
-workspace, using the Partner's Codex home. FlickLog owns its rebuildable index;
-CFL does not copy conversation history into its own database. Results are limited
-to that workspace and show highlighted excerpts. Opening a result shows the
-complete message or compaction summary and nearby context in the search panel,
-without changing the active conversation or draft. The shared `/` reader
-uses authenticated `lamplit.chat.v2.search` and `searchRead` socket methods backed
-by the same configured helper as native HTTP. FlickLog matching, ranking, its
-20-hit limit and estimated total remain unchanged; only `sessions` are scanned,
-never `archived_sessions`. Context keeps native source indexes, up to eight
-eligible chat/summary records per side and 12,000 Unicode code points. Selected
-text stays complete when its reply fits the existing 2 MiB transport limit.
-The same bounded search and record-reading capability is available to the companion through Companion MCP. Without FlickLog, the chat
-still works, but search requests fail normally with the existing retry UI.
-Native subprocess, lookup and oversized-reply failures use ordinary RPC errors;
-they do not disconnect text chat or introduce new search status categories.
-For a keyed external Meilisearch instance, provide `FLICKLOG_MEILI_URL` and
-either `FLICKLOG_MEILI_KEY` or a systemd credential named `flicklog-meili-key`
-to the Partner service. If its executable is not on the Partner process's
-`PATH`, set `FLICKLOG_BIN` to its absolute path.
+Configure the Rust `flicklog` CLI and a ready, logged-in FlickLog daemon on the
+Partner host. `FLICKLOG_BIN` selects the executable (default `flicklog` on PATH);
+`FLICKLOG_DATA_DIR` optionally selects its existing account/device data directory.
+CFL only invokes `search`, `get` and `context`, from the configured workspace.
+It never starts a daemon, logs in, installs hooks or ingests automatically.
+Before searching, explicitly ingest the desired Codex home with FlickLog; setting
+`CODEX_HOME` on CFL does not choose the daemon's search source. FlickLog backs up
+indexed bodies, including supported archived sources, independently of CFL.
+
+Authenticated HTTP, shared App socket and Companion MCP use the same adapter.
+Results use UUIDs and plain-text highlighted segments, up to 20 hits. The existing
+`estimatedTotalHits` field carries Rust's exact total. Opening a selected result
+checks its UUID/workspace and requests context with that exact ID. The configured
+Rust daemon owns account/device/thread scope; context omits per-item provenance,
+so CFL checks public ordinals, order, target consistency, eight records per side
+and 12,000 Unicode code points. Selected text stays complete within the existing
+2 MiB JSON transport limit. Search preserves the active conversation and draft.
+Subprocess, unavailable-daemon and oversized-reply failures return ordinary errors
+with retry; text chat stays connected. No Meilisearch credentials are required.
 
 ### Partner alarms
 
@@ -467,8 +465,12 @@ for complete artifacts and the verification boundary.
 backgrounds to the shared UI. Successful replies end quietly; failure and stop notices
 remain visible. Text and selected images appear immediately as normal outgoing bubbles, before
 upload or receipt. Offline sends retain the draft. Definite failure before durable
-admission restores text and images alongside newer edits; ambiguous delivery is
-reconciled without automatic replay. Durable rejection retains explicit recovery.
+admission leaves a failed bubble with direct Retry/Delete actions; newer draft text
+and images stay intact. Expired dispatched input requests durable finalization;
+missing proof stays pending. Retry uses the server's original text/image bytes
+under a new attempt identity. Delete confirms removal of the failed presentation,
+retaining its rejection fence across reopen. Ambiguous delivery is reconciled
+without automatic replay. Independent native withdrawal still offers recovery.
 See [submission semantics and immutable acceptance](docs/native-durable-submissions.md).
 
 The official app-server remains the sole execution/history owner. Completed
@@ -542,9 +544,9 @@ pnpm test
 node --test apps/partner/tests/panels.test.ts
 ```
 
-Current six-suite native verification uses the single frozen #3162 artifact,
-actual Node/Partner storage and fake loopback execution/speech, plus unchanged
-FlickLog source and a test-owned Meilisearch index. Follow
+Native verification uses the approved frozen App artifact, actual Node/Partner
+storage and fake loopback execution/speech. Search adds an unchanged Rust FlickLog
+release artifact, an owned foreground daemon and synthetic ingest. Follow
 [the current handoff](docs/default-shared-frontend.md) for exact commands,
 manifest checks and limitations. Historical slice artifacts remain evidence;
 they are not the current route or build workflow.
@@ -588,9 +590,11 @@ Recovery refreshes official history and exposes only confirmed recoverable text/
 Definite rolled-back admission returns `failed`; a durably received input remains
 `submitted` after a verified native rejection or pre-processing withdrawal and may
 offer recovery. Internal errors, lost responses and unresolved native input never
-create a recovery offer. Replies fail or stop independently of submission. Restore/edit
-uses a fresh UUID and replaces only eligible sources; consumed/replaced input cannot
-return. Missing originals require explicit removal or a new selection.
+create a recovery offer. Replies fail or stop independently of submission. Failed web
+messages use direct Retry/Delete, without restoring Composer input. Missing original
+bytes block the whole retry; deletion remains available. Independent withdrawal
+recovery still supports restore/edit with a fresh UUID and eligible sources;
+consumed/replaced/deleted inputs cannot return.
 The shared App at `/` uses these native routes.
 
 See [the shared image protocol and isolated acceptance recipe](docs/image-send-recovery.md).
@@ -626,9 +630,9 @@ compaction behavior and the five-minute reminder interval remain unchanged.
 ### Shared conversation-search acceptance
 
 Current search acceptance uses actual `createConversationSearch`, unchanged
-FlickLog source, a test-owned Meilisearch process and seeded test-owned Codex
-rollouts. Controls delay/fail delivery while public responses come from the native
-helper and index. The fake CLI matcher remains a unit-test seam, not native
+Rust FlickLog release artifact, an owned foreground daemon, synthetic session/config,
+a loopback HTTP fake and explicitly ingested test-owned Codex rollouts. Controls
+delay/fail delivery while public responses come from the native Rust daemon. Rust-format CLI fixtures remain unit-test seams, not native
 acceptance evidence. See [current acceptance commands](docs/default-shared-frontend.md).
 Reading archives preserves the active conversation and draft; native matching,
 workspace/device scope and context limits remain unchanged.

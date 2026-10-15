@@ -2,7 +2,7 @@ import { classifyMatrixTrigger, discoverMatrixSelf, matrixInputId, type MatrixCo
 import { matrixEndpoint } from './config.ts';
 import { listDiary, readDiary } from './diary.ts';
 export { MAX_DIARY_ENTRY_BYTES } from './diary.ts';
-import { validateUpload, validateSubmission, validateRecovery, type Receipt, type Submission, type ImageUpload, type ImageRef, type InputRecovery, type ChatAppearance } from '@lamplit/contracts';
+import { validateUpload, validateSubmission, validateRecovery, type Receipt, type Submission, type ImageUpload, type ImageRef, type InputRecovery, type ChatAppearance, type FinalizeSubmission, type RetryFailed, type DeleteFailed, validate, FinalizeSubmissionSchema, RetryFailedSchema, DeleteFailedSchema } from '@lamplit/contracts';
 import { createHash, randomUUID } from 'node:crypto';
 import { access, lstat, mkdir, readFile, writeFile, unlink } from 'node:fs/promises';
 import { basename, extname, isAbsolute, join, relative, resolve, sep as pathSeparator } from 'node:path';
@@ -1548,10 +1548,24 @@ export async function createPartner(config: Config, credentials: Credentials, de
     throw error;
   }
 
-  function submitInput(id: string, input: string, values: readonly z.infer<typeof imageInputSchema>[] = [], replaces: readonly string[] = [], shared?: Submission) {
+  function normalizeSubmission(value: Submission): Submission {
+    const input = validateSubmission(value);
+    return { operationId: input.operationId, text: input.text, ...(input.images?.length ? { images: input.images.map(({ attachmentId, name, mediaType, availability }) => ({ attachmentId, name, mediaType, availability })) } : {}), ...(input.replacementSourceIds?.length ? { replacementSourceIds: input.replacementSourceIds } : {}) };
+  }
+  function serializeInput<T>(action: () => Promise<T>): Promise<T> {
+    const result = inputAdmission.then(action);
+    inputAdmission = result.then(() => undefined, () => undefined);
+    return result;
+  }
+  async function mutationGuard(sessionId: string, authorize: () => Promise<boolean>) {
+    if (!await authorize() || closing || storageError || sessionId !== threadId) throw new Error('Unauthorized or unavailable session');
+  }
+  function submitInput(id: string, input: string, values: readonly z.infer<typeof imageInputSchema>[] = [], replaces: readonly string[] = [], shared?: Submission, guard?: { sessionId: string; authorize: () => Promise<boolean> }, prepare?: () => Promise<Submission>) {
     if (input.trim() === '/compact') return Promise.reject(new Error('Use the compact command without images'));
     pendingHumanAdmissions += 1;
-    const accepted = inputAdmission.then(async () => {
+    const accepted = serializeInput(async () => {
+      if (prepare) { shared = await prepare(); input = shared.text; replaces = shared.replacementSourceIds ?? []; }
+      if (guard) await mutationGuard(guard.sessionId, guard.authorize);
       if (closing || storageError) throw new Error('Partner is unavailable');
       if (shared) {
         const failed = await store.failedSubmission(id, threadId);
@@ -1567,7 +1581,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
         if (await store.messageMeta(id)) throw new Error('Message identity conflict');
         if (replaces.length) await refreshRecoveryHistory();
         for (const sourceId of replaces) {
-          if (observedInputIds.has(sourceId) || (await store.outcome(sourceId))?.status === 'replaced' || (!await store.rejected(sourceId) && (await store.failedSubmission(sourceId, threadId))?.replacedBy !== null)) throw new Error('Replacement source is not eligible');
+          if (await store.failureDeleted(sourceId) || observedInputIds.has(sourceId) || (await store.outcome(sourceId))?.status === 'replaced' || (!await store.rejected(sourceId) && (await store.failedSubmission(sourceId, threadId))?.replacedBy !== null)) throw new Error('Replacement source is not eligible');
         }
         const staged = await store.stagedImages(id, threadId);
         if (shared.images?.length) {
@@ -1578,9 +1592,11 @@ export async function createPartner(config: Config, credentials: Credentials, de
       const images = inputImages(id, values);
       if (shared && JSON.stringify(images.map(image => image.id)) !== JSON.stringify((shared.images ?? []).map(image => image.attachmentId))) throw new Error('Staged original bytes changed');
       const materialized = await materializeImages(paths.workspaceRoot, images);
+      if (guard) await mutationGuard(guard.sessionId, guard.authorize);
       const admitted = await store.admit(id, input, materialized, shared ? { sessionId: threadId, input: shared } : undefined).catch(async error => {
         // Store.admit rolls back atomically. Conflicts do not replace an existing identity.
         if (!shared || (error as { code?: string }).code === 'MESSAGE_IDENTITY_CONFLICT') throw error;
+        if (guard) await mutationGuard(guard.sessionId, guard.authorize);
         await store.failSubmission(shared, threadId, error instanceof Error ? error.message : String(error));
         return undefined;
       });
@@ -1604,7 +1620,6 @@ export async function createPartner(config: Config, credentials: Credentials, de
     });
     // Durable admission has its own short serializer. Native attempts remain
     // ordered on the existing execution owner and are drained during close.
-    inputAdmission = accepted.then(() => undefined, () => undefined);
     const executed = accepted.then(intent => {
       if (!intent) return;
       const task = admission.then(async () => {
@@ -1632,7 +1647,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
     // Keep delayed caller handling (especially close) from creating an
     // unhandled rejection. Execution failures are reported by admission above.
     void executed.catch(() => undefined);
-    if (shared) {
+    if (shared || prepare) {
       // A receipt promises retained input, not successful native execution.
       return accepted.then(() => { if (!closing) notify(); });
     }
@@ -1904,16 +1919,78 @@ export async function createPartner(config: Config, credentials: Credentials, de
       syncActiveTurn(); drainExternal(); notify(); return { stopped: true };
     },
     submit: submitInput,
-    async submitShared(value: Submission) {
+    async submitShared(value: Submission, authorize: () => Promise<boolean> = async () => true) {
+      const sessionId = threadId;
       pendingHumanAdmissions += 1;
       try {
-        const input = validateSubmission(value);
-        const normalized: Submission = { operationId: input.operationId, text: input.text, ...(input.images?.length ? { images: input.images.map(({ attachmentId, name, mediaType, availability }) => ({ attachmentId, name, mediaType, availability })) } : {}), ...(input.replacementSourceIds?.length ? { replacementSourceIds: input.replacementSourceIds } : {}) };
-        await submitInput(input.operationId, input.text, [], input.replacementSourceIds ?? [], normalized);
-        const receipt = await this.chatReceipt(input.operationId);
+        const normalized = normalizeSubmission(value);
+        await submitInput(normalized.operationId, normalized.text, [], normalized.replacementSourceIds ?? [], normalized, { sessionId, authorize });
+        const receipt = await this.chatReceipt(normalized.operationId);
         if (!receipt) throw new Error('Submission has no durable result');
         return receipt;
       } finally { pendingHumanAdmissions -= 1; }
+    },
+    async finalizeSubmission(value: FinalizeSubmission, authorize: () => Promise<boolean> = async () => true): Promise<Receipt | null> {
+      value = validate(FinalizeSubmissionSchema, value);
+      return serializeInput(async () => {
+        await mutationGuard(value.sessionId, authorize);
+        let input: Submission;
+        if ('retry' in value) {
+          if (value.retry.sessionId !== value.sessionId) throw new Error('Wrong retry session');
+          const bound = await store.retryAttempt(value.retry.attemptId, value.sessionId, value.retry.operationId);
+          if (!bound) return null;
+          input = bound;
+        } else input = normalizeSubmission(value.submission);
+        const hash = createHash('sha256').update(JSON.stringify(input)).digest('hex');
+        const accepted = await store.sharedSubmission(input.operationId, value.sessionId);
+        const failed = await store.failedSubmission(input.operationId, value.sessionId);
+        if ((accepted && accepted !== hash) || (failed && JSON.stringify(failed.input) !== JSON.stringify(input))) throw new Error('Message identity conflict');
+        await mutationGuard(value.sessionId, authorize);
+        if (!accepted && !failed) await store.failSubmission(input, value.sessionId, 'Submission was not received');
+        notify();
+        return this.chatReceipt(input.operationId);
+      });
+    },
+    async retryFailed(value: RetryFailed, authorize: () => Promise<boolean> = async () => true): Promise<Receipt> {
+      const { sessionId, operationId, attemptId } = validate(RetryFailedSchema, value);
+      await submitInput(attemptId, '', [], [], undefined, { sessionId, authorize }, async () => {
+        await mutationGuard(sessionId, authorize);
+        const previous = await store.retryAttempt(attemptId, sessionId, operationId);
+        if (previous) return previous;
+        const failed = await store.failedSubmission(operationId, sessionId);
+        if (!failed || failed.replacedBy || await store.failureDeleted(operationId) || await store.messageMeta(operationId) || attemptId === operationId) throw new Error('Failed submission is no longer available');
+        await mutationGuard(sessionId, authorize);
+        await store.retryAttempt(attemptId, sessionId, operationId, true);
+        const original = failed.input;
+        const staged = await store.stagedImages(operationId, sessionId);
+        let images: ImageRef[] | undefined;
+        if (original.images?.length) {
+          if (!staged || JSON.stringify(staged.refs) !== JSON.stringify(original.images)) throw new Error('Original images are missing');
+          const bytes = await Promise.all(staged.images.map(image => readFile(image.path)));
+          const values = staged.images.map((image, index) => ({ type: 'image' as const, name: image.name, mediaType: image.media_type, data: bytes[index]!.toString('base64') }));
+          if (JSON.stringify(inputImages(operationId, values).map(image => image.id)) !== JSON.stringify(original.images.map(image => image.attachmentId))) throw new Error('Original images changed');
+          const materialized = await materializeImages(paths.workspaceRoot, inputImages(attemptId, values));
+          images = materialized.map(image => ({ attachmentId: image.id, name: image.name, mediaType: image.media_type, availability: 'available' }));
+          await mutationGuard(sessionId, authorize);
+          await store.stageImages(attemptId, sessionId, createHash('sha256').update(JSON.stringify(images)).digest('hex'), { images: materialized.map(({ id, operation_id, name, media_type, path }) => ({ id, operation_id, name, media_type, path })), refs: images, variants: staged.variants });
+        }
+        const input = normalizeSubmission({ operationId: attemptId, text: original.text, ...(images ? { images } : {}), replacementSourceIds: [operationId] });
+        await mutationGuard(sessionId, authorize);
+        await store.bindRetry(input);
+        return input;
+      });
+      const receipt = await this.chatReceipt(attemptId);
+      if (!receipt) throw new Error('Retry has no durable result');
+      return receipt;
+    },
+    async deleteFailed(value: DeleteFailed, authorize: () => Promise<boolean> = async () => true) {
+      value = validate(DeleteFailedSchema, value);
+      return serializeInput(async () => {
+        await mutationGuard(value.sessionId, authorize);
+        const deleted = await store.deleteFailed(value.operationId, value.sessionId);
+        notify();
+        return { ...value, deleted };
+      });
     },
     async cancel(id: string) {
       const active = activeTurnId && (activeTurnId === id || activeSourceIds(activeTurnId).includes(id) || operationTurn(id)?.id === activeTurnId);
