@@ -260,14 +260,18 @@ original integration work. FlickLog itself and prompt semantics are unchanged.
 The default Framework7/Svelte frontend and `@lamplit/contracts` public exports
 are built together from Apache-2.0 `LamplitIsles/lamplit-app`, initially
 `26ab708799f8ef4d99d974e1ab60c4d14a38267a`. `lamplit-app.sha` is the authoritative
-current pin. The current source is merged App PR27
-`102e044d8dfdeb4f1502f5f01b35c6fcb9183e5f`, tree
-`3cf232c6b647383d2d56f8d5f757187f34ef4074` (Apache-2.0). Browser resources and
+current pin. The current source is merged App PR28 (App spec #4150)
+`6016080da986cf69277041c3d73d5c2c801dbd46`, tree
+`a5cc014af2442dfe09f88258ac629e095d94d494` (Apache-2.0). Browser resources and
 compiled public contracts come from that same revision; upstream licenses and
 source attribution remain in the retained App LICENSE and IMPORTS payload.
 The merged tree is identical to reviewed source
-`d26a6da648a224ad92483bb22ed25be57b79e864`; frozen acceptance retains that
-original source label. The previous source-line pin was merged App PR26
+`4f081b40a0a8d833474976f80cbbc8883957b3bf`; App owns the atomic source-line
+streaming repair and its local socket/browser evidence. Historical frozen
+acceptance retains source `d26a6da648a224ad92483bb22ed25be57b79e864`
+(merged PR27 `102e044d8dfdeb4f1502f5f01b35c6fcb9183e5f`, tree
+`3cf232c6b647383d2d56f8d5f757187f34ef4074`). The previous source-line pin was
+merged App PR26
 `3d568b2a1300cf6ae2443b9a962bf01ab8853b8a`, tree
 `f82719aa5ab3ae3e1699e71c18cf575d083639ac`; its earlier evidence remains historical.
 The preparation step consumes adjacent
@@ -390,7 +394,7 @@ readers remain for persisted real provenance.
 ### Source-line reply acceptance — spec #4126 / App #4128
 
 The sole approved frozen source is `d26a6da648a224ad92483bb22ed25be57b79e864`,
-with the same tree as the merged source pin above. Archive SHA256
+with the same tree as historical merged PR27 above. Archive SHA256
 `1de2b213ff33ce7250f69586124dd91e8049c7671502e13149738c95174bb4fd`;
 identity `4cb5ba97d2e13bad73778d593828f080f9e88511c549e8faf3d7264fef77f302`.
 Browser manifest `b558289f42d24e316a0e224c096a455b3342be7291c40417b68f7b917ec34e66`,
