@@ -442,7 +442,19 @@ See [submission semantics and immutable acceptance](docs/native-durable-submissi
 The official app-server remains the sole execution/history owner. Completed
 message IDs are presentation metadata; no reply text is duplicated in a new
 transcript. Each completed agent message, including commentary, becomes visible
-while the turn continues; unfinished text stays hidden. Sending ends when CFL
+while the turn continues. Current answer text grows from official agent-message
+increments as a transient preview; reasoning, tool payloads and unfinished
+commentary remain private. The default Reply display preference splits answers
+at source LF/CRLF boundaries, keeping lists and other Markdown structures intact.
+Each displayed unit has its original source time/avatar and copies only its own
+source; Whole reply restores the entire answer and full-source Copy. This display
+preference creates no additional transcript records or notifications.
+Closing the last page stops observation only. Reconnecting reads the same active
+Partner partial without restarting execution. Completion replaces that preview
+with the official completed message; stop/failure/session change removes it and
+late deltas cannot restore it. SDK transport/process restart does not automatically
+replay a turn or restore unpersisted tokens; only retained official history can
+be recovered. Sending ends when CFL
 commits the validated input, attachment metadata and immutable operation identity
 together in SQLite. The `submitted` receipt means the input is retained; native
 start/steer and history reconciliation continue independently. It does not
@@ -538,7 +550,7 @@ endpoint remains independent.
 
 ### Shared image sending and recovery
 
-The shared slice accepts PNG/JPEG/WebP/GIF: five images, 5 MiB each, 20 MiB
+The shared slice accepts PNG/JPEG/WebP/GIF: six images, 5 MiB each, 20 MiB
 original bytes total and 160-character filenames. It serves existing generated
 originals up to 32 MiB independently of intake limits. Preview/model uploads keep
 the common 160,000/320,000-byte JPEG bounds. Native execution receives the original

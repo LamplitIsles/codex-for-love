@@ -62,6 +62,13 @@ export async function fixture(directoryRoot?: string) {
       } catch { return false; } // The fake engine may be in the middle of its test-owned write.
     },
     async createPartner(dependencies: Omit<PartnerDependencies, 'appServer'> = {}) { partner = await createPartner(config, credentials, { ...dependencies, appServer }); return partner; },
+    async streamCommand(command: Record<string, unknown>) {
+      const id = crypto.randomUUID(), next = `${controlPath}.${id}`;
+      await writeFile(next, JSON.stringify({ command: { ...command, id } }), { mode: 0o600 });
+      await rename(next, controlPath);
+      await eventually(async () => { try { return await readFile(join(directory, 'command-done'), 'utf8') === id; } catch { return false; } });
+    },
+    async nativeState() { return JSON.parse(await readFile(fakeStatePath, 'utf8')); },
     async chatPhase(value: 'partial' | 'message-completed' | 'finish' | 'fail') {
       // The fake provider must never interpret a truncated control file as Finish.
       const next = `${controlPath}.${crypto.randomUUID()}`;

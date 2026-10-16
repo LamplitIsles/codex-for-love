@@ -180,7 +180,7 @@ IMAGE_FIXTURE_EVIDENCE=<evidence> \
   node apps/partner/tests/image-send-recovery-fixture.ts <browser>
 COMPACT_FIXTURE_EVIDENCE=<evidence> \
   node apps/partner/tests/quiet-compaction-fixture.ts <browser>
-CFL_ACCEPTANCE_FLICKLOG_BIN=<test-owned-unchanged-rust-release-binary> \
+TMPDIR=/tmp CFL_ACCEPTANCE_FLICKLOG_BIN=<test-owned-unchanged-rust-release-binary> \
   node apps/partner/tests/conversation-search-acceptance-host.ts <browser> <evidence>
 ```
 
@@ -191,7 +191,8 @@ Chord, native storage and adapters. Controls only seed/reset fixture data,
 observe transport, configure fake execution/speech, or delay/fail delivery.
 Search runs an explicit unchanged Rust release artifact against an owned foreground
 daemon, synthetic session/config, loopback HTTP fake and synthetic Codex ingest.
-All data directories and processes belong to the fixture. The fake endpoint does
+All data directories and processes belong to the fixture. The short temporary
+root above keeps macOS Unix socket paths within the native limit. The fake endpoint does
 not establish real PowerSync acceptance. CFL does not invoke setup/login/service
 commands, installed executables or a live daemon. Rust owns matching and context
 membership; CFL validates the public DTO and selected-record workspace.
@@ -258,3 +259,40 @@ isolated source acceptance does not establish that reachability or hosted CI
 success. The 2026-10-13 Owner authorization in spec #3739 supersedes the
 historical deployment hold. Workers prepare immutable candidates; Orc owns
 current-head review, merge, dev readiness and production promotion.
+
+## Source-line replies and native answer previews — spec #4126
+
+The shared App owns source LF/CRLF display units, Markdown structure, per-unit
+avatar/time/Copy and the browser's Source lines / Whole reply preference. CFL
+supplies the existing optional `streamingReply` contract from official answer
+`item/started` and `item/agentMessage/delta` events. Only the current known
+thread/turn/item can grow that transient slot. Completed items and terminal turns
+retire it; late events cannot reopen an observed terminal attempt. No sentences,
+partial text, reasoning or tool payloads are added to CFL persistence, search or
+completion notifications. Existing completed-commentary history is unchanged.
+
+Closing the last browser socket removes only its observer. The running Partner
+retains its current partial for a new socket read. Delayed host reads consult
+current transient authority after async history/media work. SDK process/transport
+loss has no automatic reconnect or replay; a fresh Partner reconciles official
+retained history and does not promise recovery of unpersisted tokens.
+
+Native acceptance reuses the text/voice host with an evidence directory:
+
+```sh
+mkdir -p .scratch/source-line-streaming-replies/native
+node apps/partner/tests/text-voice-acceptance-host.ts \
+  <approved-frozen-browser> "$PWD/.scratch/source-line-streaming-replies/native"
+```
+
+Use the printed origin and control URL with the approved frozen
+`sentence-browser.mjs`, `APP_ACCEPTANCE_PROFILE=cfl`, and a separate browser
+evidence directory. Controls submit `Test-owned sentence acceptance input`
+through actual Partner/SQLite admission, then hold the fake official turn and
+append cumulative answer suffixes as typed protocol deltas. They reject rewrites
+and observe the real execution count/turn/item. `/disconnect` closes observation
+sockets only. Native observations retain held and terminal snapshots and RPC
+requests in ignored evidence. The CFL profile positively checks absent thinking
+and the native `CFL_REASONING_PRIVATE_SENTINEL` stays private. It grants no
+permission to expose reasoning or change the frozen runner. Source-built package
+hashes and separately approved frozen acceptance identities remain distinct.

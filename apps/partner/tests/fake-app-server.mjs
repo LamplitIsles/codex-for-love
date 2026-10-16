@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { basename, join } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -14,7 +14,7 @@ const pngEdited = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAD
 function readJson(path, fallback) {
   try { return JSON.parse(readFileSync(path, 'utf8')); } catch { return fallback; }
 }
-function save() { writeFileSync(statePath, JSON.stringify(state)); }
+function save() { writeFileSync(statePath + '.next', JSON.stringify(state)); renameSync(statePath + '.next', statePath); }
 function send(value) {
   process.stdout.write(`${JSON.stringify(value)}\n`);
   if (value.method === 'item/tool/call') {
@@ -162,6 +162,13 @@ async function waitForTool(id) {
 }
 
 async function runTurn(turn) {
+  if (process.env.FAKE_STREAM_FIXTURE === 'true') {
+    const item = { type: 'agentMessage', id: `answer-${state.next++}`, text: '', phase: 'final_answer', memoryCitation: null, delivery: null, questions: null };
+    const startedAtMs = Date.now();
+    turn.items.push(item); state.streamingItem = item.id; state.streamingStartedAtMs = startedAtMs; save();
+    send({ method: 'item/started', params: { threadId: state.threadId, turnId: turn.id, startedAtMs, item } });
+    return;
+  }
   if (process.env.FAKE_CHAT_PHASE_FIXTURE === 'true') {
     const commentary = { type: 'agentMessage', id: `commentary-${state.next++}`, text: 'unfinished commentary', phase: 'commentary', memoryCitation: null, delivery: null, questions: null };
     turn.items.push(commentary); save();
@@ -374,7 +381,8 @@ async function handle(request) {
     }] };
     case 'config/batchWrite': state.trusted = true; save(); return { filePath: process.env.FAKE_CONFIG_PATH, status: 'ok', version: 'fixture-1', overriddenMetadata: null };
     case 'thread/start': {
-      state.threadId = 'thread-fake'; save(); return { thread: threadRecord(p.cwd, p.model), model: p.model, modelProvider: 'fixture', serviceTier: selectTier(p), cwd: p.cwd, runtimeWorkspaceRoots: [], instructionSources: [], approvalPolicy: 'never', approvalsReviewer: 'user', sandbox: { type: 'dangerFullAccess' }, activePermissionProfile: null, reasoningEffort: null, multiAgentMode: 'explicitRequestOnly' };
+      if (process.env.FAKE_STREAM_FIXTURE !== 'true') state.threadId = 'thread-fake';
+      save(); return { thread: threadRecord(p.cwd, p.model), model: p.model, modelProvider: 'fixture', serviceTier: selectTier(p), cwd: p.cwd, runtimeWorkspaceRoots: [], instructionSources: [], approvalPolicy: 'never', approvalsReviewer: 'user', sandbox: { type: 'dangerFullAccess' }, activePermissionProfile: null, reasoningEffort: null, multiAgentMode: 'explicitRequestOnly' };
     }
     case 'thread/resume': {
       if (process.env.FAKE_RESUME_ACTIVE === 'true' && state.active) {
@@ -431,6 +439,41 @@ async function handle(request) {
       return {};
     default: throw new Error(`fixture does not implement ${request.method}`);
   }
+}
+
+// Held official protocol stream. Commands change native items/events, never public DTOs.
+if (process.env.FAKE_STREAM_FIXTURE === 'true') {
+  let lastCommand;
+  setInterval(() => {
+    const command = control().command;
+    if (!command || command.id === lastCommand) return;
+    lastCommand = command.id;
+    const turn = state.turns.find(t => t.id === state.active);
+    let item = turn?.items.find(i => i.id === state.streamingItem);
+    if (command.action === 'event') send(command.notification);
+    else if (turn && item) {
+      if (command.action === 'next') {
+        send({ method: 'item/completed', params: { threadId: state.threadId, turnId: turn.id, completedAtMs: Date.now(), item } });
+        item = { ...item, id: `answer-${state.next++}`, text: '', phase: command.phase ?? null };
+        turn.items.push(item); state.streamingItem = item.id;
+        send({ method: 'item/started', params: { threadId: state.threadId, turnId: turn.id, startedAtMs: Date.now(), item } });
+      } else if (command.action === 'advance' || command.action === 'complete') {
+        if (!command.text.startsWith(item.text)) throw new Error('Stream must extend prefix');
+        const delta = command.text.slice(item.text.length); item.text = command.text;
+        if (delta) send({ method: 'item/agentMessage/delta', params: { threadId: state.threadId, turnId: turn.id, itemId: item.id, delta } });
+        if (command.action === 'complete') {
+          send({ method: 'item/completed', params: { threadId: state.threadId, turnId: turn.id, completedAtMs: Date.now(), item } });
+          turn.status = 'completed'; turn.completedAt = nowSeconds(); state.active = null;
+          send({ method: 'turn/completed', params: { threadId: state.threadId, turn } });
+        }
+      } else if (command.action === 'fail') {
+        turn.status = 'failed'; turn.error = { message: 'Test-owned held stream failed' }; turn.completedAt = nowSeconds(); state.active = null;
+        send({ method: 'turn/completed', params: { threadId: state.threadId, turn } });
+      }
+      save();
+    }
+    writeFileSync(join(root, 'command-done'), command.id);
+  }, 10).unref();
 }
 
 if (process.env.FAKE_QUIET_COMPACT === 'true') {

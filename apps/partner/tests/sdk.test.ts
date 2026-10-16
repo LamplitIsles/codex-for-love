@@ -95,7 +95,8 @@ test('history absence is narrowed to the official pre-first-message error', asyn
 test('short SDK timeout leaves an unresolved native turn admission and close remains bounded', async () => {
   const f = await fixture();
   f.appServer.env!.FAKE_HOLD_METHOD = 'turn/start';
-  f.appServer.requestTimeoutMs = 500;
+  // This SDK-wide deadline also covers process initialization, not just the held RPC.
+  f.appServer.requestTimeoutMs = 2_000;
   const partner = await f.createPartner();
   try {
     await assert.rejects(partner.submit(randomUUID(), 'timeout this turn admission'), (error: unknown) => error instanceof AppServerRequestTimeoutError);
@@ -124,7 +125,7 @@ test('a successful voice tool artifact projects once with its durable same-origi
 test('accepted native start reconciles a dropped response without submitting a second turn', async () => {
   const f = await fixture();
   f.appServer.env!.FAKE_DROP_RESPONSE_METHOD = 'turn/start';
-  f.appServer.requestTimeoutMs = 250;
+  f.appServer.requestTimeoutMs = 2_000;
   let partner = await f.createPartner();
   try {
     const id = randomUUID();
@@ -145,7 +146,7 @@ test('accepted native start reconciles a dropped response without submitting a s
 test('accepted native steer reconciles a dropped response without duplicating the source input', async () => {
   const f = await fixture();
   f.appServer.env!.FAKE_DROP_RESPONSE_METHOD = 'turn/steer';
-  f.appServer.requestTimeoutMs = 250;
+  f.appServer.requestTimeoutMs = 2_000;
   const partner = await f.createPartner();
   try {
     await f.holdProvider(true);
@@ -168,7 +169,7 @@ test('accepted native steer reconciles a dropped response without duplicating th
 test('pre-acceptance timeout remains an editable unresolved draft across reopen and requires deliberate replacement', async () => {
   const f = await fixture();
   f.appServer.env!.FAKE_HOLD_METHOD = 'turn/start';
-  f.appServer.requestTimeoutMs = 250;
+  f.appServer.requestTimeoutMs = 2_000;
   let partner = await f.createPartner();
   const id = randomUUID();
   try {

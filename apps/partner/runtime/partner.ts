@@ -137,6 +137,7 @@ type SupportedNotification =
   | ServerNotificationFor<'turn/started'>
   | ServerNotificationFor<'item/started'>
   | ServerNotificationFor<'item/completed'>
+  | ServerNotificationFor<'item/agentMessage/delta'>
   | ServerNotificationFor<'turn/completed'>
   | ServerNotificationFor<'thread/compacted'>
   | ServerNotificationFor<'error'>;
@@ -282,11 +283,15 @@ function resultOperationId(turnId: string): string {
   return `turn:${turnId}`;
 }
 
+function isAnswer(item: OfficialItem): boolean {
+  return item.type === 'agentMessage'
+    && (item.phase === undefined || item.phase === null || item.phase === 'final_answer' || item.phase === 'finalAnswer');
+}
+
 function answersFromTurn(turn: OfficialTurn | undefined): string[] {
   if (!turn?.items) return [];
   return turn.items
-    .filter((item) => item.type === 'agentMessage'
-      && (item.phase === undefined || item.phase === null || item.phase === 'final_answer' || item.phase === 'finalAnswer'))
+    .filter(isAnswer)
     .map((item) => item.text)
     .filter((value): value is string => typeof value === 'string' && value.trim().length > 0);
 }
@@ -519,6 +524,9 @@ export async function createPartner(config: Config, credentials: Credentials, de
   let recoveryPromise: Promise<void> | undefined;
   let lifecycle: CompactionLifecycleState | undefined;
   let eventSequence = 0;
+  // Observation only: never persisted as transcript, receipts or sentence rows.
+  let streaming: { id: string; turnId: string; createdAt: number; text: string } | undefined;
+  const completedStreamItems = new Map<string, Set<string>>();
   let storageError = false;
   let closing = false;
   let unsubscribeAppServer: Array<() => void> = [];
@@ -580,11 +588,17 @@ export async function createPartner(config: Config, credentials: Credentials, de
     const parsed = turnFrom(value);
     if (!parsed) return undefined;
     const previous = turns.get(parsed.id);
+    // A delayed start/read response cannot reopen an observed terminal attempt.
+    if (previous && ['completed', 'failed', 'interrupted', 'cancelled'].includes(turnStatus(previous)) && isActiveTurn(parsed)) return previous;
     const turn: OfficialTurn = { ...previous, ...parsed };
     // An in-progress RPC snapshot can arrive after a newer item notification.
     // Keep items already observed for this turn when that snapshot is shorter.
     if (previous?.items && (parsed.items === undefined || (parsed.status === 'inProgress' && parsed.items.length < previous.items.length))) turn.items = previous.items;
     turns.set(turn.id, turn);
+    if (['completed', 'failed', 'interrupted', 'cancelled'].includes(turnStatus(turn))) {
+      if (streaming?.turnId === turn.id) streaming = undefined;
+      completedStreamItems.delete(turn.id);
+    }
     const officialIds = officialInputIds(turn);
     const pending = submittingOperationId
       ? pendingStarts.get(submittingOperationId) ?? pendingSteers.find((intent) => intent.transportId === submittingOperationId)
@@ -1355,10 +1369,34 @@ export async function createPartner(config: Config, credentials: Credentials, de
         if (!closing) notify();
         break;
       }
+      case 'item/agentMessage/delta': {
+        const { turnId, itemId, delta } = notification.params;
+        const turn = turns.get(turnId);
+        if (notification.params.threadId !== threadId || !isActiveTurn(turn) || activeTurnId !== turnId
+          || !streaming || streaming.turnId !== turnId || streaming.id !== itemId
+          || completedStreamItems.get(turnId)?.has(itemId) || !delta) break;
+        streaming = { ...streaming, text: streaming.text + delta };
+        if (!closing) notify();
+        break;
+      }
       case 'item/started': {
         const item = record(params.item);
         pet?.itemStarted(item);
         const turnId = typeof params.turnId === 'string' ? params.turnId : '';
+        const turn = turns.get(turnId);
+        if (item.type === 'agentMessage' && !isAnswer(item) && streaming?.turnId === turnId && streaming.id === item.id) {
+          streaming = undefined;
+          if (!closing) notify();
+        }
+        if (notification.params.threadId === threadId && activeTurnId === turnId && isActiveTurn(turn)
+          && isAnswer(item) && typeof item.id === 'string' && item.id
+          && !completedStreamItems.get(turnId)?.has(item.id)) {
+          if (streaming?.turnId !== turnId || streaming.id !== item.id) {
+            streaming = { id: item.id, turnId, text: typeof item.text === 'string' ? item.text : '',
+              createdAt: notification.params.startedAtMs };
+          }
+          if (!closing) notify();
+        }
         if (turnId && item.type === 'imageGeneration') {
           mergeItem(turnId, item);
           syncActiveTurn();
@@ -1372,8 +1410,16 @@ export async function createPartner(config: Config, credentials: Credentials, de
         const item = record(params.item);
         pet?.itemCompleted(item);
         const turnId = typeof params.turnId === 'string' ? params.turnId : '';
-        if (turnId && item.type === 'agentMessage' && typeof item.id === 'string') await store.markChatItemCompleted(turnId, item.id);
+        if (turnId && item.type === 'agentMessage' && typeof item.id === 'string') {
+          if (isActiveTurn(turns.get(turnId))) {
+            const completed = completedStreamItems.get(turnId) ?? new Set<string>();
+            completed.add(item.id); completedStreamItems.set(turnId, completed);
+          }
+          await store.markChatItemCompleted(turnId, item.id);
+        }
         if (turnId) mergeItem(turnId, item);
+        // Keep the preview until the completed item is available to history reads.
+        if (streaming?.turnId === turnId && streaming.id === item.id) streaming = undefined;
         if (turnId && ['userMessage', 'agentMessage', 'imageGeneration', 'mcpToolCall', 'mcpToolResult'].includes(typeof item.type === 'string' ? item.type : '')) {
           const turn = await reconcileTurn(turnId, undefined, typeof item.id !== 'string' || typeof item.type !== 'string');
           if (turn && userItems(turn).length) await projectTurn(turn);
@@ -1438,7 +1484,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
     // the serialized notification chain is still draining.
     if (notification.method === 'turn/started') {
       const turn = registerTurn(record(notification.params).turn);
-      if (turn) {
+      if (turn && isActiveTurn(turn)) {
         if (compacting) {
           for (const intent of rejectedSteers) if (!intent.turnId) intent.turnId = turn.id;
         }
@@ -1501,6 +1547,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
       appServer.onNotification('thread/tokenUsage/updated', (_params, notification) => onServerEvent(notification)),
       appServer.onNotification('turn/started', (_params, notification) => onServerEvent(notification)),
       appServer.onNotification('item/started', (_params, notification) => onServerEvent(notification)),
+      appServer.onNotification('item/agentMessage/delta', (_params, notification) => onServerEvent(notification)),
       appServer.onNotification('item/completed', (_params, notification) => onServerEvent(notification)),
       appServer.onNotification('turn/completed', (_params, notification) => onServerEvent(notification)),
       appServer.onNotification('thread/compacted', (_params, notification) => onServerEvent(notification)),
@@ -1829,6 +1876,11 @@ export async function createPartner(config: Config, credentials: Credentials, de
       const image = catalogue.get(id); if (!image) return undefined;
       try { return { media_type: image.mediaType, data: await readFile(image.path) }; } catch { return undefined; }
     },
+    streamingReply() {
+      if (closing || !streaming || !streaming.text.trim() || streaming.turnId !== activeTurnId
+        || !isActiveTurn(turns.get(streaming.turnId))) return undefined;
+      return { ...streaming };
+    },
     appearance(): ChatAppearance {
       return { companionName: config.name, userName: '',
         ...(avatars.companion ? { companionAvatar: '/api/avatars/companion' } : {}),
@@ -2092,6 +2144,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
     close() {
       if (closePromise) return closePromise;
       closing = true;
+      streaming = undefined; completedStreamItems.clear();
       postAbort.abort();
       if (alarmTimer) clearInterval(alarmTimer);
       pet?.close();

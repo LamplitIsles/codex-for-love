@@ -260,16 +260,16 @@ original integration work. FlickLog itself and prompt semantics are unchanged.
 The default Framework7/Svelte frontend and `@lamplit/contracts` public exports
 are built together from Apache-2.0 `LamplitIsles/lamplit-app`, initially
 `26ab708799f8ef4d99d974e1ab60c4d14a38267a`. `lamplit-app.sha` is the authoritative
-current pin. The current source is merged App PR24
-`0d151ffc1e31eca1bbcef8e9958a01e8f07e3d36`, tree
-`589e6cb37d04f2dedf9fa2316011782569e18ea5` (Apache-2.0). Browser resources and
+current pin. The current source is merged App PR27
+`102e044d8dfdeb4f1502f5f01b35c6fcb9183e5f`, tree
+`3cf232c6b647383d2d56f8d5f757187f34ef4074` (Apache-2.0). Browser resources and
 compiled public contracts come from that same revision; upstream licenses and
 source attribution remain in the retained App LICENSE and IMPORTS payload.
 The merged tree is identical to reviewed source
-`3822c263b7ed70b1b32abb5cb0b250616b6a6c76`; frozen acceptance retains that
-original source label. The previous pin was merged App PR23
-`e09b4800139d6a3902bb3e029dc8f01410c85404`, tree
-`ebe405f2e7cc5e6399b6f85908aa6bfe5ff5b400`; its earlier evidence remains historical.
+`d26a6da648a224ad92483bb22ed25be57b79e864`; frozen acceptance retains that
+original source label. The previous source-line pin was merged App PR26
+`3d568b2a1300cf6ae2443b9a962bf01ab8853b8a`, tree
+`f82719aa5ab3ae3e1699e71c18cf575d083639ac`; its earlier evidence remains historical.
 The preparation step consumes adjacent
 source with its frozen Bun lock, and materializes compiled package exports without private UI imports.
 The former frontend and appearance-contract archives are removed. Earlier
@@ -386,3 +386,21 @@ contract, frontend source or native fork change. Existing App/native pins and
 historical attribution above are unchanged. Active Matrix-specific integration
 and its old producer/acceptance runners were retired; historical Matrix source
 readers remain for persisted real provenance.
+
+### Source-line reply acceptance — spec #4126 / App #4128
+
+The sole approved frozen source is `d26a6da648a224ad92483bb22ed25be57b79e864`,
+with the same tree as the merged source pin above. Archive SHA256
+`1de2b213ff33ce7250f69586124dd91e8049c7671502e13149738c95174bb4fd`;
+identity `4cb5ba97d2e13bad73778d593828f080f9e88511c549e8faf3d7264fef77f302`.
+Browser manifest `b558289f42d24e316a0e224c096a455b3342be7291c40417b68f7b917ec34e66`,
+contracts `f21953f1a68b4ac1ffa3562acfc6acafc86b753ce73bde294cfdecaf4e4aae4e`,
+acceptance `9febfd0982a9cec11b46ebeeb9e683f64ad320a8c8b377396af6f3b476346d1c`.
+Sentence runner `780046df56a2bb951648845139c8673fd7fefc065043f33ffe6f426d28777e9a`;
+search runner `c5a44853b46c3f06f56a2bde104d7f3ada6d6281c2d719419f277a5496530139`.
+The App-owned CFL profile positively checks absent thinking and private native
+reasoning sentinels; default App/Chat presentation stays unchanged. These frozen
+browser/contract/runner bytes are acceptance inputs, separate from source-built
+package manifests and hashes. The earlier06459f0 archive remains historical,
+unchanged evidence. No Pi execution code is imported; CFL's official-event
+projection and held-native controls are original integration work.

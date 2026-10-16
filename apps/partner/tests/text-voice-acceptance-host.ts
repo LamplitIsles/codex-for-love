@@ -2,15 +2,15 @@
 import { once } from 'node:events';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { readFile, rename, writeFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { appendFile, readFile, rename, writeFile } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
 import WebSocket, { WebSocketServer } from 'ws';
 import { fixture, eventually } from './fixture.ts';
 import { createWebServer } from '../runtime/server.ts';
 import type { Partner } from '../runtime/partner.ts';
 
 type Take = { ready: boolean; holdReady: boolean; frames: number[][]; events: string[]; upstreamFrames: number[][]; upstreamFinishes: number; id: string; bytes: number; controls: string[]; closed: boolean; finishedBytes: number; firstFrame: number[]; nonzero: boolean; upstream?: WebSocket; taskId?: string; text: string; hold: boolean };
-export async function textVoiceHost(assets: string) {
+export async function textVoiceHost(assets: string, sentenceEvidence?: string) {
   let f = await fixture(), partner: Partner;
   let speech = { text: 'recognized final', hold: false, holdReady: false, availability: 'enabled' };
   const takes: Take[] = [], pending: Take[] = [];
@@ -20,12 +20,24 @@ export async function textVoiceHost(assets: string) {
     const path = f.appServer.env.FAKE_SERVER_CONTROL!;
     await writeFile(path + '.next', JSON.stringify(control)); await rename(path + '.next', path);
   }
-  async function reset() {
+  async function reset(seed = true) {
     off(); await f.close(); f = await fixture();
     speech = { text: 'recognized final', hold: false, holdReady: false, availability: 'enabled' };
     takes.length = pending.length = 0;
     f.config.speech = { endpoint: 'http://127.0.0.1/unused-batch' }; f.credentials.speech = 'synthetic-fixture-key';
     control.hold = true; control.completedText = '完整回复'; await writeControl();
+    if (sentenceEvidence) {
+      f.appServer.env.FAKE_STREAM_FIXTURE = 'true';
+      if (!seed) await writeFile(f.appServer.env.FAKE_SERVER_STATE!, JSON.stringify({ threadId: `sentence-${crypto.randomUUID()}`, next: 1, turns: [] }));
+      if (seed) {
+        const texts = ['更早第一行。\n更早第二行。', ...Array.from({ length: 14 }, (_, i) => `history filler ${i}`), '历史第一行。同行第二句。\n历史第二行。'];
+        const turns = texts.map((text, i) => ({ id: `seed-${i}`, status: 'completed', itemsView: 'full', startedAt: 1700000000 + i, completedAt: 1700000001 + i, error: null,
+          items: [{ type: 'userMessage', id: `seed-user-${i}`, clientId: `seed-input-${i}`, content: [{ type: 'text', text: `Test-owned history ${i}` }] },
+            { type: 'reasoning', id: `seed-reasoning-${i}`, summary: ['CFL_REASONING_PRIVATE_SENTINEL'], content: ['CFL_REASONING_PRIVATE_SENTINEL'] },
+            { type: 'agentMessage', id: `seed-answer-${i}`, text, phase: 'final_answer' }] }));
+        await writeFile(f.appServer.env.FAKE_SERVER_STATE!, JSON.stringify({ threadId: `sentence-${crypto.randomUUID()}`, next: 100, turns }));
+      }
+    }
     partner = await f.createPartner(); off = partner.subscribe(() => { for (const listener of listeners) listener(); });
     for (const listener of listeners) listener();
   }
@@ -99,6 +111,47 @@ export async function textVoiceHost(assets: string) {
   const chats = new Set<import('node:stream').Duplex>();
   app.server.on('upgrade', (request, socket) => { if (request.url === '/api/chat/socket') { chats.add(socket); socket.on('close', () => chats.delete(socket)); } });
   app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening');
+  async function sentenceState(completed = false) {
+    const native = await f.nativeState();
+    return { held: !!native.active, generationId: native.active ?? null, itemId: native.active ? native.streamingItem : null,
+      executions: (await f.requests()).filter(r => r.method === 'turn/start').length, completed, sessionId: (await partner.snapshot()).sessionId };
+  }
+  async function sentenceAction(input: { action: string; text?: string }) {
+    const native = await f.nativeState();
+    if (input.action === 'reset' || input.action === 'session') await reset(input.action === 'reset');
+    else if (input.action === 'start') {
+      if (native.active) throw new Error('Provider already held');
+      const operationId = crypto.randomUUID();
+      await partner.submitShared({ operationId, text: 'Test-owned sentence acceptance input' });
+      await eventually(async () => {
+        const current = await f.nativeState();
+        return !!current.active && !!current.streamingItem && current.streamingItem !== native.streamingItem;
+      });
+      await f.streamCommand({ action: 'advance', text: input.text ?? '' });
+    } else if (input.action === 'advance' || input.action === 'complete') {
+      const turn = native.turns.find((t: { id: string }) => t.id === native.active);
+      const item = turn?.items.find((i: { id: string }) => i.id === native.streamingItem);
+      if (!item || typeof input.text !== 'string' || !input.text.startsWith(item.text)) throw new Error('Provider must extend a held prefix');
+      await f.streamCommand({ action: input.action, text: input.text });
+    } else if (input.action === 'stop') {
+      if (!native.active) throw new Error('No held execution');
+      await partner.chatStop(native.active);
+    } else if (input.action === 'fail') {
+      if (!native.active) throw new Error('No held execution');
+      await f.streamCommand({ action: 'fail' });
+    } else if (input.action !== 'status') throw new Error('Unknown sentence control');
+    await partner.snapshot();
+    if (input.action === 'start' || input.action === 'advance') await eventually(async () => partner.streamingReply()?.text === input.text);
+    if (['complete', 'stop', 'fail'].includes(input.action)) await eventually(async () => !(await partner.snapshot()).typing);
+    const status = await sentenceState(input.action === 'complete');
+    console.log(JSON.stringify({ action: input.action, ...status }));
+    if (sentenceEvidence) {
+      const observation = { action: input.action, status, native: await f.nativeState(), requests: await f.requests() };
+      await writeFile(join(sentenceEvidence, 'native-current.json'), JSON.stringify(observation, null, 2));
+      await appendFile(join(sentenceEvidence, 'native-observations.jsonl'), JSON.stringify(observation) + '\n');
+    }
+    return status;
+  }
   async function state() { return { sessionId: (await partner.snapshot()).sessionId, executions: (await f.requests()).filter(r => r.method === 'turn/start').length, takes: takes.map(({ upstream, taskId, text, hold, holdReady, ...take }) => take) }; }
   async function action(input: { action: string; text?: string; hold?: boolean; holdReady?: boolean; availability?: string; takeId?: string; code?: string }) {
     if (input.action === 'reset') await reset();
@@ -123,7 +176,14 @@ export async function textVoiceHost(assets: string) {
   const controls = createServer(async (request, response) => {
     try {
       const chunks = []; for await (const chunk of request) chunks.push(chunk);
-      response.setHeader('content-type', 'application/json'); response.end(JSON.stringify(await action(JSON.parse(Buffer.concat(chunks).toString()))));
+      const input = JSON.parse(Buffer.concat(chunks).toString() || '{}');
+      let result;
+      if (sentenceEvidence && request.url?.endsWith('/disconnect')) {
+        for (const socket of chats) socket.destroy();
+        await eventually(async () => chats.size === 0);
+        result = { disconnected: true };
+      } else result = sentenceEvidence ? await sentenceAction(input) : await action(input);
+      response.setHeader('content-type', 'application/json'); response.end(JSON.stringify(result));
     } catch (error) { console.error(error); response.writeHead(500); response.end(String(error)); }
   });
   controls.listen(0, '127.0.0.1'); await once(controls, 'listening');
@@ -131,6 +191,6 @@ export async function textVoiceHost(assets: string) {
     async close() { off(); await app.close(); await f.close(); for (const ws of upstreams.clients) ws.terminate(); upstreams.close(); await Promise.all([new Promise<void>(done => provider.close(() => done())), new Promise<void>(done => controls.close(() => done()))]); } };
 }
 if (process.argv[1] === import.meta.filename) {
-  const h = await textVoiceHost(resolve(process.argv[2]!)); console.log(JSON.stringify(h));
+  const h = await textVoiceHost(resolve(process.argv[2]!), process.argv[3] ? resolve(process.argv[3]) : undefined); console.log(JSON.stringify(h));
   for (const signal of ['SIGINT', 'SIGTERM'] as const) process.once(signal, () => { void h.close().then(() => process.exit()); });
 }

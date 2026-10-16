@@ -58,7 +58,20 @@ export function createCodexChatBackend(partner: Partner, authorize: () => Promis
       return { record, context: { targetSourceRecordIndex: context.targetSourceRecordIndex, truncated: context.truncated,
         items: context.items } };
     },
-    async read(): Promise<ChatView> { const recovery = await partner.sharedRecovery(false); const p = await page(); return { version: 2, sessionId: p.snapshot.sessionId, name: p.snapshot.name, activeTurnId: p.snapshot.cancellable[0] ?? null, contextUsage: { tokens: p.snapshot.context?.activeTokens ?? null, capacity: p.snapshot.context?.windowTokens ?? null }, compaction: p.snapshot.lifecycle.latest ? { id: p.snapshot.lifecycle.latest.nativeId ?? null, status: p.snapshot.lifecycle.latest.status } : null, messages: p.messages, before: p.before, capabilities: { ...capabilities, images: await partner.sharedImageLimits() }, recovery }; },
+    async read(): Promise<ChatView> {
+      const recovery = await partner.sharedRecovery(false);
+      const images = await partner.sharedImageLimits();
+      const p = await page();
+      // Read transient authority after async history/media work, so an older
+      // host read cannot resurrect a preview cleared by item/turn completion.
+      const streamingReply = partner.streamingReply();
+      return { version: 2, sessionId: p.snapshot.sessionId, name: p.snapshot.name,
+        activeTurnId: p.snapshot.cancellable[0] ?? null,
+        ...(streamingReply && !p.messages.some(m => m.id === streamingReply.id) ? { streamingReply } : {}),
+        contextUsage: { tokens: p.snapshot.context?.activeTokens ?? null, capacity: p.snapshot.context?.windowTokens ?? null },
+        compaction: p.snapshot.lifecycle.latest ? { id: p.snapshot.lifecycle.latest.nativeId ?? null, status: p.snapshot.lifecycle.latest.status } : null,
+        messages: p.messages, before: p.before, capabilities: { ...capabilities, images }, recovery };
+    },
     async history(before) { const p = await page(before); return { messages: p.messages, before: p.before }; },
     compact: input => partner.compact({ ...input, authorize }),
     submit: input => partner.submitShared(input, authorize),

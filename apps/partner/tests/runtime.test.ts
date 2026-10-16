@@ -454,7 +454,10 @@ test('missing native image artifacts remain a durable local input error', async 
   const f = await fixture(); let partner = await f.createPartner();
   try {
     const id = randomUUID(); await partner.submit(id, 'generate image with missing image artifact');
-    await eventually(async () => (await partner.snapshot()).messages[0]?.inputError === 'Native image artifact unavailable');
+    await eventually(async () => {
+      const view = await partner.snapshot();
+      return view.messages[0]?.inputError === 'Native image artifact unavailable' && view.results[0]?.status === 'completed';
+    });
     const view = await partner.snapshot();
     assert.equal(view.results?.[0]?.status, 'completed');
     assert.equal(view.results?.[0]?.error, null);

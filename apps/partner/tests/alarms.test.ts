@@ -102,7 +102,8 @@ test('an ambiguous one-shot start waits for restart reconciliation and never bec
   const f = await fixture();
   const clock = Date.parse('2026-09-30T01:01:00Z');
   f.appServer.env!.FAKE_HOLD_METHOD = 'turn/start';
-  f.appServer.requestTimeoutMs = 250;
+  // Allow SDK process initialization before testing the deliberately held start.
+  f.appServer.requestTimeoutMs = 2_000;
   let partner: Awaited<ReturnType<typeof f.createPartner>> | undefined;
   try {
     const alarm = createAlarm(partnerPaths(f.workspace).alarms, 'Resume the picnic reminder', { kind: 'once', at: '2026-09-30T09:00:00+08:00' }, clock - 2 * 60 * 60_000);

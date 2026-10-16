@@ -8,6 +8,8 @@ import { createWebServer } from '../runtime/server.ts';
 test('accepted compaction never reports failure while native completion is still pending', async (t) => {
   const f = await fixture();
   f.appServer.env.FAKE_COMPACT_DELAY_MS = '500';
+  // The accelerated application deadline must not shorten SDK RPC admission.
+  f.appServer.requestTimeoutMs = 61_000;
   const partner = await f.createPartner();
   const app = createWebServer(partner, f.directory);
   app.server.listen(0, '127.0.0.1');
