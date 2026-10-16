@@ -1,3 +1,9 @@
+# Historical Matrix source acceptance
+
+This records historical evidence. Active Matrix-specific ingress and acceptance
+runners were retired by Post spec #4067. Existing persisted source display remains
+read-only; new QQ/Matrix deliveries follow [Post integration](operator-guide.md#optional-post-qq--matrix-integration).
+
 # Matrix source display and native acceptance — spec #3562
 
 CFL projects existing private persisted Matrix events into backend-owned public
@@ -45,7 +51,8 @@ The unchanged Orc-approved `lamplit-matrix-source-ui.tgz` retains candidate
 | Contracts manifest | `4e165fec721d6c7f188b8c32ca625d7459aa82dfa7ee5bd3c2a50f50d74ea46f` | 27 |
 | Acceptance manifest | `11622bd66ea603647fafba8b74b245241bc76b8939608736e06e08a4e077b626` | 42 |
 
-Extract into test-owned scratch. Verify SOURCE_HEAD, archive and manifests,
+The following historical procedure requires the retired host from the original
+reviewed CFL commit; it is not a current acceptance command. Extract into test-owned scratch. Verify SOURCE_HEAD, archive and manifests,
 including every file relative to browser, contracts/package and acceptance.
 Install frozen contracts/package, then acceptance with a test-owned Bun cache.
 Compare the prepared compiled contracts to the frozen files before running CFL;

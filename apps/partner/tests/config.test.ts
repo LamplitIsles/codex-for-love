@@ -5,18 +5,16 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { loadConfig, loadCredentials } from '../runtime/config.ts';
 
-test('Matrix environment credential is authoritative and never persisted', async () => {
+test('private Post credentials load independently without platform environment overrides', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'lamplit-credentials-test-'));
   try {
-    assert.deepEqual(await loadCredentials(directory, {}), {});
-    assert.deepEqual(await loadCredentials(directory, { MATRIX_ACCESS_TOKEN: 'owned-env-token' }), { matrix: 'owned-env-token' });
-    await assert.rejects(readFile(join(directory, 'credentials.json')), { code: 'ENOENT' });
-    const stored = JSON.stringify({ speech: 'owned-speech', tts: 'owned-tts', keet: 'owned-keet', matrix: 'owned-file-token' });
+    assert.deepEqual(await loadCredentials(directory), {});
+    const stored = JSON.stringify({ speech: 'owned-speech', keet: 'owned-keet', post: 'owned-api', post_receiver: 'owned-receiver' });
     await writeFile(join(directory, 'credentials.json'), stored);
-    assert.deepEqual(await loadCredentials(directory, {}), JSON.parse(stored));
-    assert.deepEqual(await loadCredentials(directory, { MATRIX_ACCESS_TOKEN: 'owned-env-token' }), { ...JSON.parse(stored), matrix: 'owned-env-token' });
-    await assert.rejects(loadCredentials(directory, { MATRIX_ACCESS_TOKEN: '' }), /matrix/);
+    assert.deepEqual(await loadCredentials(directory), JSON.parse(stored));
     assert.equal(await readFile(join(directory, 'credentials.json'), 'utf8'), stored);
+    await writeFile(join(directory, 'credentials.json'), JSON.stringify({ matrix: 'obsolete' }));
+    await assert.rejects(loadCredentials(directory));
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 

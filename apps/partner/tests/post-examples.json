@@ -1,0 +1,281 @@
+{
+  "event": {
+    "schema_version": 1,
+    "type": "message",
+    "delivery_id": "dlv_example",
+    "agent_id": "cfl",
+    "message": {
+      "id": "msg_example",
+      "account_id": "qq-main",
+      "platform": "qq",
+      "conversation": {
+        "id": "cnv_example",
+        "native_id": "group-openid",
+        "type": "group"
+      },
+      "sender": {
+        "native_id": "app-scoped-openid",
+        "name": "Owner"
+      },
+      "timestamp": 1792111200000,
+      "sequence": 1,
+      "native_message_id": "native-qq-message",
+      "content": [
+        {
+          "type": "text",
+          "text": "hello"
+        },
+        {
+          "type": "mention",
+          "native_user_id": "bot-app-id"
+        },
+        {
+          "type": "image",
+          "asset_id": "ast_example"
+        }
+      ],
+      "assets": [
+        {
+          "asset_id": "ast_example",
+          "status": "available",
+          "mime": "image/png",
+          "name": "pixel.png",
+          "size": 68,
+          "download_path": "/assets/ast_example"
+        }
+      ],
+      "mentions": {
+        "self": true,
+        "native_user_ids": [
+          "bot-app-id"
+        ]
+      },
+      "reply": null,
+      "direction": "inbound",
+      "mutation": null
+    },
+    "wake": {
+      "reason": "mentioned"
+    }
+  },
+  "tools": {
+    "list_accounts": {
+      "arguments": {},
+      "result": {
+        "items": [
+          {
+            "account_id": "qq-main",
+            "platform": "qq",
+            "native_id": "bot-app-id",
+            "ready": true,
+            "capabilities": {
+              "members": "unsupported",
+              "history": "observed",
+              "text": "supported",
+              "image": "supported",
+              "file": "supported",
+              "audio": "attachment",
+              "video": "attachment"
+            }
+          }
+        ]
+      }
+    },
+    "list_conversations": {
+      "arguments": {
+        "account_id": "qq-main"
+      },
+      "result": {
+        "items": [
+          {
+            "account_id": "qq-main",
+            "conversation_id": "cnv_example",
+            "native_id": "group-openid",
+            "type": "group",
+            "capabilities": {
+              "members": "unsupported",
+              "history": "observed",
+              "text": "supported",
+              "image": "supported",
+              "file": "supported",
+              "audio": "attachment",
+              "video": "attachment"
+            }
+          }
+        ],
+        "next_before": null
+      }
+    },
+    "get_conversation": {
+      "arguments": {
+        "account_id": "qq-main",
+        "conversation_id": "cnv_example"
+      },
+      "result": {
+        "account_id": "qq-main",
+        "conversation_id": "cnv_example",
+        "native_id": "group-openid",
+        "type": "group",
+        "capabilities": {
+          "members": "unsupported",
+          "history": "observed",
+          "text": "supported",
+          "image": "supported",
+          "file": "supported",
+          "audio": "attachment",
+          "video": "attachment"
+        }
+      }
+    },
+    "list_members": {
+      "arguments": {
+        "account_id": "qq-main",
+        "conversation_id": "cnv_example"
+      },
+      "result": {
+        "items": [],
+        "next_before": null,
+        "capability": "unsupported"
+      }
+    },
+    "read_messages": {
+      "arguments": {
+        "account_id": "qq-main",
+        "conversation_id": "cnv_example"
+      },
+      "result": {
+        "items": [
+          {
+            "id": "msg_example",
+            "account_id": "qq-main",
+            "platform": "qq",
+            "conversation": {
+              "id": "cnv_example",
+              "native_id": "group-openid",
+              "type": "group"
+            },
+            "sender": {
+              "native_id": "app-scoped-openid",
+              "name": "Owner"
+            },
+            "timestamp": 1792111200000,
+            "sequence": 1,
+            "native_message_id": "native-qq-message",
+            "content": [
+              {
+                "type": "text",
+                "text": "hello"
+              },
+              {
+                "type": "mention",
+                "native_user_id": "bot-app-id"
+              },
+              {
+                "type": "image",
+                "asset_id": "ast_example"
+              }
+            ],
+            "assets": [
+              {
+                "asset_id": "ast_example",
+                "status": "available",
+                "mime": "image/png",
+                "name": "pixel.png",
+                "size": 68,
+                "download_path": "/assets/ast_example"
+              }
+            ],
+            "mentions": {
+              "self": true,
+              "native_user_ids": [
+                "bot-app-id"
+              ]
+            },
+            "reply": null,
+            "direction": "inbound",
+            "mutation": null
+          }
+        ],
+        "next_before": null
+      }
+    },
+    "get_asset": {
+      "arguments": {
+        "asset_id": "ast_example"
+      },
+      "result": {
+        "asset_id": "ast_example",
+        "status": "available",
+        "mime": "image/png",
+        "name": "pixel.png",
+        "size": 68,
+        "download_path": "/assets/ast_example"
+      }
+    },
+    "send_message": {
+      "arguments": {
+        "account_id": "qq-main",
+        "conversation_id": "cnv_example",
+        "request_id": "request-example-1",
+        "content": [
+          {
+            "type": "text",
+            "text": "ack"
+          },
+          {
+            "type": "image",
+            "asset_id": "ast_example"
+          }
+        ],
+        "reply_to_message_id": "msg_example"
+      },
+      "result": {
+        "request_id": "request-example-1",
+        "status": "sent",
+        "parts": [
+          {
+            "index": 0,
+            "status": "sent",
+            "native_message_ids": [
+              "native-receipt-0"
+            ],
+            "stored": true
+          },
+          {
+            "index": 1,
+            "status": "sent",
+            "native_message_ids": [
+              "native-receipt-1"
+            ],
+            "stored": true
+          }
+        ],
+        "stored": true
+      }
+    }
+  },
+  "upload": {
+    "method": "POST",
+    "path": "/assets",
+    "headers": {
+      "Content-Type": "image/png",
+      "X-Post-Filename": "pixel.png"
+    },
+    "body_base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lS8AAAAASUVORK5CYII=",
+    "status": 201,
+    "result": {
+      "asset_id": "ast_example",
+      "status": "available",
+      "mime": "image/png",
+      "name": "pixel.png",
+      "size": 68,
+      "download_path": "/assets/ast_example"
+    }
+  },
+  "error": {
+    "error": {
+      "code": "not_found",
+      "message": "Resource unavailable"
+    }
+  }
+}

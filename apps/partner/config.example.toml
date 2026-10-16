@@ -48,13 +48,12 @@ context_round_limit = 10
 #trusted_groups = ["Our little home"] # Exact admitted Group names; conversational trust only.
 #trigger_aliases = ["shio", "汐"] # Case-sensitive literal substrings in admitted Group text.
 
-# Optional Matrix text intake. Both endpoint and stdin-managed `matrix`
-# account credential are required. MFA webhook -> /api/matrix/events;
-# leave MATRIX_WEBHOOK_BEARER_TOKEN unset. Unmarked rooms use group policy.
-#[matrix]
-#dm_allow_list = ["@alice:example.org"] # Exact full IDs; omitted/empty denies all marked plaintext DMs.
-#endpoint = "http://127.0.0.1:18770"
-#trigger_aliases = ["shio", "汐"] # Case-sensitive literal substrings; no implicit display-name match.
+# Optional unified Post QQ/Matrix integration. Provision distinct stdin-managed
+# `post` API and `post_receiver` secrets. Post callback -> /api/post/events.
+# Post owns account admission/mention/alias/wake rules, never CFL.
+#[post]
+#endpoint = "http://127.0.0.1:8787" # Bare loopback HTTP or HTTPS origin.
+#agent_id = "cfl" # Must match the Post agent binding; both platforms share one thread.
 
 # Optional DashScope STT and tool-delivered Voice messages.
 [speech]

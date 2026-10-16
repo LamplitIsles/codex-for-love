@@ -1,3 +1,4 @@
+import { uploadPostAsset, savePostAsset } from './post-assets.ts';
 import { randomBytes } from 'node:crypto';
 import { mkdir, readFile, writeFile, rename, access, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
@@ -19,14 +20,14 @@ if (nativeRootIndex !== -1) {
   cliArgs.splice(nativeRootIndex, 2);
 }
 if (cliArgs.includes('--help') || cliArgs.includes('-h')) {
-  console.log('Usage: codex-for-love <serve|credential|import-session|migrate-relationship-journal> <config.toml>');
+  console.log('Usage: codex-for-love <serve|credential|asset-fetch|asset-upload|import-session|migrate-relationship-journal> <config.toml>');
   process.exit(0);
 }
 const dryRun = cliArgs.includes('--dry-run');
 const stdin = cliArgs.includes('--stdin');
 const positionalArgs = cliArgs.filter((argument) => argument !== '--dry-run' && argument !== '--stdin');
 const [command, configPath, name, companionStatePath, attachmentRoot, destinationPath, dshSettingsPath] = positionalArgs;
-if (!configPath) throw new Error('Usage: cli.ts <serve|credential|import-session|migrate-relationship-journal> <config.toml> [speech|tts|keet|matrix --stdin|log destination]');
+if (!configPath) throw new Error('Usage: cli.ts <serve|credential|asset-fetch|asset-upload|import-session|migrate-relationship-journal> <config.toml> [speech|tts|keet|post|post_receiver --stdin|log destination]');
 let config = await loadConfig(resolve(configPath));
 if (nativePackageRoot) {
   const root = resolve(nativePackageRoot);
@@ -38,8 +39,23 @@ if (nativePackageRoot) {
     },
   };
 }
+if (command === 'asset-fetch' || command === 'asset-upload') {
+  const credentials = await loadCredentials(config.state);
+  if (!config.post || !credentials.post) throw new Error('Post is unavailable');
+  try {
+    if (command === 'asset-upload') {
+      if (!name || !companionStatePath) throw new Error();
+      console.log(JSON.stringify(await uploadPostAsset(config.post.endpoint,credentials.post,resolve(name),companionStatePath)));
+    } else {
+      if (!name || !companionStatePath || !attachmentRoot) throw new Error();
+      await savePostAsset(config.post.endpoint,credentials.post,name,companionStatePath,resolve(attachmentRoot));
+      console.log('Post asset saved');
+    }
+  } catch { throw new Error('Post asset transfer failed; use asset-upload <config> <file> <MIME> or asset-fetch <config> <asset-id> <MIME> <new-file>'); }
+  process.exit(0);
+}
 if (command === 'credential') {
-  if (name !== 'speech' && name !== 'tts' && name !== 'keet' && name !== 'matrix') throw new Error('Credential name must be speech, tts, keet, or matrix');
+  if (name !== 'speech' && name !== 'tts' && name !== 'keet' && name !== 'post' && name !== 'post_receiver') throw new Error('Credential name must be speech, tts, keet, post, or post_receiver');
   if (!stdin) throw new Error('Use --stdin to supply the credential without exposing it in command arguments');
   if (process.stdin.isTTY) throw new Error('Supply the credential through stdin, not command arguments');
   let value = '';

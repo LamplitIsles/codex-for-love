@@ -1,4 +1,3 @@
-import { matrixEvent } from './matrix.ts';
 import { APPEARANCE_PATH } from '@lamplit/contracts';
 import { imageHttp } from '@lamplit/contracts/server';
 import { createChatSocket } from './chat.ts';
@@ -84,7 +83,7 @@ export function createWebServer(partner: Partner, assets: string, options: { aut
         const origin = request.method === 'POST' && request.headers.origin ? request.headers.origin : `http://${request.headers.host}`;
         const webRequest = new Request(`${origin}${request.url}`, {
           method: request.method,
-          headers: new Headers(Object.entries(request.headers).flatMap(([key, value]) => value === undefined ? [] : [[key, Array.isArray(value) ? value.join(',') : value]])),
+          headers: new Headers(Object.entries(request.headers).flatMap(([key, value]) => value === undefined ? [] : [[key, Array.isArray(value) ? value.join(',') : value] as [string,string]])),
           ...(request.method === 'POST' ? { body: requestBody(request), duplex: 'half' } : {}),
         } as RequestInit);
         const result = await imageHttp(webRequest, { upload: value => partner.uploadImages(value, () => authorize(request)), media: (id, variant) => partner.sharedMedia(id, variant) }, async () => {
@@ -96,16 +95,28 @@ export function createWebServer(partner: Partner, assets: string, options: { aut
       }
       if (path === VOICE_CAPABILITY_PATH) return json(response, request.method === 'GET' ? { available: voice.available() } : { code: 'method_not_allowed' }, request.method === 'GET' ? 200 : 405);
       if (path === VOICE_STREAM_PATH) return json(response, { code: 'upgrade_required' }, 426);
-      if (path === '/api/matrix/events' && request.method === 'POST') {
-        if (!partner.matrixEnabled) return json(response, { error: 'Matrix ingress unavailable' }, 404);
-        if (!isLoopbackPeer(request.socket.remoteAddress)) return json(response, { error: 'Local delivery only' }, 403);
-        let raw: unknown;
-        try { raw = await body(request, 256 * 1024); }
-        catch { return json(response, { error: 'Invalid Matrix event' }, 400); }
-        const parsed = matrixEvent.safeParse(raw);
-        if (!parsed.success) return json(response, { error: 'Invalid Matrix event' }, parsed.error.issues.some(issue => issue.path[0] === 'conversation_type') ? 400 : 422);
-        try { await partner.ingestMatrix(parsed.data); }
-        catch { return json(response, { error: 'Matrix admission unavailable' }, 503); }
+      if (path === '/api/post/events' && request.method === 'POST') {
+        if (!partner.postEnabled) return json(response, { error: 'Post ingress unavailable' }, 404);
+        if (!partner.authorizePost(request.headers.authorization)) return json(response, { error: 'Unauthorized' }, 401);
+        if (!isLoopbackPeer(request.socket.remoteAddress) && !options.authorize) return json(response, { error: 'Local delivery only' }, 403);
+        let raw: string;
+        const timer = setTimeout(() => request.destroy(), 10_000);
+        try {
+          if (request.headers['content-type']?.split(';')[0].trim() !== 'application/json') return json(response, { error: 'Invalid Post content type' }, 415);
+          let size = 0; const chunks: Buffer[] = [];
+          for await (const chunk of request) {
+            size += chunk.length;
+            if (size > 2 * 1024 * 1024) return json(response, { error: 'Post event too large' }, 413);
+            chunks.push(chunk);
+          }
+          let value: unknown;
+          try { raw = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(Buffer.concat(chunks)); value = JSON.parse(raw); } catch { return json(response, { error: 'Invalid Post event' }, 400); }
+          try { await partner.ingestPost(value,raw); }
+          catch (error) {
+            const code = (error as { code?: string }).code;
+            return json(response, { error: code === 'INVALID_POST_EVENT' ? 'Invalid Post event' : code === 'MESSAGE_IDENTITY_CONFLICT' ? 'Post identity conflict' : 'Post receipt unavailable' }, code === 'INVALID_POST_EVENT' ? 422 : code === 'MESSAGE_IDENTITY_CONFLICT' ? 409 : 503);
+          }
+        } finally { clearTimeout(timer); }
         return json(response, { accepted: true }, 202);
       }
       if (path === '/api/keet/events' && request.method === 'POST') {

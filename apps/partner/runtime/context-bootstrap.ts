@@ -155,8 +155,8 @@ function ensureCompanionMcp(config: Record<string, unknown>, workspace: string, 
   return changed;
 }
 
-/** Reconcile CFL-owned Keet/Matrix bearer declarations without changing other MCPs. */
-function ensureBearerMcp(config: Record<string, unknown>, name: 'keet' | 'matrix', endpoint?: string): boolean {
+/** Reconcile CFL-owned Keet/Post bearer declarations without changing other MCPs. */
+function ensureBearerMcp(config: Record<string, unknown>, name: 'keet' | 'matrix' | 'post', endpoint?: string): boolean {
   const tokenEnv = `CFL_${name.toUpperCase()}_TOKEN`;
   const servers = isRecord(config.mcp_servers) ? config.mcp_servers : {};
   let changed = !isRecord(config.mcp_servers);
@@ -166,7 +166,9 @@ function ensureBearerMcp(config: Record<string, unknown>, name: 'keet' | 'matrix
     if (isRecord(servers[name]) && servers[name].bearer_token_env_var === tokenEnv) { delete servers[name]; changed = true; }
   } else {
     const required = { url: `${endpoint}/mcp`, bearer_token_env_var: tokenEnv };
-    if (Object.hasOwn(servers, name) && (!isRecord(servers[name]) || !sameValue(servers[name], required))) throw new Error(`mcp_servers.${name} belongs to an operator; choose a different workspace or remove the collision explicitly`);
+    const previous = servers[name];
+    const ownedPost = name === 'post' && isRecord(previous) && previous.bearer_token_env_var === tokenEnv && typeof previous.url === 'string' && Object.keys(previous).sort().join(',') === 'bearer_token_env_var,url';
+    if (Object.hasOwn(servers, name) && !ownedPost && (!isRecord(servers[name]) || !sameValue(servers[name], required))) throw new Error(`mcp_servers.${name} belongs to an operator; choose a different workspace or remove the collision explicitly`);
     const current = isRecord(servers[name]) ? servers[name] : {};
     for (const [key, value] of Object.entries(required)) if (!sameValue(current[key], value)) { current[key] = value; changed = true; }
     if (servers[name] !== current) { servers[name] = current; changed = true; }
@@ -176,7 +178,7 @@ function ensureBearerMcp(config: Record<string, unknown>, name: 'keet' | 'matrix
 }
 
 /** Add project-owned hooks and the bundled Companion MCP while preserving config. */
-export async function ensureHookDeclaration(workspace: string, contextPath: string, partnerConfigPath?: string, keetEndpoint?: string, matrixEndpoint?: string): Promise<{ configPath: string; command: string }> {
+export async function ensureHookDeclaration(workspace: string, contextPath: string, partnerConfigPath?: string, keetEndpoint?: string, postEndpoint?: string): Promise<{ configPath: string; command: string }> {
   const configPath = join(resolve(workspace), '.codex', 'config.toml');
   const command = hookCommand(contextPath);
   await mkdir(dirname(configPath), { recursive: true, mode: 0o700 });
@@ -192,7 +194,8 @@ export async function ensureHookDeclaration(workspace: string, contextPath: stri
   const sessionStart = Array.isArray(hooks.SessionStart) ? hooks.SessionStart : [];
   let changed = ensureCompanionMcp(config, workspace, partnerConfigPath);
   changed = ensureBearerMcp(config, 'keet', keetEndpoint) || changed;
-  changed = ensureBearerMcp(config, 'matrix', matrixEndpoint) || changed;
+  changed = ensureBearerMcp(config, 'matrix') || changed;
+  changed = ensureBearerMcp(config, 'post', postEndpoint) || changed;
   const own = sessionStart.flatMap((group) => isRecord(group) && Array.isArray(group.hooks)
     ? group.hooks.filter((handler) => ownsBootstrapHook(handler, contextPath)).map((handler) => ({ group, handler }))
     : []);

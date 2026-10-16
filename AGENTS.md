@@ -62,3 +62,13 @@ Before updating CFL native artifacts or releasing a CFL npm package, read
 - Use a fresh test-owned workspace and the fake app-server for automated tests. Do not use the real Codex home, credentials or external message side effects in tests.
 - The official app-server is the execution owner. Do not reintroduce naco, Bridge model transport, custom imagegen/mail/skill wrappers, Docker, generic migration or cutover code. The narrow one-time DSH compacted-log converter is an explicit current feature, not a generic migration framework.
 - Keep `.scratch/`, `.lamplit/`, build output and runtime state out of Git. Preserve unrelated edits and update `docs/IMPORTS.md` when imported source attribution changes.
+
+## Post integration
+
+Post owns QQ/Matrix admission and wake policy. Consume the pinned v1 contract
+attributed in `docs/IMPORTS.md`; coordinate public changes through both specs.
+Keep one Partner/native thread and one Post MCP. Test with test-owned Post
+HTTP/MCP and fake app-server fixtures; never use real platform tokens or sends.
+The old Matrix configuration, environment override and webhook are retired;
+retain historical Matrix provenance readers. Operator activation and rollback
+follow `docs/post-v1-cutover.md`, owned by Orc after independent reviews.

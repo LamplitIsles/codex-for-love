@@ -1,4 +1,6 @@
-import { matrixInput, matrixInputId, type MatrixEvent, type MatrixContext } from './matrix.ts';
+import { postInput, postInputId } from './post.ts';
+import type { EventV1 } from './post-contract.ts';
+import { type MatrixEvent, type MatrixContext } from './matrix.ts';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { DatabaseSync } from 'node:sqlite';
@@ -135,8 +137,9 @@ export class Store {
           revision INTEGER PRIMARY KEY AUTOINCREMENT,
           message_id TEXT NOT NULL UNIQUE REFERENCES message_meta(id) ON DELETE CASCADE
         );
-        CREATE TABLE IF NOT EXISTS matrix_receipts (room_id TEXT NOT NULL, event_id TEXT NOT NULL, PRIMARY KEY(room_id,event_id));
-        CREATE TABLE IF NOT EXISTS matrix_room_buffers (room_id TEXT PRIMARY KEY, records TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS post_receipts_v1 (service TEXT NOT NULL, agent TEXT NOT NULL, delivery TEXT NOT NULL, body TEXT NOT NULL, message_id TEXT NOT NULL, PRIMARY KEY(service,agent,delivery));
+        CREATE TABLE IF NOT EXISTS post_sources_v1 (message_id TEXT PRIMARY KEY REFERENCES message_meta(id), service TEXT NOT NULL, canonical_key TEXT NOT NULL UNIQUE, native_key TEXT NOT NULL UNIQUE, event TEXT NOT NULL, media TEXT NOT NULL DEFAULT '{}', ready INTEGER NOT NULL DEFAULT 0);
+        CREATE TABLE IF NOT EXISTS post_media_v1 (message_id TEXT NOT NULL, asset_id TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, result TEXT, PRIMARY KEY(message_id,asset_id));
         CREATE TABLE IF NOT EXISTS matrix_sources (message_id TEXT PRIMARY KEY REFERENCES message_meta(id) ON DELETE CASCADE, context TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS keet_webhook_events (event_id TEXT PRIMARY KEY, sequence INTEGER NOT NULL);
         CREATE TABLE IF NOT EXISTS keet_group_buffers (group_name TEXT PRIMARY KEY, records TEXT NOT NULL);
@@ -367,38 +370,58 @@ export class Store {
     });
   }
 
-  async recordMatrixEvent(event: MatrixEvent, trigger?: MatrixContext['trigger'], admitted = true): Promise<boolean> {
+  /** Receipt, original provenance and pending input commit before HTTP ACK. */
+  async recordPostEvent(service: string, event: EventV1, body: string): Promise<string> {
     return this.transaction(() => {
-      if (this.db.prepare('SELECT 1 FROM matrix_receipts WHERE room_id=? AND event_id=?').get(event.room_id, event.event_id)) return false;
-      // Policy only governs new admissions; rejected bodies leave no durable receipt.
-      if (!admitted) return false;
-      this.db.prepare('INSERT INTO matrix_receipts(room_id,event_id) VALUES(?,?)').run(event.room_id, event.event_id);
-      const row = this.db.prepare('SELECT records FROM matrix_room_buffers WHERE room_id=?').get(event.room_id) as { records: string } | undefined;
-      const records: MatrixEvent[] = row ? JSON.parse(row.records) : [];
-      if (!trigger) {
-        records.push(event);
-        while (records.length > 64 || records.reduce((size, item) => size + matrixInput(item).length, 0) > 16_000) records.shift();
-        this.db.prepare('INSERT INTO matrix_room_buffers(room_id,records) VALUES(?,?) ON CONFLICT(room_id) DO UPDATE SET records=excluded.records').run(event.room_id, JSON.stringify(records));
-        return true;
+      const id = postInputId(service, event);
+      const receipt = this.db.prepare('SELECT body FROM post_receipts_v1 WHERE service=? AND agent=? AND delivery=?').get(service,event.agent_id,event.delivery_id) as { body: string } | undefined;
+      if (receipt) { if (receipt.body !== body) throw identityConflict(); return id; }
+      const canonical = this.db.prepare('SELECT message_id FROM post_sources_v1 WHERE canonical_key=? OR native_key=?').all(JSON.stringify([service,event.agent_id,event.message.id]),JSON.stringify([service,event.agent_id,event.message.account_id,event.message.conversation.id,event.message.native_message_id])) as Array<{ message_id: string }>;
+      if (canonical.some(row => row.message_id !== id)) throw identityConflict();
+      const source = this.db.prepare('SELECT event FROM post_sources_v1 WHERE message_id=?').get(id) as { event: string } | undefined;
+      if (source) {
+        const original = JSON.parse(source.event) as EventV1;
+        if (JSON.stringify(original.message) !== JSON.stringify(event.message) || original.wake.reason !== event.wake.reason) throw identityConflict();
+      } else {
+        this.db.prepare('INSERT INTO message_meta(id,created) VALUES(?,?)').run(id,event.message.timestamp);
+        this.db.prepare('INSERT INTO pending_inputs(message_id,input) VALUES(?,?)').run(id,postInput(event));
+        this.db.prepare('INSERT INTO post_sources_v1(message_id,service,canonical_key,native_key,event) VALUES(?,?,?,?,?)').run(id,service,JSON.stringify([service,event.agent_id,event.message.id]),JSON.stringify([service,event.agent_id,event.message.account_id,event.message.conversation.id,event.message.native_message_id]),JSON.stringify(event));
+        for (const asset of event.message.assets) this.db.prepare('INSERT INTO post_media_v1(message_id,asset_id) VALUES(?,?)').run(id,asset.asset_id);
+        this.addRevision(id);
       }
-      const lines = records.map(matrixInput);
-      while (lines.length > 1 && Buffer.byteLength(lines.join('\n')) > CONTEXT_LIMIT) lines.shift();
-      const context: MatrixContext = { provenance: event, trigger, ...(lines.length ? { roomContext: bounded(lines.join('\n')) } : {}) };
-      const id = matrixInputId(event), input = matrixInput(event);
-      const fingerprint = createHash('sha256').update(JSON.stringify([input, []])).digest('hex');
-      this.db.prepare('INSERT INTO message_meta(id,created,fingerprint) VALUES(?,?,?)').run(id, event.timestamp, fingerprint);
-      this.db.prepare('INSERT INTO pending_inputs(message_id,input) VALUES(?,?)').run(id, input);
-      this.db.prepare('INSERT INTO matrix_sources(message_id,context) VALUES(?,?)').run(id, JSON.stringify(context));
-      this.addRevision(id);
-      this.db.prepare('DELETE FROM matrix_room_buffers WHERE room_id=?').run(event.room_id);
-      return true;
+      this.db.prepare('INSERT INTO post_receipts_v1(service,agent,delivery,body,message_id) VALUES(?,?,?,?,?)').run(service,event.agent_id,event.delivery_id,body,id);
+      return id;
     });
   }
-
-  async matrixContext(id: string): Promise<MatrixContext | undefined> {
+  async postContext(id: string): Promise<{ service: string; event: EventV1; media: Record<string,string>; ready: boolean } | undefined> {
     return this.transaction(() => {
-      const row = this.db.prepare('SELECT context FROM matrix_sources WHERE message_id=?').get(id) as { context: string } | undefined;
-      return row ? JSON.parse(row.context) : undefined;
+      const row = this.db.prepare('SELECT service,event,media,ready FROM post_sources_v1 WHERE message_id=?').get(id) as { service: string; event: string; media: string; ready: number } | undefined;
+      return row ? { service: row.service, event: JSON.parse(row.event), media: JSON.parse(row.media), ready: Boolean(row.ready) } : undefined;
+    });
+  }
+  async postMediaAttempt(id: string, asset: string): Promise<{ claimed: boolean; result: string | null }> {
+    return this.transaction(() => {
+      const update = this.db.prepare('UPDATE post_media_v1 SET attempts=attempts+1 WHERE message_id=? AND asset_id=? AND result IS NULL AND attempts<2').run(id,asset);
+      const row = this.db.prepare('SELECT result FROM post_media_v1 WHERE message_id=? AND asset_id=?').get(id,asset) as { result: string | null };
+      return { claimed: update.changes === 1, result: row.result };
+    });
+  }
+  async recordPostMedia(id: string, asset: string, result: string, image?: StoredImage): Promise<void> {
+    await this.transaction(() => {
+      this.db.prepare('UPDATE post_media_v1 SET result=? WHERE message_id=? AND asset_id=? AND result IS NULL').run(result,id,asset);
+      if (image) this.db.prepare('INSERT OR IGNORE INTO input_images(id,operation_id,name,media_type,path) VALUES(?,?,?,?,?)').run(image.id,id,image.name,image.media_type,image.path);
+    });
+  }
+  async finishPostMedia(id: string): Promise<void> {
+    await this.transaction(() => {
+      const row = this.db.prepare('SELECT event FROM post_sources_v1 WHERE message_id=?').get(id) as { event: string };
+      const results = this.db.prepare('SELECT asset_id,result FROM post_media_v1 WHERE message_id=?').all(id) as Array<{ asset_id: string; result: string | null }>;
+      if (results.some(r => r.result === null)) throw new Error('Post media pending');
+      const media = Object.fromEntries(results.map(r => [r.asset_id,r.result!]));
+      const input = postInput(JSON.parse(row.event),media);
+      this.db.prepare('UPDATE pending_inputs SET input=? WHERE message_id=?').run(input,id);
+      this.db.prepare('UPDATE post_sources_v1 SET media=?,ready=1 WHERE message_id=?').run(JSON.stringify(media),id);
+      this.addRevision(id);
     });
   }
 

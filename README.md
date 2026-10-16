@@ -340,66 +340,26 @@ request one emoji reaction to a known Group message or this DM turn's trigger.
 Its result reports text delivery separately from reaction success. See the
 [operator guide](docs/operator-guide.md#optional-keet-ingress).
 
-### Optional Matrix text intake
+### Optional Post QQ / Matrix integration
 
-Configure `[matrix]` with a bare local MFA endpoint such as
-`endpoint = "http://127.0.0.1:18770"` and optional case-sensitive literal
-`trigger_aliases = ["shio", "汐"]`. Store the Matrix account token with
-`codex-for-love credential /path/to/partner.toml matrix --stdin`; it stays in
-private credentials, outside configuration and the workspace. Alternatively, supply
-`MATRIX_ACCESS_TOKEN` in the runtime environment: when present it overrides only
-the stored Matrix token, rejects an empty value, and is never copied into the
-credential file. Endpoint and token
-must both be present. Startup discovers self through one bounded MCP `whoami`
-probe; an unavailable or invalid configured gateway fails startup safely.
+Configure one `[post]` endpoint and `agent_id`, then provision independent
+`post` (agent API) and `post_receiver` credentials with the existing stdin-only
+credential command. Post owns platform credentials, admission and wake policy.
+CFL validates authenticated versioned deliveries at `/api/post/events`, commits
+receipt/provenance/pending input before ACK, and feeds both platforms into the
+existing Partner/app-server thread. Images use existing native attachments;
+files and audio/video retain Post references. No automatic outgoing reply occurs.
 
-CFL declares the official `matrix` HTTP MCP at `/mcp`, with bearer supplied by
-`CFL_MATRIX_TOKEN`, alongside Companion and optional Keet. Its original
-`whoami`, `list_rooms`, `list_room_members`, `read_messages` and `send_message`
-tools remain agent actions. Point MFA's `MATRIX_WEBHOOK_URL` to
-`http://127.0.0.1:<CFL port>/api/matrix/events`; leave
-`MATRIX_WEBHOOK_BEARER_TOKEN` unset. The webhook admits loopback peers only;
-do not publish it through a proxy. The account token is exclusively for MCP.
+One native `post` MCP declaration provides account/conversation/member/history
+reads, asset metadata and explicit send actions. Terminal `asset-upload` and
+`asset-fetch` helpers transfer bounded bytes with private API authentication.
+The endpoint must be a bare loopback HTTP or HTTPS origin. A separate receiver
+Bearer is required even on loopback. Historical Matrix source display and Keet
+remain available; the old Matrix endpoint/config/credential/CLI are removed.
 
-For marked plaintext DMs, configure `[matrix]` `dm_allow_list = ["@alice:example.org"]`.
-Manually accept/join the room and mark it direct for MFA's observed account.
-MFA reports `conversation_type = "dm"` from that account's synchronized `m.direct`;
-CFL never guesses from names or member counts. Exact allowed senders' nonblank,
-nonself text auto-wakes. Missing/empty lists deny every marked DM; denied bodies
-never enter context, queues, history or stored original payloads, even with a
-mention, reply or alias. Lists are independent per Partner, with at most 64 unique
-full Matrix user IDs, each at most 255 UTF-16 units and without whitespace. No
-trimming, case folding or display-name matching occurs. Restart to apply changes.
-
-Unmarked rooms and webhooks omitting `conversation_type` follow group policy:
-exact native self-mention first, then a verified reply to the current Matrix
-identity, then a configured literal alias. Supplied kinds must be exactly `dm` or
-`room`; invalid kinds return 400. Direct marking is account-relative and can
-include more than two members; the list is not general two-person-room access
-control. There is no automatic joining, account-data write, list synchronization,
-encrypted/media intake or restriction on independently authorized MCP tools. MFA may supply optional
-`reply_to_sender_id`, the original target author's exact full Matrix user ID, only
-with a nonempty `reply_to_event_id`. Invalid/orphan authors are rejected, not clipped;
-an omitted author means unknown. Other/unknown authors still allow mention/alias wake.
-Other nonself text forms bounded per-room context (64 records / 16,000 characters,
-with at most 800 UTF-8 bytes supplied on a turn). Empty/whitespace bodies never
-wake, including native mentions or replies. Bodies are bounded at 16,000 UTF-16
-code units; ID/display fields at 255 and mention arrays at 100 bounded strings. Triggered messages show a Matrix
-header with the original display name (exact sender ID when empty), sender ID and
-exact room ID. The bubble retains the original body separately from attribution,
-and its authored time survives initial load, reconnect, older history and restart.
-Labels are escaped and wrap on mobile; no room-name lookup is performed. Public
-source excludes event payloads and private model context, and web submissions
-cannot supply it. See [Matrix source display and acceptance](docs/matrix-source-ui.md).
-External participants never inherit the web Human's administrative authority. Original body, sender, room,
-event, time, reply and truncation facts survive queued restart recovery.
-
-Durable room/event receipts, buffer clearing and native pending input creation
-are atomic; retries keep the first accepted content. Matrix and Keet share one
-execution queue. There is no automatic send, polling or backfill. MFA's ephemeral
-queue and finite retries do not guarantee delivery during receiver downtime;
-recovery by `read_messages` and any response are deliberate agent actions. See the
-[operator guide](docs/operator-guide.md#optional-matrix-text-intake).
+See the [Post operator contract](docs/operator-guide.md#optional-post-qq--matrix-integration)
+and [reviewed cutover procedure](docs/post-v1-cutover.md). Preparation and tests
+do not deploy or establish actual QQ/Matrix interoperability.
 
 ## Roadmap
 

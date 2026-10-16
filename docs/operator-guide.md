@@ -670,145 +670,122 @@ publication is optional. For host-local ordered dev/prod promotion and code/asse
 rollback, follow [development environments](development-environments.md). Keep
 state/config/native package ownership with the existing instance.
 
-## Optional Matrix text intake
+## Optional Post QQ / Matrix integration
 
-MFA remains the account gateway; CFL owns the receiving Partner's trigger policy.
-Enable one optional Matrix account with a bare local origin and a private token:
+Post contract v1 is pinned to lamplit-post
+`ef2fa54ec90630bad5b38b2768a13b7bf543dc4c` (FlickNote #4066/#4067).
+Configure a single origin and agent binding:
 
 ```toml
-[matrix]
-endpoint = "http://127.0.0.1:18770"
-trigger_aliases = ["shio", "汐"]
-dm_allow_list = ["@alice:example.org"] # Exact full sender IDs for marked plaintext DMs.
+[post]
+endpoint = "http://127.0.0.1:8787"
+agent_id = "cfl"
 ```
+
+Use loopback HTTP, or HTTPS with real server authentication. No credentials,
+paths, query or fragment belong in the endpoint. Post holds the upstream QQ and
+Matrix credentials. CFL holds two different private secrets:
 
 ```sh
-printf '%s' "$MATRIX_TOKEN" | codex-for-love credential /path/to/partner.toml matrix --stdin
+# Supply each secret from its separate private provisioning source on stdin.
+codex-for-love credential /path/to/partner.toml post --stdin
+codex-for-love credential /path/to/partner.toml post_receiver --stdin
 ```
 
-Alternatively, supply `MATRIX_ACCESS_TOKEN` through the runtime environment. A
-present value is authoritative for Matrix, including an empty value failing the
-required-token validation; other private credentials remain unchanged. CFL reads
-it at startup without writing it into `credentials.json`, then uses it for both
-startup `whoami` and the app-server's `CFL_MATRIX_TOKEN`. Restart to apply changes.
-For the host's agenix-managed installation, systemd supplies the existing read-only
-`/run/agenix/matrix-shio.env` using `EnvironmentFile`; do not inspect,
-decrypt, copy or paste its token. Shio needs its own Matrix account and second MFA
-instance at `http://127.0.0.1:8769`. The existing Lamplit/Serein secret,
-`127.0.0.1:8768` instance and public MCP route remain unchanged and must never
-supply CFL authentication or events. The Owner provisions the separate encrypted
-secret in Kosmos with `agenix -e secrets/matrix-shio.env.age -i ~/.ssh/agenix_ed25519`; no Matrix
-activation may proceed until that secret is available. Configure the prod callback
-as `http://127.0.0.1:3084/api/matrix/events`. Prepare and review the complete
-artifact first, promote the receiver and verify startup/static resources, then
-activate only Shio MFA's webhook through Kosmos. Bootstrap Shio MCP with its
-callback disabled before receiver promotion. Preserve existing Keet and search
-environment files, native package argument and rollback artifacts. A temporary
-operator `release.conf` EnvironmentFile append must be removed once managed
-Kosmos wiring supplies that same path. This rollout is production-only when only
-production has been authorized; it does not require dev/staging restarts.
+The existing command atomically writes `credentials.json` at mode 0600 under
+Partner state and never prints its value. Provision the API token for this exact
+Post agent and the receiver secret for this exact CFL instance. All config and
+credentials are startup-only. Partial config, identical secrets, failed account
+discovery and operator-owned `post` MCP collisions fail startup. No platform
+token or Matrix environment override is supported. Remove obsolete `matrix`
+credential/config keys during the controlled cutover; unknown keys fail closed.
 
-Use the same account token that authenticates MFA's MCP. The existing credential
-command writes private `credentials.json` under Partner state; never put the token
-in Partner TOML, project TOML, arguments or logs. Aliases must be unique, nonempty,
-trimmed single-line names: at most 32, each at most 512 characters. Restart the
-Partner after changing integration settings. Explicit Matrix settings or a token
-without the other half fail with an actionable error. Omitting both leaves Matrix
-disabled and requires no gateway. Disabled startup removes only CFL's owned
-`matrix` MCP declaration and preserves unrelated project settings.
-
-At enabled startup, CFL uses the installed MCP SDK to call original `whoami`,
-validate the exact Matrix `user_id`, and close the probe within a five-second
-budget, including failures. An unavailable or invalid gateway fails startup.
-Official app-server project configuration then contains:
+Startup authenticates an official SDK `list_accounts` probe with a five-second
+budget, validates the finite account/platform identity set, and closes the probe.
+The API token's Post binding determines visibility; the configured `agent_id`
+must match authenticated notifications. Native project configuration declares:
 
 ```toml
-[mcp_servers.matrix]
-url = "http://127.0.0.1:18770/mcp"
-bearer_token_env_var = "CFL_MATRIX_TOKEN"
+[mcp_servers.post]
+url = "http://127.0.0.1:8787/mcp"
+bearer_token_env_var = "CFL_POST_TOKEN"
 ```
 
-CFL supplies the token only through the app-server environment. It preserves
-Companion, optional Keet and operator MCP entries, and refuses an operator-owned
-`matrix` name collision. The original short tools are `whoami`, `list_rooms`,
-`list_room_members`, `read_messages` and `send_message`. There are no CFL wrappers,
-second persistent account connection or per-message discovery calls.
+Only the API token goes to native execution. The receiver secret stays with the
+HTTP receiver. Companion, Keet and unrelated operator configuration are preserved.
+Startup removes obsolete Matrix MCP declarations only when their bearer marker
+is `CFL_MATRIX_TOKEN`; operator-owned Matrix entries remain untouched.
 
-Configure MFA's `MATRIX_WEBHOOK_URL` as
-`http://127.0.0.1:<CFL port>/api/matrix/events`, leaving
-`MATRIX_WEBHOOK_BEARER_TOKEN` unset. The account token is only an MCP credential.
-This local-only webhook accepts loopback socket peers; never expose it through a
-reverse proxy. Valid durable admission returns 202 (including duplicate retries
-and ignored self messages or policy-denied DMs); disabled intake returns 404, nonlocal delivery 403,
-malformed JSON, a body exceeding 256 KiB or invalid conversation kinds 400, other invalid envelopes 422, and temporary
-admission unavailability 503 for MFA's existing finite retry.
+Post sends authenticated JSON to `http://127.0.0.1:<port>/api/post/events` using
+the separate receiver Bearer on every request. Configure this exact URL in Post.
+Direct loopback ingress is the default. Nonlocal socket peers require an actual
+application authorization callback in addition to the receiver secret; forwarded
+headers do not establish local origin. Existing same-origin/browser authorization
+checks still apply. The stock CLI provides no remote authorization callback, so
+its Post endpoint remains loopback-only even when the browser listens on LAN.
 
-The strict envelope has `type = "message"`, `event_id`, `room_id`, `sender_id`,
-`sender_display_name`, `timestamp`, `body`, `mentions`, optional `reply_to_event_id`
-and `reply_to_sender_id`, optional `conversation_type` (`dm` or `room` only), and `truncated`.
-An omitted conversation kind follows existing room policy; null, false and unknown
-values fail before policy admission. A supplied reply author must be a full
-Matrix user ID (`@localpart:server`, no whitespace), at most 255 UTF-16 code units,
-and requires a nonempty reply target ID. Invalid/orphan authors return 422 without
-admission; identities are never clipped. Omission means the author is unknown.
-No extra keys are accepted. Body/display may be empty or whitespace;
-body is capped at 16,000 UTF-16 code units, ID/display/mention entries at 255,
-mentions at 100 strings. Harmless nonmatching or empty mention strings remain
-valid; identity comparisons are exact. Timestamp is a safe integer. Reply and
-truncation are retained facts, not trigger policy.
+Requests have a 2 MiB body bound and ten-second body deadline. Response meanings:
 
-Manually accept/join intended plaintext DM rooms and mark them direct in the
-observed Matrix account. MFA derives `conversation_type = "dm"` from synchronized
-`m.direct`, independently for each configured identity. CFL admits those DMs only
-from exact `dm_allow_list` senders, whose nonblank text auto-wakes without addressing.
-Omitted/empty lists deny all marked DMs. At most 64 unique full IDs are accepted,
-each matching `@localpart:server` without whitespace and at most 255 UTF-16 units.
-Null, nonarrays, duplicates, invalid IDs and oversized lists fail configuration;
-strings are never trimmed, clipped or case-folded. Lists belong to each Partner.
-Denied DMs return 202 without storing a receipt, body, room context or pending
-input, even with mention/reply/alias. They cannot appear in later model context
-or public history. Earlier admitted receipts remain immutable across list changes
-and restart; rejected messages are never automatically replayed. Historical
-context is not purged. Independently authorized MCP history/send tools keep their
-existing access; this list governs automatic webhook intake only.
+| Status | Meaning |
+| --- | --- |
+| 202 | Receipt, immutable original source and pending input persisted, or exact durable duplicate recognized. Execution can remain pending. |
+| 401 / 403 | Receiver Bearer or application/peer authorization failed. |
+| 404 | Post disabled, or obsolete `/api/matrix/events` route. |
+| 400 / 413 / 415 / 422 | Invalid JSON, size, content type, or strict schema/semantic/binding rejection. |
+| 409 | Delivery identity reused with changed bytes or canonical message reused with changed content. |
+| 503 | Durable receipt unavailable; Post must retry the same immutable delivery. |
 
-Direct marking is account-relative and need not mean two members. Unmarked rooms
-retain group rules, so this is not universal two-person-room access control.
-No invite acceptance, account-data mutation or list synchronization is automated.
-Encrypted rooms and media remain outside plaintext text intake.
+The executable schema is the attributed `post-contract.ts`. CFL accepts only
+version 1 inbound non-mutation message deliveries from the configured agent and
+startup-discovered accounts/platforms. Attachment references must exactly match
+unique metadata, with truthful available/unavailable fields. Post decides wake;
+CFL never reruns per-platform allowlist, mention, alias or DM classification.
 
-Unmarked rooms, explicit `room` and omitted kinds follow group policy for nonblank text:
-native mentions containing discovered self trigger first, then a verified reply
-author exactly equal to the current startup-discovered identity, then a configured
-case-sensitive literal alias. Other/unknown reply authors allow independent
-mention/alias matching. There is no implicit display-name trigger or inferred DM trigger. Empty or
-whitespace text never wakes, even with a mention/reply; self sender is ignored.
-Other text buffers by exact room ID, capped at 64 records and 16,000
-characters including attribution; oldest records are discarded to stay within the
-budget. A trigger receives at most 800 UTF-8 bytes of preceding same-room context,
-marked untrusted along with authored body/display/mention text. Transport IDs,
-source time and truncation are metadata. External participants never inherit the
-web Human's administrative authority. Triggered input shows the original Matrix
-display name (sender ID when empty), sender ID and exact room ID in a wrapping,
-escaped source header. The original body is separate from attribution; public
-history/reconnect/restart retain authored time. Private attribution input and
-model context remain unchanged. No room-name lookup or browser-supplied source
-is supported. See [Matrix source acceptance](matrix-source-ui.md).
+Receipt dedupe is scoped to Post origin, agent and delivery. Canonical message
+dedupe also binds account/conversation/message identity. A new delivery ID for an
+identical message does not enqueue another input. Original source remains
+immutable. Pending inputs and image outcomes survive restart; native reconciliation
+prevents duplicate inputs after an uncertain start. A failed native start waits
+for fresh native history after restart rather than blindly retrying. Pending
+inputs from a different origin/agent/account binding are held, never rerouted.
 
-Receiver receipts use room plus event ID. The first accepted content stays immutable;
-receipt, buffer update or clearing, provenance and pending input creation are one
-SQLite transaction. Pending inputs retain original sender, room, event, body,
-mentions, reply target/author, timestamp and truncation in private provenance.
-The native reason is `dm`, `mention`, `reply` or `alias`; public source fields are unchanged.
-Matrix and Keet share the official native execution queue; active turns and compaction delay intake execution, and admitted
-pending inputs resume after startup/restart and native idle completion. This adds no
-separate execution owner, App UI/contract changes or persona prompt redesign.
+Images are fetched after receipt, with at most two persisted attempts per asset.
+The configured Post origin and encoded `/assets/<asset-id>` route are the only
+byte destination; payload URLs cannot select another origin. Redirects are
+rejected. Each whole-body fetch has a 15-second deadline and 16 MiB bound, exact
+MIME/size validation, supported PNG/JPEG/WebP/GIF decoding and 100-million-pixel /
+20,000-dimension limits. Existing native limits also apply: five images,
+5 MiB/image, 20 MiB/message. Invalid/oversized images become unavailable facts.
+Successful image checkpoints and deterministic private paths prevent duplicate
+attachment inputs after retry/restart. Shutdown cancels pending network I/O and
+waits for the queue before closing SQLite.
 
-CFL never automatically sends, resends, polls or backfills. MFA's delivery queue is
-ephemeral, bounded and finite-retry: receiver downtime, gateway restart or exhaustion
-can lose notifications. Durable CFL receipts cover only events CFL already admitted;
-they are not a gateway replay guarantee. Use `read_messages` deliberately to recover
-history, and `send_message` explicitly to respond in the original room. An uncertain
-send acknowledgment must not cause blind resend. E2EE, media, reactions, threads and
-room/account administration are outside this integration. Synthetic local SDK/MCP
-and fake-engine acceptance does not establish live homeserver interoperability.
+Files, audio and video retain stable Post asset IDs and availability. They never
+invoke speech recognition or native voice/video. Use the existing agent terminal
+for an explicit transfer (secret comes from private CFL credentials, never argv):
+
+```sh
+codex-for-love asset-fetch /path/to/partner.toml ast_reference application/pdf ./new-file.pdf
+codex-for-love asset-upload /path/to/partner.toml ./picture.png image/png
+```
+
+Fetch creates a new private file and refuses to overwrite. Upload sends raw bytes
+with Content-Type to `/assets` (30-second full-operation deadline, 16 MiB bound)
+and prints the versioned Asset result. Pass that asset ID to explicit native
+`post.send_message`. Tools are `list_accounts`, `list_conversations`,
+`get_conversation`, `list_members`, `read_messages`, `get_asset` and `send_message`.
+Use opaque account/conversation IDs from Post; verified reply targets remain in
+the same account/conversation. Ordered send content may include text, native
+mentions and asset references. Audio/video outbound use ordinary file semantics.
+After an uncertain send, reconcile with the same `request_id` and content. A new
+request ID is not a safe retry. Inspect per-part `sent|failed|unknown` receipts
+and `stored`; `stored:false` does not mean the platform send failed.
+
+QQ and Matrix use the same existing Partner thread as web, Keet and reminders.
+Generic App text/images carry concise truthful Post platform attribution; full
+source, reply and route facts remain immutable backend/native metadata. QQ is
+never labeled Matrix. Historical Matrix source rendering remains read-only.
+Delivery does not authorize outgoing messaging and the final assistant response
+is never automatically sent to Post. Read/send remains the official native MCP
+bootstrap and explicit tools. See [deployment cutover](post-v1-cutover.md) for
+artifact preparation, activation, marker checks and rollback.

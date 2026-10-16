@@ -370,3 +370,19 @@ approved archive replaces the #4007 archive for current native acceptance.
 App owns the output contract and unchanged browser presentation; CFL's actual
 native generated-image/history/reconnect regression and fixtures are original
 integration work. Source-built packaging records its own resource hashes.
+
+### Lamplit Post v1 consumer contract
+
+`apps/partner/runtime/post-contract.ts` copies the executable finite schema from
+`lamplit-post/contracts/v1/index.ts` at immutable commit
+`ef2fa54ec90630bad5b38b2768a13b7bf543dc4c` (FlickNote #4066/#4067).
+`apps/partner/tests/post-examples.json` copies that commit's
+`contracts/v1/examples.json`. License: AGPL-3.0, preserved in
+`licenses/lamplit-post-AGPL-3.0.txt`. CFL's Node fake service and receiver tests
+are original integration code informed by the same revision's
+`contracts/v1/README.md` and `tests/fixtures/consumer.ts`; no Bun-only receiver
+or adjacent mutable source is a runtime dependency. This adds no App public
+contract, frontend source or native fork change. Existing App/native pins and
+historical attribution above are unchanged. Active Matrix-specific integration
+and its old producer/acceptance runners were retired; historical Matrix source
+readers remain for persisted real provenance.

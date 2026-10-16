@@ -115,29 +115,34 @@ _Avoid_: deployment profile, auto-provisioned integration
 The actual positive increase in affinity recorded for one relationship change. A change with unchanged or decreased affinity has no growth.
 _Avoid_: requested increase, cumulative growth
 
-**Matrix identity（Matrix 身份）**:
-The Partner's own Matrix account identity, distinct from the Human's account and from the Partner's Keet identity.
-_Avoid_: shared Human account, Keet identity
+**Post**:
+The independent QQ and Matrix account owner that records observed conversations,
+applies configured admission and wake policy, and offers authorized context and
+explicit messaging actions to a Partner.
+_Avoid_: agent execution engine, separate Partner session
+
+**Post binding**:
+One agent's configured access to Post accounts and conversations, with a distinct
+notification recipient. It does not grant the Human's administrative authority.
+_Avoid_: platform login, execution session key
+
+**Post delivery**:
+An immutable admitted wake message with factual platform, account, conversation,
+sender, reply and attachment provenance. Acknowledgment means the receiver has
+retained it durably; it does not mean execution or an outgoing reply succeeded.
+_Avoid_: automatic reply authorization, inferred mention, replayed platform history
+
+**Post asset**:
+An opaque reference to retained image or file bytes, including audio and video
+attachments. Availability and access remain distinct facts; a known reference
+alone does not grant access.
+_Avoid_: server-local file path, public download URL, native voice message
 
 **Matrix-sourced message（Matrix 来源消息）**:
-An external Matrix participant's admitted text in the Partner's single conversation, retaining its sender and room attribution. It does not inherit the Human's administrative authority.
-_Avoid_: Human message, Keet message, self-set reminder
-
-**Matrix Trigger（Matrix 触发）**:
-A nonblank external Matrix message selected by the receiving Partner: an admitted marked DM starts a turn directly; other rooms require a native mention, a verified reply to the Partner, or a configured literal trigger alias, in that order. An unknown reply author does not establish ownership.
-_Avoid_: every room message, display-name match, automatic reply
-
-**Matrix direct conversation（Matrix 直接会话）**:
-A room marked direct from the observed Matrix account's perspective. That marking is account-relative and does not require exactly two members; an unmarked room follows ordinary room policy.
-_Avoid_: two-member heuristic, room-name inference, universally private room
-
-**Matrix DM allow list（Matrix 私信接纳名单）**:
-The receiving Partner's exact full Matrix sender identities permitted to contribute marked DM text to its conversation. An empty list admits none; addressing cannot grant a sender admission. This conversational admission does not grant the Human's authority or determine independent tool access.
-_Avoid_: display-name list, gateway-wide permission, tool authorization
-
-**Matrix Room Context Buffer（Matrix 房间上下文缓冲）**:
-The bounded sequence of ordinary external text retained for one room until its next Matrix Trigger. It accompanies that trigger as context without independently starting a turn.
-_Avoid_: replay history, durable gateway inbox, Keet Group Context Buffer
+An external Matrix participant's admitted contribution to the Partner's single
+conversation. Historical messages retain their original sender and room source;
+new contributions carry Post provenance. QQ remains a distinct platform.
+_Avoid_: Human message, QQ disguised as Matrix, separate Matrix session
 
 **Keet identity**:
 The Partner's own peer-to-peer identity for participating in Keet conversations. It is distinct from the Human's personal Keet identity.
