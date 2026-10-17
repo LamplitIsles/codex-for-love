@@ -526,6 +526,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
   let eventSequence = 0;
   // Observation only: never persisted as transcript, receipts or sentence rows.
   let streaming: { id: string; turnId: string; createdAt: number; text: string } | undefined;
+  let completedReply: { turnId: string; itemId: string; text: string } | undefined;
   const completedStreamItems = new Map<string, Set<string>>();
   let storageError = false;
   let closing = false;
@@ -597,6 +598,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
     turns.set(turn.id, turn);
     if (['completed', 'failed', 'interrupted', 'cancelled'].includes(turnStatus(turn))) {
       if (streaming?.turnId === turn.id) streaming = undefined;
+      if (completedReply?.turnId === turn.id) completedReply = undefined;
       completedStreamItems.delete(turn.id);
     }
     const officialIds = officialInputIds(turn);
@@ -719,6 +721,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
       activeTurnId = null;
       activeOperationId = null;
     }
+    if (completedReply?.turnId !== activeTurnId) completedReply = undefined;
   }
 
   function imageFailure(status: 'failed' | 'unavailable'): string {
@@ -1276,6 +1279,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
     if (interruptPromise) return interruptPromise;
     const requestedTurnId = activeTurnId;
     if (!requestedTurnId || !appServer) return;
+    completedReply = undefined;
     interruptPromise = (async () => {
       turnControllers.get(requestedTurnId)?.abort();
       let turnId = requestedTurnId;
@@ -1384,6 +1388,12 @@ export async function createPartner(config: Config, credentials: Credentials, de
         pet?.itemStarted(item);
         const turnId = typeof params.turnId === 'string' ? params.turnId : '';
         const turn = turns.get(turnId);
+        if (notification.params.threadId === threadId && activeTurnId === turnId && isActiveTurn(turn)
+          && item.type === 'agentMessage' && typeof item.id === 'string'
+          && !completedStreamItems.get(turnId)?.has(item.id) && completedReply && item.id !== completedReply.itemId) {
+          completedReply = undefined;
+          if (!closing) notify();
+        }
         if (item.type === 'agentMessage' && !isAnswer(item) && streaming?.turnId === turnId && streaming.id === item.id) {
           streaming = undefined;
           if (!closing) notify();
@@ -1408,8 +1418,22 @@ export async function createPartner(config: Config, credentials: Credentials, de
       }
       case 'item/completed': {
         const item = record(params.item);
-        pet?.itemCompleted(item);
         const turnId = typeof params.turnId === 'string' ? params.turnId : '';
+        // Unknown/wrong-turn events must not claim the globally unique item ID
+        // in the durable completion ledger before its real owner completes it.
+        if (item.type === 'agentMessage' && (!turns.has(turnId)
+          || (streaming && streaming.id === item.id && streaming.turnId !== turnId))) break;
+        pet?.itemCompleted(item);
+        // Explicit native final phase is terminal answer evidence; absent phase
+        // is unknown. Retain the body identity so async reads must also contain
+        // that exact durable body before publishing completion.
+        if (notification.params.threadId === threadId && activeTurnId === turnId && isActiveTurn(turns.get(turnId))
+          && item.type === 'agentMessage' && item.phase === 'final_answer'
+          && streaming?.turnId === turnId && streaming.id === item.id
+          && !completedStreamItems.get(turnId)?.has(streaming.id)
+          && typeof item.text === 'string' && item.text.trim()) {
+          completedReply = { turnId, itemId: streaming.id, text: item.text };
+        }
         if (turnId && item.type === 'agentMessage' && typeof item.id === 'string') {
           if (isActiveTurn(turns.get(turnId))) {
             const completed = completedStreamItems.get(turnId) ?? new Set<string>();
@@ -1881,6 +1905,11 @@ export async function createPartner(config: Config, credentials: Credentials, de
         || !isActiveTurn(turns.get(streaming.turnId))) return undefined;
       return { ...streaming };
     },
+    replyCompletion() {
+      if (closing || !completedReply || completedReply.turnId !== activeTurnId
+        || !isActiveTurn(turns.get(completedReply.turnId))) return undefined;
+      return { ...completedReply };
+    },
     appearance(): ChatAppearance {
       return { companionName: config.name, userName: '',
         ...(avatars.companion ? { companionAvatar: '/api/avatars/companion' } : {}),
@@ -2144,7 +2173,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
     close() {
       if (closePromise) return closePromise;
       closing = true;
-      streaming = undefined; completedStreamItems.clear();
+      streaming = undefined; completedReply = undefined; completedStreamItems.clear();
       postAbort.abort();
       if (alarmTimer) clearInterval(alarmTimer);
       pet?.close();

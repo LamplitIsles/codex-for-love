@@ -449,6 +449,13 @@ at source LF/CRLF boundaries, keeping lists and other Markdown structures intact
 Each displayed unit has its original source time/avatar and copies only its own
 source; Whole reply restores the entire answer and full-source Copy. This display
 preference creates no additional transcript records or notifications.
+Typing ends with the exact completed body when the current native answer item
+explicitly completes with phase `final_answer`. CFL publishes
+`replyCompletedTurnId` with that body and no preview; the turn remains active
+and cancellable during native cleanup. Commentary and phase-less messages do
+not establish finality. When a provider omits the phase, typing continues until
+the native turn ends. Completion evidence is transient, scoped to the current
+turn, and omitted after stop/failure, replacement or Partner restart.
 Closing the last page stops observation only. Reconnecting reads the same active
 Partner partial without restarting execution. Completion replaces that preview
 with the official completed message; stop/failure/session change removes it and

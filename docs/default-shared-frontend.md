@@ -296,3 +296,24 @@ requests in ignored evidence. The CFL profile positively checks absent thinking
 and the native `CFL_REASONING_PRIVATE_SENTINEL` stays private. It grants no
 permission to expose reasoning or change the frozen runner. Source-built package
 hashes and separately approved frozen acceptance identities remain distinct.
+
+## Native final body completion — spec #4157
+
+For the current known answer item, canonical `item/completed` with explicit
+`final_answer` proves terminal answer text. The shipped native fork
+`880185c212186edc3211c02eb36c7dd7584917f7` defines this in
+`codex-rs/protocol/src/models.rs` (`MessagePhase`); its public item conversion
+and canonical event mapping preserve the phase. The wire value is snake case.
+An absent/null phase is unknown, so that path keeps typing until turn terminal.
+
+CFL exposes `replyCompletedTurnId` only alongside the exact completed body,
+without its preview, while the same turn is still active. Execution, Stop and
+queue ownership remain native. Commentary, unknown items and wrong-turn events
+cannot establish this signal. Socket disconnect preserves current evidence;
+terminal/replacement/shutdown removes it. Restart recovers retained history,
+without reconstructing transient completion evidence.
+
+`node --test apps/partner/tests/streaming-replies.test.ts` checks the real
+fake-native → Partner/storage → shared socket path and delayed native reads.
+These assertions establish native transport behavior; App #4156 separately owns
+the DOM typing-marker evidence. Neither establishes live-provider acceptance.

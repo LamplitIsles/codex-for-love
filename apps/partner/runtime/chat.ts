@@ -65,9 +65,14 @@ export function createCodexChatBackend(partner: Partner, authorize: () => Promis
       // Read transient authority after async history/media work, so an older
       // host read cannot resurrect a preview cleared by item/turn completion.
       const streamingReply = partner.streamingReply();
+      const completion = partner.replyCompletion();
+      const replyCompletedTurnId = completion && p.snapshot.cancellable[0] === completion.turnId
+        && p.messages.some(m => m.role === 'agent' && m.turnId === completion.turnId && m.id === completion.itemId && m.text === completion.text)
+        ? completion.turnId : undefined;
       return { version: 2, sessionId: p.snapshot.sessionId, name: p.snapshot.name,
         activeTurnId: p.snapshot.cancellable[0] ?? null,
-        ...(streamingReply && !p.messages.some(m => m.id === streamingReply.id) ? { streamingReply } : {}),
+        ...(replyCompletedTurnId ? { replyCompletedTurnId } : {}),
+        ...(streamingReply && !replyCompletedTurnId && !p.messages.some(m => m.id === streamingReply.id) ? { streamingReply } : {}),
         contextUsage: { tokens: p.snapshot.context?.activeTokens ?? null, capacity: p.snapshot.context?.windowTokens ?? null },
         compaction: p.snapshot.lifecycle.latest ? { id: p.snapshot.lifecycle.latest.nativeId ?? null, status: p.snapshot.lifecycle.latest.status } : null,
         messages: p.messages, before: p.before, capabilities: { ...capabilities, images }, recovery };

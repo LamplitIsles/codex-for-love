@@ -260,14 +260,19 @@ original integration work. FlickLog itself and prompt semantics are unchanged.
 The default Framework7/Svelte frontend and `@lamplit/contracts` public exports
 are built together from Apache-2.0 `LamplitIsles/lamplit-app`, initially
 `26ab708799f8ef4d99d974e1ab60c4d14a38267a`. `lamplit-app.sha` is the authoritative
-current pin. The current source is merged App PR28 (App spec #4150)
-`6016080da986cf69277041c3d73d5c2c801dbd46`, tree
-`a5cc014af2442dfe09f88258ac629e095d94d494` (Apache-2.0). Browser resources and
+current pin. The current source is merged App PR29 (App spec #4156)
+`ce7d972eb3742db92436b98d5285b11eb7a8213b`, tree
+`ac4581919f4c5cf332d298998c9bb3d90ecb4caf` (Apache-2.0). Browser resources and
 compiled public contracts come from that same revision; upstream licenses and
 source attribution remain in the retained App LICENSE and IMPORTS payload.
 The merged tree is identical to reviewed source
-`4f081b40a0a8d833474976f80cbbc8883957b3bf`; App owns the atomic source-line
-streaming repair and its local socket/browser evidence. Historical frozen
+`353456a77a7eddad8117017afc7860c97a472df8`; App owns the final-body typing
+presentation, `replyCompletedTurnId` public contract and local socket/browser
+evidence. CFL spec #4157 owns native final-phase evidence and transport/persistence
+verification; App fixture evidence is not native acceptance. The prior PR28 pin
+`6016080da986cf69277041c3d73d5c2c801dbd46`, tree
+`a5cc014af2442dfe09f88258ac629e095d94d494`, supplied the atomic source-line
+streaming repair (reviewed `4f081b40a0a8d833474976f80cbbc8883957b3bf`). Historical frozen
 acceptance retains source `d26a6da648a224ad92483bb22ed25be57b79e864`
 (merged PR27 `102e044d8dfdeb4f1502f5f01b35c6fcb9183e5f`, tree
 `3cf232c6b647383d2d56f8d5f757187f34ef4074`). The previous source-line pin was
