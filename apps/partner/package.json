@@ -15,6 +15,7 @@
     "@jaminzhou/codex-app-server-client": "github:lamplitisles/codex-app-server-client#56ab11736036d6a5c3dd6e150498dec2d95b2bf5",
     "@lamplit/contracts": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.30.0",
+    "koffi": "3.3.3",
     "sharp": "^0.34.5",
     "sirv": "^3.0.2",
     "smol-toml": "^1.8.0",

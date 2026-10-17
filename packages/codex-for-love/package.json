@@ -9,6 +9,7 @@
   },
   "files": ["bin", "vendor", "LICENSE", "NOTICE", "README.md"],
   "dependencies": {
+    "koffi": "3.3.3",
     "sharp": "0.34.5"
   },
   "optionalDependencies": {

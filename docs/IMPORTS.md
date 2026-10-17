@@ -260,16 +260,23 @@ original integration work. FlickLog itself and prompt semantics are unchanged.
 The default Framework7/Svelte frontend and `@lamplit/contracts` public exports
 are built together from Apache-2.0 `LamplitIsles/lamplit-app`, initially
 `26ab708799f8ef4d99d974e1ab60c4d14a38267a`. `lamplit-app.sha` is the authoritative
-current pin. The current source is merged App PR29 (App spec #4156)
-`ce7d972eb3742db92436b98d5285b11eb7a8213b`, tree
-`ac4581919f4c5cf332d298998c9bb3d90ecb4caf` (Apache-2.0). Browser resources and
+current pin. The current source is merged App PR30 (App spec #4210)
+`a41762d2f5b4320e88adaec7f5c16dc102edf043`, tree
+`a547f65a53d6c1f8ab89cbd0edcedae31907ca35` (Apache-2.0). Browser resources and
 compiled public contracts come from that same revision; upstream licenses and
 source attribution remain in the retained App LICENSE and IMPORTS payload.
-The merged tree is identical to reviewed source
-`353456a77a7eddad8117017afc7860c97a472df8`; App owns the final-body typing
-presentation, `replyCompletedTurnId` public contract and local socket/browser
-evidence. CFL spec #4157 owns native final-phase evidence and transport/persistence
-verification; App fixture evidence is not native acceptance. The prior PR28 pin
+App owns workspace-image reply rendering, capability and URI helpers plus its
+browser evidence. CFL spec #4212 owns authenticated native reads and containment.
+App fixture evidence is not native acceptance. Its tree is identical to the
+independently reviewed App candidate
+`b51b06763defc18f06b2df4860e9f3b5db916790`; its browser evidence applies unchanged.
+The previous merged App PR29 (App spec #4156) was
+`ce7d972eb3742db92436b98d5285b11eb7a8213b`, tree
+`ac4581919f4c5cf332d298998c9bb3d90ecb4caf`, identical to reviewed
+`353456a77a7eddad8117017afc7860c97a472df8`; it supplied final-body typing
+presentation and the `replyCompletedTurnId` public contract. CFL spec #4157 owns
+native final-phase evidence and transport/persistence verification.
+The prior PR28 pin
 `6016080da986cf69277041c3d73d5c2c801dbd46`, tree
 `a5cc014af2442dfe09f88258ac629e095d94d494`, supplied the atomic source-line
 streaming repair (reviewed `4f081b40a0a8d833474976f80cbbc8883957b3bf`). Historical frozen
@@ -413,3 +420,14 @@ browser/contract/runner bytes are acceptance inputs, separate from source-built
 package manifests and hashes. The earlier06459f0 archive remains historical,
 unchanged evidence. No Pi execution code is imported; CFL's official-event
 projection and held-native controls are original integration work.
+
+### Workspace image descriptor identity — spec #4212
+
+CFL uses MIT-licensed [Koffi 3.3.3](https://github.com/Koromix/koffi) as a declared
+runtime dependency, with upstream prebuilt Node-API binaries for Linux and macOS.
+The original CFL workspace image reader calls macOS `fcntl(F_GETPATH)` through
+its public FFI API to check the opened file's actual vnode path before reading.
+Linux obtains that path from `/proc/self/fd`. No Koffi source or custom addon is
+vendored; its installed package retains the upstream MIT license. Packaging keeps
+Koffi external alongside Sharp and installs the pinned dependencies without build
+scripts for isolated package verification.

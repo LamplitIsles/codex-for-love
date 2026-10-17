@@ -1,4 +1,4 @@
-import { APPEARANCE_PATH } from '@lamplit/contracts';
+import { APPEARANCE_PATH, WORKSPACE_IMAGE_PATH } from '@lamplit/contracts';
 import { imageHttp } from '@lamplit/contracts/server';
 import { createChatSocket } from './chat.ts';
 import { createVoiceHost, type VoiceDependencies } from './voice.ts';
@@ -77,6 +77,14 @@ export function createWebServer(partner: Partner, assets: string, options: { aut
       if (path === APPEARANCE_PATH) {
         if (request.method !== 'GET') return json(response, { error: 'Method not allowed' }, 405);
         return json(response, partner.appearance());
+      }
+      if (path === WORKSPACE_IMAGE_PATH) {
+        if (request.method !== 'GET') return json(response, { error: 'Method not allowed' }, 405);
+        // searchParams has already decoded the query; preserve literal % paths.
+        const image = await partner.workspaceImage(new URL(request.url!, 'http://localhost').searchParams.get('path'));
+        if (!image) return json(response, { error: 'Workspace image unavailable' }, 404);
+        response.writeHead(200, { 'content-type': image.mediaType, 'cache-control': 'no-store' });
+        response.end(image.bytes); return;
       }
       if (path === '/api/chat/images' || path.startsWith('/api/chat/media/')) {
         // The same-host Origin above is validated before reconstructing the external POST URL.

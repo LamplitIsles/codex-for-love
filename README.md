@@ -555,6 +555,22 @@ connection. Audio and unsent transcripts are transient. Shared runtime validatio
 comes from `@lamplit/contracts/voice`. The retained native UI's batch transcription
 endpoint remains independent.
 
+### Workspace images in Partner replies
+
+Partner reply Markdown can display PNG, JPEG, WebP and GIF references to files
+in the execution workspace. Relative references resolve against the configured
+workspace; absolute references must remain inside it after symlink resolution.
+The authenticated `GET /api/chat/workspace-image?path=<encoded literal path>`
+endpoint reads the current regular file on every request, up to 20 MiB, and
+validates its image bytes. Responses use `no-store` and `nosniff`. Existing API
+authorization and same-origin checks apply to each request. Unavailable images
+show an unavailable state with Retry in the shared App.
+
+These are live references: reopening history may show changed bytes or an
+unavailable file. They do not copy files, retain snapshots, or add images to the
+Chat Image Library. Markdown URI decoding happens once in the App; the endpoint
+uses the query-decoded path literally, preserving filenames containing `%20`.
+
 ### Shared image sending and recovery
 
 The shared slice accepts PNG/JPEG/WebP/GIF: six images, 5 MiB each, 20 MiB

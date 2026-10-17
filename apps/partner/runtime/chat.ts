@@ -75,7 +75,7 @@ export function createCodexChatBackend(partner: Partner, authorize: () => Promis
         ...(streamingReply && !replyCompletedTurnId && !p.messages.some(m => m.id === streamingReply.id) ? { streamingReply } : {}),
         contextUsage: { tokens: p.snapshot.context?.activeTokens ?? null, capacity: p.snapshot.context?.windowTokens ?? null },
         compaction: p.snapshot.lifecycle.latest ? { id: p.snapshot.lifecycle.latest.nativeId ?? null, status: p.snapshot.lifecycle.latest.status } : null,
-        messages: p.messages, before: p.before, capabilities: { ...capabilities, images }, recovery };
+        messages: p.messages, before: p.before, capabilities: { ...capabilities, images, workspaceImages: true }, recovery };
     },
     async history(before) { const p = await page(before); return { messages: p.messages, before: p.before }; },
     compact: input => partner.compact({ ...input, authorize }),

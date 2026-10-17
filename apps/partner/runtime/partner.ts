@@ -2,6 +2,7 @@ import { discoverPost, receiverAuthorized, validatePost } from './post.ts';
 import { postImage } from './post-assets.ts';
 import type { EventV1 } from './post-contract.ts';
 import { postEndpoint } from './config.ts';
+import { readWorkspaceImage } from './workspace-images.ts';
 import { listDiary, readDiary } from './diary.ts';
 export { MAX_DIARY_ENTRY_BYTES } from './diary.ts';
 import { validateUpload, validateSubmission, validateRecovery, type Receipt, type Submission, type ImageUpload, type ImageRef, type InputRecovery, type ChatAppearance, type FinalizeSubmission, type RetryFailed, type DeleteFailed, validate, FinalizeSubmissionSchema, RetryFailedSchema, DeleteFailedSchema } from '@lamplit/contracts';
@@ -1826,6 +1827,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
       if (!config.speech || !credentials.speech) throw new Error('Speech is unavailable');
       return transcribeAudio(config.speech.endpoint, credentials.speech, data, mediaType, signal);
     },
+    workspaceImage(path: string | null) { return readWorkspaceImage(paths.workspaceRoot, path); },
     async sharedImageLimits() { return storageError || closing ? false as const : { ...imageLimits, mediaTypes: [...imageLimits.mediaTypes] }; },
     async uploadImages(value: ImageUpload, authorize: () => Promise<boolean> = async () => true) {
       const task = admission.then(async () => {

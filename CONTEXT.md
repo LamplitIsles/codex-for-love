@@ -68,6 +68,10 @@ _Avoid_: automatic active image input, current context
 The time used to place restored Historical media in the Chat Image Library: the original message time when retained conversation evidence verifies it, otherwise a declared synthetic fallback that preserves imported order without claiming a send time.
 _Avoid_: service-start time, filesystem modification time
 
+**Workspace image reference（工作区图片引用）**:
+An image reference in a Partner reply that points to a file kept in the execution workspace. It shows the current file when opened, distinct from a retained conversation image, and does not create Chat Image Library membership.
+_Avoid_: retained attachment, image snapshot, library image
+
 **Chat Image Library（聊天图片库）**:
 The shared, finite conversation-owned catalogue of Human-sent, Agent-generated, and restored Historical media images. Humans browse it in the drawer and Partners discover the same membership through bounded Companion MCP pages. Explicit native inspection never adds an item, and Historical media remains out of active context unless deliberately inspected.
 

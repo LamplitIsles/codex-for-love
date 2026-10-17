@@ -29,7 +29,7 @@ const rolldownPackage = releaseRequire.resolve('rolldown/package.json');
 const rolldownManifest = JSON.parse(await readFile(rolldownPackage, 'utf8'));
 const rolldown = join(dirname(rolldownPackage), rolldownManifest.bin.rolldown);
 for (const [entry, output] of [['cli.ts', 'cli.mjs'], ['companion-mcp.ts', 'companion-mcp.mjs']]) {
-  execFileSync(process.execPath, [rolldown, join(root, 'apps', 'partner', 'runtime', entry), '--platform=node', '--format=esm', '--external', 'sharp', '--file', join(vendor, 'runtime', output)], { cwd: root, stdio: 'inherit' });
+  execFileSync(process.execPath, [rolldown, join(root, 'apps', 'partner', 'runtime', entry), '--platform=node', '--format=esm', '--external', 'sharp', '--external', 'koffi', '--file', join(vendor, 'runtime', output)], { cwd: root, stdio: 'inherit' });
 }
 await cp(join(root, 'apps', 'partner', 'runtime', 'session-start-hook.mjs'), join(vendor, 'runtime', 'session-start-hook.mjs'));
 await writeFile(join(vendor, 'package.json'), '{"type":"module"}\n');

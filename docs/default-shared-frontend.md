@@ -63,10 +63,11 @@ Packaging verifies the current build rather than rebuilding it. It includes
 browser resources, runtime/MCP/public contracts bundled with CFL’s explicit
 Rolldown dependency, helper, licenses and
 `vendor/source.json` (actual App/CFL identity, pin and browser/contracts/prepared-license hashes). Runtime
-requires only its declared installed Sharp dependency and supported native package;
+requires its declared Sharp and Koffi dependencies and supported native package;
 it does not require either source checkout. The fake-engine smoke extracts to a
-test-owned location, installs only Sharp there, verifies every served browser
-file, root/chat identity, canonical 404s and native session construction.
+test-owned location, installs Sharp and Koffi there with scripts disabled, and
+verifies every served browser file, root/chat identity, canonical 404s and native
+session construction.
 
 `check.yml` runs source preparation and the frozen CFL sequence, then complete
 artifact/package smoke without publication. The optional tag publication workflow
