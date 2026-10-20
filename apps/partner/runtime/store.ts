@@ -1,4 +1,4 @@
-import { postInput, postInputId } from './post.ts';
+import { postInput, postInputId, postPresentation } from './post.ts';
 import type { EventV1 } from './post-contract.ts';
 import { type MatrixEvent, type MatrixContext } from './matrix.ts';
 import { createHash } from 'node:crypto';
@@ -397,6 +397,20 @@ export class Store {
     return this.transaction(() => {
       const row = this.db.prepare('SELECT service,event,media,ready FROM post_sources_v1 WHERE message_id=?').get(id) as { service: string; event: string; media: string; ready: number } | undefined;
       return row ? { service: row.service, event: JSON.parse(row.event), media: JSON.parse(row.media), ready: Boolean(row.ready) } : undefined;
+    });
+  }
+  async postSources(ids: readonly string[]) {
+    return this.transaction(() => {
+      const result = new Map<string, ReturnType<typeof postPresentation>>();
+      const read = this.db.prepare('SELECT event,media FROM post_sources_v1 WHERE message_id=?');
+      for (const id of ids) {
+        const row = read.get(id) as { event: string; media: string } | undefined;
+        if (row) {
+          const event = JSON.parse(row.event) as EventV1;
+          result.set(id, postPresentation(event, JSON.parse(row.media), event.message.conversation.name));
+        }
+      }
+      return result;
     });
   }
   async postMediaAttempt(id: string, asset: string): Promise<{ claimed: boolean; result: string | null }> {

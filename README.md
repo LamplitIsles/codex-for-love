@@ -350,6 +350,45 @@ receipt/provenance/pending input before ACK, and feeds both platforms into the
 existing Partner/app-server thread. Images use existing native attachments;
 files and audio/video retain Post references. No automatic outgoing reply occurs.
 
+Post account discovery runs at startup. When a delivery names an account/platform
+missing from that map, CFL checks the same configured Post MCP with its private
+agent credential before recording a receipt. A newly authorized account can
+therefore deliver without restarting CFL. Known matching accounts reuse the map;
+this is not periodic grant or credential revocation polling. Malformed or
+cross-agent events fail validation before discovery. A successful lookup that
+still does not list the account/platform returns 422; an unavailable or unusable
+lookup returns retryable 503 without a receipt. Retry the same immutable delivery,
+not a new delivery ID. Concurrent misses share one bounded lookup, and shutdown
+cancels and settles in-flight discovery before closing storage.
+
+Before submitting accepted Post work to the native turn, CFL makes one bounded
+`get_conversation` read for its genuine display name. Account, conversation,
+native ID and group/direct type must match the retained event. The name is
+limited to 256 characters and stays in untrusted external-data context alongside
+the existing sender name; routing IDs and group/direct type remain explicit.
+Missing, failed or mismatched names are `null` (unknown), and do not prevent an
+otherwise valid turn. Receipt ACK does not wait for this optional metadata read.
+
+Accepted Post message headers show platform, group/direct type, and genuine
+conversation and sender names. Names are bounded external display data; missing
+names fall back to the corresponding ID with an explicit unknown label. Routing
+IDs remain in structured metadata. Existing history and pending recovery text
+are not rewritten.
+
+The shared chat projects retained Post deliveries as their own QQ/Matrix source,
+with group/direct attribution, original content, stored media and source time.
+Genuine captured conversation and sender names are display data; a direct peer
+may use the sender name only when their native identities match. Historical
+absent names remain unknown with ID fallback. Chat refresh and history read this
+retained provenance without remote metadata lookups or rewriting native history.
+
+The existing stderr journal records finite `post.receiver` HTTP status,
+`post.ingress` validation/account/receipt/retained stages, `post.execution`
+native-start outcomes and `post.tool` send categories. These records include
+only validated platform/group/direct enums and fixed status/category values;
+they contain no message text, names, routing IDs, tokens, URLs or raw tool errors.
+A retained receipt does not prove native execution or successful outbound send.
+
 One native `post` MCP declaration provides account/conversation/member/history
 reads, asset metadata and explicit send actions. Terminal `asset-upload` and
 `asset-fetch` helpers transfer bounded bytes with private API authentication.

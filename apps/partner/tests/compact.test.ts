@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { randomUUID } from 'node:crypto';
+import fsPromises from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import { fixture, eventually } from './fixture.ts';
 import { createWebServer } from '../runtime/server.ts';
@@ -93,3 +96,33 @@ for (const beforeStarted of [false, true]) for (const stop of [false, true]) {
     } finally { await f.close(); }
   });
 }
+
+test('compaction control remains continuous while its replacement write is held', async t => {
+  const f = await fixture(), originalWrite = fsPromises.writeFile;
+  const entered = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+  let update: Promise<void> | undefined;
+  let restore = () => {};
+  try {
+    await f.holdCompaction(true, true);
+    const partner = await f.createPartner(); await partner.compact();
+    const controlPath = join(f.directory, 'control.json');
+    const mock = t.mock.method(fsPromises, 'writeFile', async (...args: Parameters<typeof fsPromises.writeFile>) => {
+      if (String(args[0]).startsWith(controlPath)) {
+        await originalWrite(args[0], '', args[2]);
+        entered.resolve(); await release.promise;
+      }
+      return originalWrite(...args);
+    });
+    restore = () => { mock.mock.restore(); syncBuiltinESMExports(); };
+    syncBuiltinESMExports();
+    update = f.holdCompaction(true);
+    await entered.promise;
+    assert.deepEqual(JSON.parse(await fsPromises.readFile(controlPath, 'utf8')), { holdCompact: true, holdCompactStart: true });
+    assert.equal((await f.nativeState()).turns[0].status, 'inProgress');
+    release.resolve(); await update; restore();
+    await eventually(async () => (await partner.snapshot()).cancellable.length === 1);
+    await partner.cancel((await partner.snapshot()).cancellable[0]!);
+    assert.equal((await partner.snapshot()).lifecycle.latest?.status, 'failed');
+    assert.equal((await f.requests()).filter(request => request.method === 'turn/start').length, 0);
+  } finally { release.resolve(); await update; restore(); await f.close(); }
+});

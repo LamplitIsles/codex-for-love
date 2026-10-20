@@ -7,6 +7,7 @@ import { MAX_MESSAGE_LENGTH } from "./message-input.ts";
 import { InvalidImageInput, imageInputSchema, messageBodyLimit } from './images.ts';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { extname } from 'node:path';
+import { processLog } from './logging.ts';
 import { keetEvent } from './keet.ts';
 import sirv from 'sirv';
 import { z } from 'zod';
@@ -67,6 +68,7 @@ export function createWebServer(partner: Partner, assets: string, options: { aut
     response.setHeader('x-frame-options', 'DENY');
     try {
       const path = new URL(request.url ?? '/', 'http://localhost').pathname;
+      if (path === '/api/post/events' && request.method === 'POST') response.once('close', () => processLog('post.receiver', { status: response.writableFinished ? response.statusCode : 0 }));
       if (!path.startsWith('/api/')) {
         if (path === '/chat') request.url = '/';
         return serve(request, response, () => json(response, { error: 'Not found' }, 404));

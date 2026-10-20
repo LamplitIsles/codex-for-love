@@ -1,4 +1,4 @@
-// Imported from lamplit-post contracts/v1/index.ts @ ef2fa54ec90630bad5b38b2768a13b7bf543dc4c (AGPL-3.0).
+// Imported from lamplit-post contracts/v1/index.ts @ eceb56d98cd7f85c93e90285febafc93c599e338 (AGPL-3.0).
 import { z } from 'zod';
 export const Id = z.string().min(1).max(256);
 export const Content = z.discriminatedUnion('type', [
@@ -6,8 +6,10 @@ export const Content = z.discriminatedUnion('type', [
   z.object({type:z.literal('mention'),native_user_id:Id}).strict(),
   ...(['image','file','audio','video'] as const).map(type=>z.object({type:z.literal(type),asset_id:Id}).strict()),
 ]);
+// Names select recipients only at send admission; archived content stays native-ID based.
+export const SendContent = z.union([Content,z.object({type:z.literal('mention'),name:Id.describe('Exact member name. QQ: observed speakers in this chat only, not a current roster. Matrix: joined members. Use native_user_id when unavailable or ambiguous.')}).strict()]);
 export const Asset = z.object({asset_id:Id,status:z.enum(['available','unavailable']),mime:z.string(),name:z.string(),size:z.number().int().nonnegative().nullable(),download_path:z.string().nullable(),reason:z.string().optional()}).strict();
-export const Message = z.object({id:Id,account_id:Id,platform:z.enum(['qq','matrix']),conversation:z.object({id:Id,native_id:Id,type:z.enum(['direct','group'])}).strict(),sender:z.object({native_id:Id,name:z.string().optional()}).strict(),timestamp:z.number().int(),sequence:z.number().int().positive(),native_message_id:Id,content:z.array(Content).max(64),assets:z.array(Asset).max(64),mentions:z.object({self:z.boolean(),native_user_ids:z.array(Id)}).strict(),reply:z.object({message_id:Id.nullable(),native_message_id:Id,author_native_id:Id.nullable(),verified:z.boolean()}).strict().nullable(),direction:z.enum(['inbound','outbound']),mutation:z.enum(['edit','retraction']).nullable()}).strict();
+export const Message = z.object({id:Id,account_id:Id,platform:z.enum(['qq','matrix']),conversation:z.object({id:Id,native_id:Id,type:z.enum(['direct','group']),name:z.string().min(1).max(256).optional()}).strict(),sender:z.object({native_id:Id,name:z.string().optional()}).strict(),timestamp:z.number().int(),sequence:z.number().int().positive(),native_message_id:Id,content:z.array(Content).max(64),assets:z.array(Asset).max(64),mentions:z.object({self:z.boolean(),native_user_ids:z.array(Id)}).strict(),reply:z.object({message_id:Id.nullable(),native_message_id:Id,author_native_id:Id.nullable(),verified:z.boolean()}).strict().nullable(),direction:z.enum(['inbound','outbound']),mutation:z.enum(['edit','retraction']).nullable()}).strict();
 export const PostEventV1 = z.object({schema_version:z.literal(1),type:z.literal('message'),delivery_id:Id,agent_id:Id,message:Message,wake:z.object({reason:z.enum(['direct_message','mentioned','replied_to_self','alias_matched'])}).strict()}).strict();
 const page={limit:z.number().int().min(1).max(100).optional(),before:Id.optional()};
 const target={account_id:Id,conversation_id:Id};
@@ -18,7 +20,17 @@ export const ToolInputs = {
  list_members:z.object({...target,...page}).strict(),
  read_messages:z.object({...target,...page}).strict(),
  get_asset:z.object({asset_id:Id}).strict(),
- send_message:z.object({...target,request_id:Id,content:z.array(Content).min(1).max(64),reply_to_message_id:Id.optional()}).strict(),
+ // Keep the original ID-selector key order: its serialized bytes fingerprint accepted requests.
+ send_message:z.object({
+  account_id:Id.optional(),conversation_id:Id.optional(),request_id:Id,
+  content:z.array(SendContent).min(1).max(64),reply_to_message_id:Id.optional(),
+  conversation_name:Id.describe('Exact current group/contact name; preferred target. Names do not grant access.').optional(),
+  platform:z.enum(['qq','matrix']).optional(),conversation_type:z.enum(['group','direct']).optional(),
+ }).strict().superRefine((v,c)=>{
+  const named=v.conversation_name!==undefined;
+  if(named ? v.conversation_id!==undefined : !v.account_id || !v.conversation_id || v.platform!==undefined || v.conversation_type!==undefined)
+   c.addIssue({code:'custom',message:'Choose conversation_name (optional account_id/platform/conversation_type), or account_id + conversation_id only.'});
+ }),
 };
 export type MessageV1=z.infer<typeof Message>;
 export type AssetV1=z.infer<typeof Asset>;

@@ -18,13 +18,22 @@ export function createCodexChatBackend(partner: Partner, authorize: () => Promis
     for (const m of snapshot.messages) {
       if (m.delivery === 'replaced' || receipts.get(m.id)?.state !== 'submitted') continue;
       const images = (await Promise.all(m.inputImages.map(image => partner.sharedImageRef(image.id)))).filter((ref): ref is ImageRef => !!ref);
+      const post = m.post;
+      // Post image checkpoints and input_images share content order. Suppress a
+      // marker only when its exact shared attachment is actually available.
+      const postText = post?.parts.filter(part => {
+        if (part.imageIndex === undefined || m.inputImages.length !== post.imageCount) return true;
+        const id = m.inputImages[part.imageIndex]?.id;
+        return !images.some(image => image.attachmentId === id && image.availability === 'available');
+      }).map(part => part.text).join('\n');
       const source: ChatMessage['source'] = m.keet
         ? { kind: 'keet', channel: m.keet.kind, destination: m.keet.destination, senderLabel: m.keet.senderLabel }
         : m.matrix ? { kind: 'matrix', senderId: m.matrix.sender_id, senderDisplayName: m.matrix.sender_display_name, roomId: m.matrix.room_id }
+        : m.post ? m.post.source
         : m.alarm ? { kind: 'reminder', reminderId: m.id.split(':')[1]!, occurrenceId: m.id } : undefined;
       ordered.push({ order: m.sequence * 2, message: {
-        id: m.id, role: 'user', text: m.keet ? `${m.keet.text}${m.keet.imageNote ?? ''}` : m.matrix ? m.matrix.body : m.input,
-        ...(images.length ? { images } : {}), createdAt: m.matrix?.timestamp ?? m.created,
+        id: m.id, role: 'user', text: m.keet ? `${m.keet.text}${m.keet.imageNote ?? ''}` : m.matrix ? m.matrix.body : post ? postText! : m.input,
+        ...(images.length ? { images } : {}), createdAt: m.matrix?.timestamp ?? m.post?.timestamp ?? m.created,
         operationId: m.id, turnId: m.turnId, ...(source ? { source } : {}),
       } });
     }

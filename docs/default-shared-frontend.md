@@ -318,3 +318,23 @@ without reconstructing transient completion evidence.
 fake-native → Partner/storage → shared socket path and delayed native reads.
 These assertions establish native transport behavior; App #4156 separately owns
 the DOM typing-marker evidence. Neither establishes live-provider acceptance.
+
+
+## Post source native acceptance
+
+The App-owned Post source component consumes CFL's distinct `post` provenance
+from retained canonical events, original text/media and source time. No literal
+native prompt-prefix parsing, legacy Matrix ingress, UI-time discovery or display
+cache is involved. Captured conversation names remain immutable source metadata;
+missing historical names use honest fallbacks. Available shared image attachments
+replace only their exact duplicate native image markers; unavailable images and
+file/audio/video references remain visible. Native input text is unchanged.
+
+`apps/partner/tests/post-acceptance-host.ts` follows the existing owned Keet host
+pattern: controls construct synthetic canonical Post events and submit them to
+the authenticated real receiver, which owns persistence, actual MCP and fake-native
+execution. Controls never seed public source DTOs. The App Post runner accepts the
+printed `APP_ACCEPTANCE_URL` and `APP_ACCEPTANCE_CONTROL_URL`; use the producer-valid
+native fixture label profile recorded in task evidence, retaining App's broader
+codepoint-capacity proof separately. Browser state, listeners and fake execution
+belong to the run; no real IM/model/services or installed state are exercised.

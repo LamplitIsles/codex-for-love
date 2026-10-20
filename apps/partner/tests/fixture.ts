@@ -77,7 +77,11 @@ export async function fixture(directoryRoot?: string) {
     },
     holdProvider(value: boolean) { return writeFile(controlPath, JSON.stringify({ hold: value }), { mode: 0o600 }); },
     rejectStart(value: boolean) { return writeFile(controlPath, JSON.stringify({ rejectStart: value }), { mode: 0o600 }); },
-    holdCompaction(value: boolean, holdStart = false) { return writeFile(controlPath, JSON.stringify({ holdCompact: value, holdCompactStart: holdStart }), { mode: 0o600 }); },
+    async holdCompaction(value: boolean, holdStart = false) {
+      const next = `${controlPath}.${crypto.randomUUID()}`;
+      await writeFile(next, JSON.stringify({ holdCompact: value, holdCompactStart: holdStart }), { mode: 0o600 });
+      await rename(next, controlPath);
+    },
     holdVoiceFinal(value: boolean) { return writeFile(controlPath, JSON.stringify({ holdVoiceFinal: value }), { mode: 0o600 }); },
     missingRollout(value: boolean) { return writeFile(controlPath, JSON.stringify({ missingRollout: value }), { mode: 0o600 }); },
     async enableLocalCompaction() {

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import sharp from 'sharp';
 import { test } from 'node:test';
 import { once } from 'node:events';
-import { readFile, writeFile, mkdir, stat } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, stat, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
@@ -12,7 +12,10 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { fixture, eventually } from './fixture.ts';
 import { event, examples, postService } from './post-fixture.ts';
 import { createWebServer } from '../runtime/server.ts';
-import { postInputId, discoverPost } from '../runtime/post.ts';
+import { postInput, postInputId, discoverPost } from '../runtime/post.ts';
+import { ToolInputs, ToolOutputs, PostEventV1 } from '../runtime/post-contract.ts';
+import { openChat } from '@lamplit/contracts/client';
+import type { ChatView } from '@lamplit/contracts';
 import { fetchPostAsset, uploadPostAsset, savePostAsset } from '../runtime/post-assets.ts';
 import { postEndpoint, loadConfig, loadCredentials } from '../runtime/config.ts';
 import { ensureHookDeclaration } from '../runtime/context-bootstrap.ts';
@@ -22,8 +25,11 @@ import { createCodexChatBackend } from '../runtime/chat.ts';
 import type { Partner } from '../runtime/partner.ts';
 
 const starts = async (f: Awaited<ReturnType<typeof fixture>>) => (await f.requests()).filter(r => r.method === 'turn/start').map(r => r.params as { threadId: string; clientUserMessageId: string; input: Array<{ type: string; text?: string; path?: string }>; additionalContext: Record<string,{ kind: string; value: string }> });
+const accounts = (platforms: string[]) => ({ items: platforms.map(platform => ({ ...examples.tools.list_accounts.result.items[0], account_id: `${platform}-main`, platform })) });
+const discoveries = (post: Awaited<ReturnType<typeof postService>>) => post.requests.filter(r => r.tool === 'list_accounts').length;
 async function setup() {
   const post = await postService(), f = await fixture();
+  f.appServer.env.HOME = f.directory;
   f.config.post = { endpoint: post.endpoint, agent_id: 'cfl' }; f.credentials.post = post.token; f.credentials.post_receiver = post.receiver;
   return { post, f, async close() { await f.close(); await post.close(); } };
 }
@@ -33,6 +39,302 @@ async function host(partner: Partner, dir: string, receiver: string) {
   const origin = `http://127.0.0.1:${(app.server.address() as { port: number }).port}`;
   return { ...app, origin, send(value: unknown, token = receiver) { return fetch(origin + '/api/post/events',{ method:'POST',headers: { authorization:`Bearer ${token}`, 'content-type':'application/json' },body: typeof value === 'string' ? value : JSON.stringify(value) }); } };
 }
+
+test('later authorized QQ account reaches receiver without restart after Matrix-only startup', async () => {
+  const s = await setup(), { f, post } = s; let h: Awaited<ReturnType<typeof host>> | undefined;
+  try {
+    post.accounts = accounts(['matrix']);
+    const partner = await f.createPartner(); h = await host(partner, f.directory, post.receiver);
+    post.accounts = accounts(['matrix', 'qq']);
+    const qq = event('later-qq');
+    const response = await h.send(qq);
+    assert.equal(response.status, 202, await response.text());
+    await eventually(async () => (await starts(f)).length === 1);
+    assert.equal((await starts(f))[0]!.clientUserMessageId, postInputId(post.endpoint, qq));
+    const direct = event('later-qq-private'); direct.message.conversation.type = 'direct'; direct.wake.reason = 'direct_message';
+    assert.equal((await h.send(direct)).status, 202);
+    await eventually(async () => (await starts(f)).length === 2);
+    assert.equal(post.requests.filter(r => r.tool === 'send_message').length, 0);
+  } finally { await h?.close(); await s.close(); }
+});
+
+test('late account refresh preserves validation, authority, retryable failures and concurrent dedupe', async () => {
+  const s = await setup(), { f, post } = s; let h: Awaited<ReturnType<typeof host>> | undefined;
+  try {
+    post.accounts = accounts(['matrix']);
+    const partner = await f.createPartner(); h = await host(partner, f.directory, post.receiver);
+    const qq = event('refresh-guards');
+    const before = discoveries(post);
+    const invalids = [
+      { ...qq, agent_id: 'other' }, { ...qq, unknown: true },
+      { ...qq, message: { ...qq.message, direction: 'outbound' } },
+      { ...qq, message: { ...qq.message, mutation: 'edit' } },
+      { ...qq, message: { ...qq.message, assets: [] } },
+      { ...qq, message: { ...qq.message, assets: [{ ...qq.message.assets[0], download_path: 'https://invalid.test/asset' }] } },
+    ];
+    assert.equal((await h.send(qq, 'wrong')).status, 401);
+    assert.equal((await h.send('invalid json')).status, 400);
+    for (const value of invalids) assert.equal((await h.send(value)).status, 422);
+    assert.equal(discoveries(post), before, 'invalid requests cannot cause authenticated discovery');
+    assert.equal((await h.send(qq)).status, 422, 'unknown account not listed by authority');
+    post.accounts = accounts(['matrix']);
+    const wrongPlatform = event('wrong-platform'); wrongPlatform.message.account_id = 'matrix-main';
+    assert.equal((await h.send(wrongPlatform)).status, 422);
+    assert.equal((await starts(f)).length, 0);
+    assert.equal(post.requests.filter(r => r.path?.startsWith('/assets')).length, 0);
+
+    post.accountMode = 'fail';
+    assert.equal((await h.send(qq)).status, 503, 'transport failure is retryable');
+    post.accountMode = 'unauthorized';
+    assert.equal((await h.send(qq)).status, 503, 'failed authority authentication cannot authorize the account');
+    post.accountMode = 'normal'; post.accounts = { items: [] };
+    assert.equal((await h.send(qq)).status, 503, 'unusable authority is not a terminal event rejection');
+    post.accounts = accounts(['matrix', 'qq']);
+    // Changed content after failed lookups proves no earlier durable receipt.
+    qq.message.content.push({ type: 'text', text: 'test-only retry after failed discovery' });
+    const lookups = discoveries(post);
+    const replies = await Promise.all(Array.from({ length: 4 }, () => h!.send(qq)));
+    assert.deepEqual(replies.map(r => r.status), [202, 202, 202, 202]);
+    assert.equal(discoveries(post), lookups + 1, 'concurrent misses share one lookup');
+    await eventually(async () => (await starts(f)).length === 1 && !(await partner.snapshot()).typing);
+    const conflict = structuredClone(qq); conflict.message.sender.native_id = 'changed';
+    assert.equal((await h.send(conflict)).status, 409);
+    post.accountMode = 'fail';
+    assert.equal((await h.send(qq)).status, 202);
+    assert.equal((await h.send(event('known-matrix', 'matrix'))).status, 202);
+    await eventually(async () => (await starts(f)).length === 2 && !(await partner.snapshot()).typing);
+    assert.equal(discoveries(post), lookups + 1, 'known accounts need no lookup');
+    assert.equal((await starts(f))[0]!.threadId, (await starts(f))[1]!.threadId);
+    post.accountMode = 'normal'; post.accounts = accounts(['matrix']);
+    const ungranted = event('not-authorized'); ungranted.message.account_id = 'ungranted';
+    assert.equal((await h.send(ungranted)).status, 422);
+    assert.equal((await h.send(qq)).status, 422, 'a refreshed map does not retain removed accounts');
+    await h.close(); h = undefined;
+    post.accounts = accounts(['matrix', 'qq']);
+    const restarted = await f.createPartner(); h = await host(restarted, f.directory, post.receiver);
+    assert.equal((await h.send(qq)).status, 202);
+    assert.equal((await starts(f)).length, 2, 'durable duplicate never executes again');
+    assert.equal(post.requests.filter(r => r.tool === 'send_message').length, 0);
+  } finally { await h?.close(); await s.close(); }
+});
+
+for (const mode of ['stall-headers', 'stall-body'] as const) test(`shutdown retires account discovery ${mode} before storage and allows clean retry`, async () => {
+  const s = await setup(), { f, post } = s; let h: Awaited<ReturnType<typeof host>> | undefined;
+  try {
+    post.accounts = accounts(['matrix']);
+    let partner = await f.createPartner(); h = await host(partner, f.directory, post.receiver);
+    post.accounts = accounts(['matrix', 'qq']); post.accountMode = mode;
+    const qq = event(`shutdown-${mode}`), pending = h.send(qq);
+    await eventually(async () => post.discoveryOpen === 1);
+    const began = Date.now(); await partner.close();
+    assert(Date.now() - began < 2000, 'close cancels lookup rather than waiting for deadline');
+    assert.equal((await pending).status, 503);
+    await eventually(async () => post.discoveryOpen === 0);
+    assert.equal((await starts(f)).length, 0);
+    await h.close(); h = undefined;
+    post.accountMode = 'normal';
+    partner = await f.createPartner(); h = await host(partner, f.directory, post.receiver);
+    qq.message.content.push({ type: 'text', text: 'no receipt before cancelled lookup' });
+    assert.equal((await h.send(qq)).status, 202);
+    await eventually(async () => (await starts(f)).length === 1);
+    assert.equal(post.requests.filter(r => r.tool === 'send_message').length, 0);
+  } finally { await h?.close(); await s.close(); }
+});
+
+test('account lookup body deadline returns retryable failure and retires actual IO', { timeout: 10_000 }, async () => {
+  const s = await setup(), { f, post } = s; let h: Awaited<ReturnType<typeof host>> | undefined;
+  try {
+    post.accounts = accounts(['matrix']);
+    const partner = await f.createPartner(); h = await host(partner, f.directory, post.receiver);
+    post.accountMode = 'stall-body';
+    const began = Date.now();
+    assert.equal((await h.send(event('lookup-deadline'))).status, 503);
+    assert(Date.now() - began < 6500);
+    await eventually(async () => post.discoveryOpen === 0);
+    assert.equal((await starts(f)).length, 0);
+  } finally { await h?.close(); await s.close(); }
+});
+
+function contextValue(call: Awaited<ReturnType<typeof starts>>[number], prefix: string) {
+  return Object.entries(call.additionalContext).filter(([key]) => key.startsWith(prefix))
+    .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }))
+    .map(([, value]) => value.value.replace(/^Part \d+\/\d+: /, '')).join('');
+}
+
+test('accepted group and direct work deliver genuine bounded names and type to native context', async () => {
+  const s = await setup(), { f, post } = s; let h: Awaited<ReturnType<typeof host>> | undefined;
+  try {
+    const partner = await f.createPartner(); h = await host(partner, f.directory, post.receiver);
+    for (const [index, type] of (['group', 'direct'] as const).entries()) {
+      const e = event(`names-${type}`); delete e.message.conversation.name; e.message.conversation.type = type;
+      e.message.sender.name = 'Contact "name"\n' + '界'.repeat(300);
+      const name = type === 'group' ? 'Real "group"\n' + '界'.repeat(300) : 'Genuine contact';
+      post.conversation = { ...examples.tools.get_conversation.result, account_id: e.message.account_id,
+        conversation_id: e.message.conversation.id, native_id: e.message.conversation.native_id, type, name };
+      assert.equal((await h.send(e)).status, 202);
+      await eventually(async () => (await starts(f)).length === index + 1 && !(await partner.snapshot()).typing);
+      const call = (await starts(f))[index]!;
+      const authored = JSON.parse(contextValue(call, 'codex-for-love.post-authored'));
+      assert.deepEqual(authored.sender, e.message.sender, 'existing sender-name control');
+      assert.equal(JSON.parse(contextValue(call, 'codex-for-love.post-metadata')).conversation.type, type, 'existing type control');
+      assert.equal(authored.conversation_name, Array.from(name).slice(0, 256).join(''));
+      for (const [key, value] of Object.entries(call.additionalContext)) if (key.startsWith('codex-for-love.post-authored')) {
+        assert.equal(value.kind, 'untrusted'); assert(Buffer.byteLength(value.value) < 850);
+      }
+      assert.equal((await h.send(e)).status, 202);
+    }
+    assert.equal(post.requests.filter(r => r.tool === 'get_conversation').length, 2, 'duplicates do not re-fetch names');
+    assert.equal(post.requests.filter(r => r.tool === 'send_message').length, 0);
+  } finally { await h?.close(); await s.close(); }
+});
+
+test('accepted Post input prioritizes genuine names with bounded escaped ID fallback and stable source identity', async () => {
+  const s = await setup(), { f, post } = s; let h: Awaited<ReturnType<typeof host>> | undefined;
+  const events = [], rendered = [];
+  try {
+    let partner = await f.createPartner(); h = await host(partner, f.directory, post.receiver);
+    for (const [index, type] of (['group', 'direct', 'group', 'direct'] as const).entries()) {
+      const e = event(`readable-${index}`); delete e.message.conversation.name; e.message.conversation.type = type;
+      e.message.sender.name = index < 2 ? 'Real "sender"\n' + '界'.repeat(300) : index === 3 ? 'Known sender' : undefined;
+      const name = index < 2 ? `Genuine ${type} "name"\n` + '界'.repeat(300) : undefined;
+      post.conversationMode = index === 3 ? 'fail' : 'normal';
+      post.conversation = { ...examples.tools.get_conversation.result, account_id: e.message.account_id,
+        conversation_id: e.message.conversation.id, native_id: e.message.conversation.native_id, type, name };
+      events.push(e);
+      assert.equal((await h.send(e)).status, 202);
+      await eventually(async () => (await starts(f)).length === index + 1 && !(await partner.snapshot()).typing);
+      const call = (await starts(f))[index]!, text = call.input[0]!.text!;
+      rendered.push(text);
+      const [header, ...body] = text.split('\n');
+      assert(header!.startsWith(`[Post qq; ${type} `));
+      const authored = JSON.parse(contextValue(call, 'codex-for-love.post-authored'));
+      assert.equal(body.join('\n'), postInput(e, authored.media).split('\n').slice(1).join('\n'), 'body/media remain exact');
+      assert.equal(call.input.filter(p => p.type === 'localImage').length, 1);
+      if (name) {
+        assert(header!.includes(JSON.stringify(Array.from(name).slice(0, 256).join(''))));
+        assert(header!.includes(JSON.stringify(Array.from(e.message.sender.name!).slice(0, 256).join(''))));
+        for (const id of [e.message.account_id, e.message.conversation.id, e.message.sender.native_id]) assert(!header!.includes(id));
+      } else {
+        assert(header!.includes(`unknown (conversation ID ${JSON.stringify(e.message.conversation.id)})`));
+        assert(header!.includes(e.message.sender.name ? `sender ${JSON.stringify(e.message.sender.name)}` : `sender unknown (ID ${JSON.stringify(e.message.sender.native_id)})`));
+        assert(!header!.includes(e.message.account_id));
+      }
+      assert(Array.from(header!).length < 700);
+      assert.equal(call.clientUserMessageId, postInputId(post.endpoint, e));
+      assert.deepEqual(JSON.parse(contextValue(call, 'codex-for-love.post-metadata')).conversation, { id:e.message.conversation.id,native_id:e.message.conversation.native_id,type:e.message.conversation.type });
+      for (const [key, value] of Object.entries(call.additionalContext)) if (key.startsWith('codex-for-love.post-authored')) assert.equal(value.kind, 'untrusted');
+      const snapshot = await partner.snapshot();
+      assert(snapshot.messages.some(m => m.input === text), 'accepted native text projects through existing source location');
+      assert.equal((await h.send(e)).status, 202);
+    }
+    assert.equal(post.requests.filter(r => r.tool === 'get_conversation').length, 4);
+    await h.close(); h = undefined;
+    partner = await f.createPartner(); h = await host(partner, f.directory, post.receiver);
+    for (const e of events) assert.equal((await h.send(e)).status, 202);
+    const restartedView = await partner.snapshot();
+    for (const text of rendered) assert(restartedView.messages.some(m => m.input === text), 'restart preserves exact accepted source text/body');
+    assert.equal((await starts(f)).length, 4, 'restart duplicate does not rewrite or repeat accepted native input');
+    assert.equal(post.requests.filter(r => r.tool === 'get_conversation').length, 4);
+    assert.equal(post.requests.filter(r => r.tool === 'send_message').length, 0);
+  } finally { await h?.close(); await s.close(); }
+});
+
+test('conversation name absent, failed or mismatched is unknown without rejecting accepted work', async () => {
+  const s = await setup(), { f, post } = s; let h: Awaited<ReturnType<typeof host>> | undefined;
+  try {
+    const partner = await f.createPartner(); h = await host(partner, f.directory, post.receiver);
+    const cases = [{ name: undefined }, { account_id: 'other' }, { conversation_id: 'other' }, { native_id: 'other' }, { type: 'direct' }, null, 'fail'] as const;
+    for (const [index, change] of cases.entries()) {
+      post.conversationMode = change === 'fail' ? 'fail' : 'normal';
+      post.conversation = change === null ? null : { ...examples.tools.get_conversation.result, name: 'Must not misattribute', ...(typeof change === 'object' ? change : {}) };
+      const e = event(`unknown-name-${index}`); delete e.message.conversation.name;
+      assert.equal((await h.send(e)).status, 202);
+      await eventually(async () => (await starts(f)).length === index + 1 && !(await partner.snapshot()).typing);
+      const call = (await starts(f))[index]!;
+      assert.equal(JSON.parse(contextValue(call, 'codex-for-love.post-authored')).conversation_name, null);
+      assert(call.input[0]!.text!.split('\n')[0]!.includes(`unknown (conversation ID ${JSON.stringify(e.message.conversation.id)})`));
+      assert.deepEqual(JSON.parse(contextValue(call, 'codex-for-love.post-metadata')).conversation, { id:e.message.conversation.id,native_id:e.message.conversation.native_id,type:e.message.conversation.type });
+    }
+    assert.equal(post.requests.filter(r => r.tool === 'send_message').length, 0);
+  } finally { await h?.close(); await s.close(); }
+});
+
+for (const mode of ['stall-headers', 'stall-body'] as const) test(`conversation lookup ${mode} stays outside receipt and retires before native submission on close`, async () => {
+  const s = await setup(), { f, post } = s; let h: Awaited<ReturnType<typeof host>> | undefined;
+  try {
+    let partner = await f.createPartner(); h = await host(partner, f.directory, post.receiver);
+    post.conversationMode = mode;
+    const e = event(`name-cancel-${mode}`), began = Date.now();
+    assert.equal((await h.send(e)).status, 202); assert(Date.now() - began < 1000);
+    await eventually(async () => post.conversationOpen === 1);
+    assert.equal((await h.send(e)).status, 202);
+    assert.equal(post.requests.filter(r => r.tool === 'get_conversation').length, 1);
+    const closingAt = Date.now(); await partner.close(); assert(Date.now() - closingAt < 2000);
+    await eventually(async () => post.conversationOpen === 0);
+    assert.equal((await starts(f)).length, 0);
+    await h.close(); h = undefined;
+    post.conversationMode = 'normal'; post.conversation = { ...examples.tools.get_conversation.result, name: 'Retained group' };
+    partner = await f.createPartner(); h = await host(partner, f.directory, post.receiver);
+    assert.equal((await h.send(e)).status, 202);
+    await eventually(async () => (await starts(f)).length === 1 && !(await partner.snapshot()).typing);
+    assert.equal(JSON.parse(contextValue((await starts(f))[0]!, 'codex-for-love.post-authored')).conversation_name, 'Retained group');
+    assert.equal((await h.send(e)).status, 202); assert.equal((await starts(f)).length, 1);
+  } finally { await h?.close(); await s.close(); }
+});
+
+test('conversation lookup whole-body deadline falls back to unknown and preserves the accepted turn', { timeout: 10_000 }, async () => {
+  const s = await setup(), { f, post } = s; let h: Awaited<ReturnType<typeof host>> | undefined;
+  try {
+    const partner = await f.createPartner(); h = await host(partner, f.directory, post.receiver);
+    post.conversationMode = 'stall-body';
+    const e = event('name-deadline'); delete e.message.conversation.name;
+    const began = Date.now(); assert.equal((await h.send(e)).status, 202);
+    await eventually(async () => (await starts(f)).length === 1, 6500);
+    assert(Date.now() - began < 6500); await eventually(async () => post.conversationOpen === 0);
+    assert.equal(JSON.parse(contextValue((await starts(f))[0]!, 'codex-for-love.post-authored')).conversation_name, null);
+  } finally { await h?.close(); await s.close(); }
+});
+
+test('Post diagnostics expose only finite receiver, admission, native and send categories', async t => {
+  const s = await setup(), { f, post } = s; let h: Awaited<ReturnType<typeof host>> | undefined;
+  const lines: string[] = [];
+  t.mock.method(console, 'error', (...args: unknown[]) => { lines.push(args.map(String).join(' ')); });
+  const records = () => lines.filter(line => line.startsWith('[partner] ')).map(line => JSON.parse(line.slice(10))).filter(r => r.event.startsWith('post.'));
+  try {
+    f.appServer.env.FAKE_STREAM_FIXTURE = 'true'; await f.chatPhase('partial');
+    const partner = await f.createPartner(); h = await host(partner, f.directory, post.receiver);
+    const direct = event('DIAGNOSTIC_PRIVATE_ID'); direct.message.conversation.type = 'direct'; direct.wake.reason = 'direct_message';
+    direct.message.content = [{ type: 'text', text: 'DIAGNOSTIC_PRIVATE_CONTENT' }]; direct.message.assets = [];
+    direct.message.sender.name = 'DIAGNOSTIC_PRIVATE_NAME';
+    assert.equal((await h.send(direct, 'DIAGNOSTIC_PRIVATE_TOKEN')).status, 401);
+    assert.equal((await h.send({ ...direct, agent_id: 'other' })).status, 422);
+    const unknown = structuredClone(direct); unknown.message.account_id = 'DIAGNOSTIC_PRIVATE_ACCOUNT';
+    assert.equal((await h.send(unknown)).status, 422);
+    post.accountMode = 'fail'; assert.equal((await h.send(unknown)).status, 503); post.accountMode = 'normal';
+    assert.equal((await h.send(direct)).status, 202);
+    await eventually(async () => (await starts(f)).length === 1);
+    const native = await f.nativeState(), turnId = native.active;
+    await f.streamCommand({ action: 'event', notification: { method: 'item/completed', params: { threadId: native.threadId, turnId, completedAtMs: Date.now(), item: { type: 'mcpToolCall', id: 'DIAGNOSTIC_PRIVATE_TOOL_ID', server: 'post', tool: 'send_message', arguments: { private: 'DIAGNOSTIC_PRIVATE_ARGS' }, status: 'failed', result: null, error: { message: 'DIAGNOSTIC_PRIVATE_ERROR https://private.invalid' } } } } });
+    await eventually(async () => records().some(r => r.event === 'post.tool'));
+    await partner.chatStop(turnId); await f.rejectStart(true);
+    const rejected = structuredClone(direct); rejected.delivery_id += '-rejected'; rejected.message.id += '-rejected'; rejected.message.native_message_id += '-rejected';
+    assert.equal((await h.send(rejected)).status, 202);
+    await eventually(async () => records().some(r => r.event === 'post.execution' && r.stage === 'native_start' && r.status === 'failed'));
+    assert(records().some(r => r.event === 'post.receiver' && r.status === 401));
+    assert(records().some(r => r.event === 'post.ingress' && r.stage === 'validation' && r.status === 'rejected'));
+    assert(records().some(r => r.event === 'post.ingress' && r.stage === 'account' && r.status === 'rejected'));
+    assert(records().some(r => r.event === 'post.ingress' && r.stage === 'account' && r.status === 'unavailable'));
+    assert(records().some(r => r.event === 'post.ingress' && r.stage === 'retained' && r.kind === 'direct'));
+    assert(records().some(r => r.event === 'post.execution' && r.status === 'accepted' && r.kind === 'direct'));
+    assert(records().some(r => r.event === 'post.tool' && r.category === 'transport' && r.status === 'failed'));
+    for (const r of records()) {
+      assert(Object.keys(r).every(k => ['component','event','stage','status','category','platform','kind'].includes(k)));
+      assert(Buffer.byteLength(JSON.stringify(r)) < 300);
+    }
+    const output = lines.join('\n');
+    for (const secret of ['DIAGNOSTIC_PRIVATE','private.invalid','group-openid','app-scoped-openid',post.token,post.receiver,native.threadId,turnId]) assert(!output.includes(secret), secret);
+  } finally { await h?.close(); await s.close(); }
+});
 
 test('QQ and Matrix use one native thread, immutable provenance, generic images/text and durable dedupe after restart', async () => {
   const s = await setup(), { f,post } = s; let h: Awaited<ReturnType<typeof host>> | undefined;
@@ -53,11 +355,11 @@ test('QQ and Matrix use one native thread, immutable provenance, generic images/
       assert.match(call.input[0]!.text!,new RegExp(`Post ${e.message.platform}`));
       assert.equal(call.input.filter(p => p.type === 'localImage').length,1);
       const metadata = Object.entries(call.additionalContext).filter(([k]) => k.startsWith('codex-for-love.post-metadata')).sort(([a],[b]) => a.localeCompare(b,undefined,{ numeric:true })).map(([,v]) => v.value).join('');
-      const source = JSON.parse(metadata); assert.equal(source.platform,e.message.platform); assert.equal(source.account_id,e.message.account_id); assert.deepEqual(source.conversation,e.message.conversation);
+      const source = JSON.parse(metadata); assert.equal(source.platform,e.message.platform); assert.equal(source.account_id,e.message.account_id); assert.deepEqual(source.conversation,{ id:e.message.conversation.id,native_id:e.message.conversation.native_id,type:e.message.conversation.type });
       assert.match(call.additionalContext['codex-for-love.post-source']!.value,/does not authorize outgoing/);
     }
     const view = await createCodexChatBackend(partner).read();
-    assert(view.messages.some(m => m.text.includes('Post qq')));
+    assert(view.messages.some(m => m.source?.kind === 'post'));
     assert(!view.messages.some(m => m.source?.kind === 'matrix'));
     const before = post.requests.filter(r => r.path?.startsWith('/assets')).length;
     assert.equal(before,2);
@@ -376,6 +678,190 @@ test('Post native images retain content order with reversed metadata and checkpo
     const after = await order((await starts(f))[1]!);
     t.diagnostic(JSON.stringify({ content:['A','B'],metadata:['B','A'],beforeRestartImages:before,afterRestartImages:after,downloads }));
     assert.deepEqual(before,['A','B']); assert.deepEqual(after,['A','B']);
+    let displayed = (await createCodexChatBackend(partner).read()).messages.find(m => m.id === postInputId(post.endpoint,e))!;
+    assert.equal(displayed.images!.length,2); assert(displayed.text.includes('[file "ast_b": attached]'));
+    assert(!displayed.text.includes('[image '), 'each exact available attachment replaces only its image marker');
+    const lost = (await starts(f))[1]!.input.filter(p => p.type === 'localImage')[0]!.path!;
+    assert(lost.startsWith(f.directory + '/')); await unlink(lost);
+    displayed = (await createCodexChatBackend(partner).read()).messages.find(m => m.id === postInputId(post.endpoint,e))!;
+    assert(displayed.text.includes('[image "ast_a": attached]'));
+    assert(!displayed.text.includes('[image "ast_b"'), 'remaining available B cannot hide missing A after reversed-metadata restart');
+
     assert.deepEqual(post.requests.filter(r => r.path?.startsWith('/assets')).map(r => r.path),['/assets/ast_a','/assets/ast_b'],'checkpoint restart does not refetch either image');
+  } finally { await h?.close(); await s.close(); }
+});
+
+
+test('canonical send selector accepts names and rejects mixed targets through authenticated fixture MCP', async () => {
+  const post = await postService(), client = new Client({ name: 'send-selector-fixture', version: '1' });
+  const common = { request_id: 'owned-selector-request', content: [{ type: 'text', text: 'owned fake send only' }] };
+  try {
+    await client.connect(new StreamableHTTPClientTransport(new URL(post.endpoint + '/mcp'), { requestInit: { headers: { authorization: `Bearer ${post.token}` } } }));
+    const listed = (await client.listTools()).tools.find(t => t.name === 'send_message')!;
+    for (const target of [
+      { conversation_name: 'Owned group' },
+      { conversation_name: 'Owned peer', account_id: 'qq-main', platform: 'qq', conversation_type: 'direct' },
+      { account_id: 'qq-main', conversation_id: 'owned-conversation' },
+    ]) {
+      const result = await client.callTool({ name: 'send_message', arguments: { ...common, ...target } });
+      assert(!result.isError, 'canonical valid selector accepted by real MCP schema');
+      assert.deepEqual(result.structuredContent, examples.tools.send_message.result, 'outputs unchanged; fixture does not resolve or send');
+    }
+    assert(listed.inputSchema.properties?.conversation_name, 'advertised tool exposes preferred name selector');
+    for (const target of [
+      {}, { account_id: 'qq-main' }, { conversation_id: 'owned-conversation' },
+      { conversation_name: '' }, { conversation_name: 'x'.repeat(257) },
+      { conversation_name: 'Owned group', conversation_id: 'owned-conversation' },
+      { conversation_name: 'Owned group', account_id: 'qq-main', conversation_id: 'owned-conversation' },
+      { account_id: 'qq-main', conversation_id: 'owned-conversation', platform: 'qq' },
+      { conversation_name: 'Owned group', extra: true },
+    ]) {
+      const result = await client.callTool({ name: 'send_message', arguments: { ...common, ...target } });
+      assert.equal(result.isError, true, 'invalid selector rejected by actual MCP fixture');
+    }
+    const original = { account_id: 'qq-main', conversation_id: 'owned-conversation', ...common, reply_to_message_id: 'owned-reply' };
+    const parsed = ToolInputs.send_message.parse({ reply_to_message_id: original.reply_to_message_id, content: original.content, request_id: original.request_id, conversation_id: original.conversation_id, account_id: original.account_id });
+    assert.equal(JSON.stringify(parsed), JSON.stringify(original), 'original ID-selector serialized fingerprint/key order retained');
+  } finally { await client.close(); await post.close(); }
+});
+
+
+test('retained Post provenance reaches source UI with original body media and time across restart', async () => {
+  const s = await setup(), { f, post } = s; let h: Awaited<ReturnType<typeof host>> | undefined;
+  const events: Array<ReturnType<typeof event>> = [], expectedMessages: ChatView['messages'] = [];
+  let chat: Awaited<ReturnType<typeof openChat>> | undefined;
+  let socket: WebSocket | undefined, publicView: ChatView | undefined;
+  async function connect() {
+    publicView = undefined;
+    socket = new WebSocket(h!.origin.replace('http:', 'ws:') + '/api/chat/socket');
+    chat = await openChat(socket, view => { publicView = view; }, () => {});
+    await eventually(async () => publicView?.messages.filter(m => m.role === 'user').length === 4);
+    for (const message of expectedMessages) assert.deepEqual(publicView!.messages.find(m => m.id === message.id), message, 'public strict serialized view matches retained source');
+    const history = await chat.history(JSON.stringify({ before: Number.MAX_SAFE_INTEGER }));
+    for (const message of expectedMessages) assert.deepEqual(history.messages.find(m => m.id === message.id), message);
+  }
+  try {
+    let partner = await f.createPartner(); h = await host(partner, f.directory, post.receiver);
+    for (const [index, platform] of (['qq', 'qq', 'matrix', 'qq'] as const).entries()) {
+      const e = event(`source-ui-${index}`, platform);
+      if (index === 0) e.message.conversation.name = 'Captured genuine group';
+      else delete e.message.conversation.name;
+      e.message.conversation.type = index === 1 || index === 3 ? 'direct' : 'group';
+      if (index === 1) e.message.conversation.native_id = e.message.sender.native_id;
+      e.message.sender.name = index === 0 ? '😀'.repeat(300) : index === 1 ? 'Owned direct peer' : index === 2 ? ' \n ' : 'Unrelated sender';
+      e.message.content = [{ type: 'text', text: `Original body ${index}\nsecond line` }, { type: 'image', asset_id: 'ast_example' }];
+      events.push(e);
+      assert.equal((await h.send(e)).status, 202);
+      await eventually(async () => (await starts(f)).length === index + 1 && !(await partner.snapshot()).typing);
+      const view = await createCodexChatBackend(partner).read();
+      const message = view.messages.find(m => m.id === postInputId(post.endpoint, e))!;
+      assert.equal(message.source?.kind, 'post', 'real retained Post source is projected instead of an ordinary bubble');
+      assert.deepEqual(message.source, { kind: 'post', platform, conversationType: e.message.conversation.type,
+        conversationId: e.message.conversation.id, senderId: e.message.sender.native_id,
+        ...(index === 2 ? {} : { senderDisplayName: Array.from(e.message.sender.name.trim()).slice(0, 256).join('') }),
+        ...(index === 0 ? { conversationName: 'Captured genuine group' } : index === 1 ? { conversationName: e.message.sender.name } : {}) });
+      assert.equal(message.text, `Original body ${index}\nsecond line`);
+      assert.equal(message.createdAt, e.message.timestamp);
+      assert.equal(message.images?.length, 1);
+      assert.equal(message.images![0]!.availability, 'available');
+      expectedMessages.push(message);
+    }
+    const reads = post.requests.filter(r => r.tool === 'get_conversation').length;
+    const backend = createCodexChatBackend(partner);
+    await backend.read();
+    const history = await backend.history(JSON.stringify({ before: Number.MAX_SAFE_INTEGER }));
+    for (const message of expectedMessages) assert.deepEqual(history.messages.find(m => m.id === message.id), message);
+    await connect();
+    assert.equal(post.requests.filter(r => r.tool === 'get_conversation').length, reads, 'UI projection performs no remote metadata lookup');
+    chat!.close(); chat = undefined; socket = undefined;
+    await h.close(); h = undefined;
+    partner = await f.createPartner(); h = await host(partner, f.directory, post.receiver);
+    for (const e of events) assert.equal((await h.send(e)).status, 202);
+    const restored = await createCodexChatBackend(partner).read();
+    for (const message of expectedMessages) assert.deepEqual(restored.messages.find(m => m.id === message.id), message);
+    await connect();
+    assert.equal((await starts(f)).length, 4, 'history/duplicates never reingest or execute');
+    assert.equal(post.requests.filter(r => r.tool === 'get_conversation').length, reads);
+    assert.equal(post.requests.filter(r => r.tool === 'send_message').length, 0);
+  } finally { chat?.close(); socket?.close(); await h?.close(); await s.close(); }
+});
+
+
+test('captured Post conversation names are accepted as immutable external display data with historical absence', async () => {
+  const s = await setup(), { f, post } = s; let h: Awaited<ReturnType<typeof host>> | undefined;
+  try {
+    post.conversationMode = 'fail';
+    const partner = await f.createPartner(); h = await host(partner, f.directory, post.receiver);
+    for (const [index, name] of ['Captured real group', undefined].entries()) {
+      const e = event(`captured-name-${index}`);
+      e.message.conversation = { id: e.message.conversation.id, native_id: e.message.conversation.native_id,
+        type: 'group', ...(name ? { name } : {}) };
+      assert.equal((await h.send(e)).status, 202, 'canonical optional name accepted; historical absence stays valid');
+      await eventually(async () => (await starts(f)).length === index + 1 && !(await partner.snapshot()).typing);
+      const call = (await starts(f))[index]!;
+      const routing = JSON.parse(contextValue(call, 'codex-for-love.post-metadata'));
+      assert.deepEqual(routing.conversation, { id: e.message.conversation.id, native_id: e.message.conversation.native_id, type: 'group' });
+      assert.equal(JSON.parse(contextValue(call, 'codex-for-love.post-authored')).conversation_name, name ?? null);
+      assert(call.input[0]!.text!.split('\n')[0]!.includes(name ? JSON.stringify(name) : 'unknown (conversation ID'));
+      assert.equal((await partner.snapshot()).messages.find(m => m.id === postInputId(post.endpoint, e))!.post!.source.conversationName, name);
+      assert.equal((await h.send(e)).status, 202);
+      const changed = structuredClone(e); changed.message.conversation = { ...e.message.conversation, name: 'Different captured name' };
+      assert.equal((await h.send(changed)).status, 409, 'display metadata does not rewrite immutable receipt/body');
+    }
+    const invalid = event('invalid-captured-name');
+    for (const name of ['', 'x'.repeat(257)]) assert.equal((await h.send({ ...invalid, message: { ...invalid.message, conversation: { ...invalid.message.conversation, name } } })).status, 422);
+    assert.equal((await starts(f)).length, 2);
+    assert.equal(post.requests.filter(r => r.tool === 'send_message').length, 0);
+  } finally { await h?.close(); await s.close(); }
+});
+
+
+test('canonical send-only mention names use strict XOR while event and history content stays native-ID', async () => {
+  const post = await postService(), client = new Client({ name: 'send-mention-fixture', version: '1' });
+  const args = { request_id: 'owned-mention', conversation_name: 'Owned group' };
+  try {
+    await client.connect(new StreamableHTTPClientTransport(new URL(post.endpoint + '/mcp'), { requestInit: { headers: { authorization: `Bearer ${post.token}` } } }));
+    for (const content of [[{ type: 'mention', name: 'Owned peer' }], [{ type: 'mention', native_user_id: 'owned-native-peer' }]]) {
+      const result = await client.callTool({ name: 'send_message', arguments: { ...args, content } });
+      assert(!result.isError, 'send-only name or native-ID mention accepted');
+    }
+    for (const mention of [{ type: 'mention' }, { type: 'mention', name: '' }, { type: 'mention', name: 'x'.repeat(257) },
+      { type: 'mention', name: 'Owned peer', native_user_id: 'owned-native-peer' }, { type: 'mention', name: 'Owned peer', extra: true }]) {
+      assert.equal((await client.callTool({ name: 'send_message', arguments: { ...args, content: [mention] } })).isError, true);
+    }
+    const e = event('mention-native-history');
+    assert(PostEventV1.safeParse(e).success);
+    const invalid = { ...e, message: { ...e.message, content: [{ type: 'mention', name: 'Must not enter history' }], assets: [] } };
+    assert(!PostEventV1.safeParse(invalid).success);
+    assert(ToolOutputs.read_messages.safeParse(examples.tools.read_messages.result).success);
+    assert(!ToolOutputs.read_messages.safeParse({ items: [invalid.message], next_before: null }).success);
+  } finally { await client.close(); await post.close(); }
+});
+
+
+test('Post display suppresses only the exact available shared image and preserves unavailable and other media', async () => {
+  const s = await setup(), { f, post } = s; let h: Awaited<ReturnType<typeof host>> | undefined;
+  try {
+    const partner = await f.createPartner(); h = await host(partner, f.directory, post.receiver);
+    const e = event('display-media-correspondence');
+    const original = e.message.assets[0]!;
+    e.message.assets = [original, { ...original, asset_id: 'missing-image', status: 'unavailable', size: null, download_path: null },
+      ...(['file', 'audio', 'video'] as const).map(type => ({ ...original, asset_id: type, download_path: `/assets/${type}` }))];
+    e.message.content = [{ type: 'text', text: 'original body' }, { type: 'image', asset_id: original.asset_id },
+      { type: 'image', asset_id: 'missing-image' }, ...(['file', 'audio', 'video'] as const).map(type => ({ type, asset_id: type }))];
+    assert.equal((await h.send(e)).status, 202);
+    await eventually(async () => (await starts(f)).length === 1 && !(await partner.snapshot()).typing);
+    const call = (await starts(f))[0]!, id = postInputId(post.endpoint, e);
+    assert(call.input[0]!.text!.includes('[image "ast_example": attached]'), 'native body stays unchanged');
+    let message = (await createCodexChatBackend(partner).read()).messages.find(m => m.id === id)!;
+    assert(!message.text.includes('[image "ast_example"'), 'actual available shared attachment represents this exact image part');
+    assert(message.text.includes('[image "missing-image": unavailable (Post)]'));
+    for (const type of ['file', 'audio', 'video']) assert(message.text.includes(`[${type} "${type}": available via Post asset-fetch]`));
+    assert.equal(message.images!.length, 1); assert.equal(message.images![0]!.availability, 'available');
+    const path = call.input.find(part => part.type === 'localImage')!.path!;
+    assert(path.startsWith(f.directory + '/')); await unlink(path);
+    message = (await createCodexChatBackend(partner).read()).messages.find(m => m.id === id)!;
+    assert.equal(message.images![0]!.availability, 'missing');
+    assert(message.text.includes('[image "ast_example": attached]'), 'checkpoint status alone cannot hide a nonavailable shared attachment');
   } finally { await h?.close(); await s.close(); }
 });

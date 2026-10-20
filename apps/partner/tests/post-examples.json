@@ -11,7 +11,8 @@
       "conversation": {
         "id": "cnv_example",
         "native_id": "group-openid",
-        "type": "group"
+        "type": "group",
+        "name": "Example group"
       },
       "sender": {
         "native_id": "app-scoped-openid",
@@ -100,7 +101,8 @@
               "file": "supported",
               "audio": "attachment",
               "video": "attachment"
-            }
+            },
+            "name": "Example group"
           }
         ],
         "next_before": null
@@ -124,7 +126,8 @@
           "file": "supported",
           "audio": "attachment",
           "video": "attachment"
-        }
+        },
+        "name": "Example group"
       }
     },
     "list_members": {
@@ -152,7 +155,8 @@
             "conversation": {
               "id": "cnv_example",
               "native_id": "group-openid",
-              "type": "group"
+              "type": "group",
+              "name": "Example group"
             },
             "sender": {
               "native_id": "app-scoped-openid",
@@ -214,13 +218,12 @@
     },
     "send_message": {
       "arguments": {
-        "account_id": "qq-main",
-        "conversation_id": "cnv_example",
+        "conversation_name": "Example group",
         "request_id": "request-example-1",
         "content": [
           {
-            "type": "text",
-            "text": "ack"
+            "type": "mention",
+            "name": "Example member"
           },
           {
             "type": "image",

@@ -391,17 +391,24 @@ integration work. Source-built packaging records its own resource hashes.
 
 `apps/partner/runtime/post-contract.ts` copies the executable finite schema from
 `lamplit-post/contracts/v1/index.ts` at immutable commit
-`ef2fa54ec90630bad5b38b2768a13b7bf543dc4c` (FlickNote #4066/#4067).
+`eceb56d98cd7f85c93e90285febafc93c599e338` (FlickNote #4066/#4067, #4348/#4349).
 `apps/partner/tests/post-examples.json` copies that commit's
 `contracts/v1/examples.json`. License: AGPL-3.0, preserved in
 `licenses/lamplit-post-AGPL-3.0.txt`. CFL's Node fake service and receiver tests
-are original integration code informed by the same revision's
-`contracts/v1/README.md` and `tests/fixtures/consumer.ts`; no Bun-only receiver
-or adjacent mutable source is a runtime dependency. This adds no App public
-contract, frontend source or native fork change. Existing App/native pins and
-historical attribution above are unchanged. Active Matrix-specific integration
-and its old producer/acceptance runners were retired; historical Matrix source
-readers remain for persisted real provenance.
+are original integration code informed by the producer's finite v1 contract;
+no Bun-only receiver or adjacent mutable source is a runtime dependency.
+Historical Matrix source readers remain for persisted real provenance; the
+old Matrix ingress remains retired.
+
+The canonical input supports preferred conversation-name targets or original
+account/conversation IDs, preserving original ID key order for request fingerprints.
+Send-only name mentions use `SendContent`; Message/Event/history retain native-ID
+Content. Optional captured `Message.conversation.name` is retained as original
+JSON and projected without a local display cache, SQL evolution or UI-time lookup.
+CFL adds no name/member resolver, send ledger or prompt policy. Canonical schema
+SHA256 `1c00ee1f2930344abccb98a30e46aea90e9d7c096b8edf4eae1875e7fe127bee`;
+examples SHA256 `3442a62378d6eb9a9612abf1d760e1f2d5802e60e8094f4c54e2a5e2bf74208a`.
+Historical intermediate import identities and diagnostics remain in task evidence.
 
 ### Source-line reply acceptance — spec #4126 / App #4128
 
@@ -431,3 +438,32 @@ Linux obtains that path from `/proc/self/fd`. No Koffi source or custom addon is
 vendored; its installed package retains the upstream MIT license. Packaging keeps
 Koffi external alongside Sharp and installs the pinned dependencies without build
 scripts for isolated package verification.
+
+
+### Post source UI — App #4352 / CFL #4349
+
+`lamplit-app.sha` pins original-root clean App commit
+`14d6ba54a4e8f4768c81ae87047bb774a212176f`, tree
+`c0be129d37f3facc01faf05f22e073409a860e1a`. App owns the strict `PostSource`
+public contract and existing Framework7 source header/avatar/bubble branches;
+CFL owns retained native Post provenance, shared ChatView projection and native
+acceptance host. No shared UI source is copied into CFL. App license and imports
+are carried by the existing strict source preparation and packaged notices.
+
+Approved source archive SHA256:
+`230a477a21d547e722eee3f4454547a656bcd365095d2961d7ad22754bd7f80d`;
+complete App browser/contracts/acceptance archive SHA256:
+`553dc653e73668109f39b6222c3b1f3da3638885bbde93fdaa159f5bbe095fa9`.
+Independent verification covered162sourcefiles/265browserfiles/29contractsfiles/
+45acceptancefiles, with prepared browser and contract resources matching the
+archive. Browser manifest SHA256
+`88073c7ee044b7d262c305acfdc216b4693ccd036c3adc0587efb498181f1633`;
+contracts manifest SHA256
+`580948f2e9fc153dc01449bf7fe65de15566e682e78c769be7472f042fdcda3d`.
+
+App fixture evidence establishes its256-codepoint display-name capacity. Native
+Post conversation names remain bounded by the canonical256-UTF-16 producer
+schema; native acceptance uses representable synthetic names and the unchanged
+exact App browser bytes. The CFL-owned scratch runner changes only that hostile
+fixture label to BMP characters and resolves imports to the approved original
+App root. This does not alter App product source or widen Post validators.
