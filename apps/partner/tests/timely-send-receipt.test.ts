@@ -34,13 +34,16 @@ async function harness(summary = false, failAdmission = false) {
   const port = (app.server.address() as { port: number }).port;
   let view: ChatView | undefined;
   let dropIncoming = false;
+  const calls: string[] = [];
   const connect = () => {
     const socket = new WebSocket(`ws://127.0.0.1:${port}/api/chat/socket`);
     socket.addEventListener('message', event => { if (dropIncoming) event.stopImmediatePropagation(); });
+    const send = socket.send.bind(socket);
+    socket.send = data => { calls.push(String(data)); send(data); };
     return openChat(socket, value => { view = value; }, () => {});
   };
   let client = await connect();
-  return { f, partner, control, get client() { return client; }, get view() { return view; },
+  return { f, partner, control, get client() { return client; }, get view() { return view; }, calls,
     dropReplies() { dropIncoming = true; },
     async reconnect() { client.close(); dropIncoming = false; client = await connect(); },
     async close() { await control([], false); client.close(); await app.close(); await f.close(); } };
@@ -163,5 +166,24 @@ test('failed SQLite admission rolls back input and fingerprint with a durable fa
     assert.equal((await h.f.requests()).filter(r => r.method === 'turn/start').length, 0);
     await assert.rejects(h.client.submit({ ...failed, text: 'conflicting retry' }));
     assert.equal((await h.partner.sharedRecovery())[0]?.text, failed.text);
+  } finally { await h.close(); }
+});
+
+
+test('shared Node connection stays quiet beyond the former heartbeat and still receives native updates', async () => {
+  const h = await harness();
+  try {
+    await h.f.holdProvider(true);
+    const initial = h.calls.length;
+    await new Promise(resolve => setTimeout(resolve, 16_000));
+    assert.equal(h.calls.length, initial, 'idle must not send catalogue or replacement probes');
+    const input = { operationId: crypto.randomUUID(), text: 'test-owned quiet connection update' };
+    assert.equal((await h.client.submit(input)).state, 'submitted');
+    await eventually(async () => !!h.view?.activeTurnId);
+    await h.f.holdProvider(false);
+    await eventually(async () => !!h.view?.messages.some(m => m.role === 'agent'));
+    await h.reconnect();
+    assert.equal((await h.client.lookup(input.operationId))?.state, 'submitted');
+    assert.equal((await h.f.requests()).filter(r => r.method === 'turn/start').length, 1);
   } finally { await h.close(); }
 });

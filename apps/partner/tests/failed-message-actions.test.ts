@@ -112,17 +112,27 @@ test('compiled App socket finalizes delayed originals and retries; deleted failu
   const app = createWebServer(partner, join(f.directory,'assets'));
   app.server.listen(0,'127.0.0.1'); await once(app.server,'listening');
   let view: import('@lamplit/contracts').ChatView | undefined;
-  const client = await openChat(new WebSocket(`ws://127.0.0.1:${(app.server.address() as { port: number }).port}/api/chat/socket`), next => { view = next; }, () => {});
+  const connect = () => openChat(new WebSocket(`ws://127.0.0.1:${(app.server.address() as { port: number }).port}/api/chat/socket`), next => { view = next; }, () => {});
+  let client = await connect();
+  const originalClient = client;
+  let delayed: ReturnType<typeof client.submit> | undefined;
   try {
     const { eventually } = await import('./fixture.ts');
     await eventually(async () => !!view);
     const sessionId = view!.sessionId;
     const submission = { operationId: crypto.randomUUID(), text: 'socket delayed' };
-    const delayed = client.submit(submission); await oldSubmitEntered.promise;
+    delayed = originalClient.submit(submission);
+    void delayed.catch(() => {});
+    await oldSubmitEntered.promise;
+    // Reconcile on a second carrier while the original receive remains held.
+    client = await connect();
+    assert.equal(await client.lookup(submission.operationId), null);
     const receipt = await client.finalizeSubmission({ sessionId, submission });
     assert.equal(receipt?.state,'failed');
+    assert.equal(receipt?.operationId, submission.operationId);
     await client.deleteFailed({ sessionId, operationId: submission.operationId });
-    releaseOldSubmit.release(); assert.equal((await delayed).state,'failed');
+    releaseOldSubmit.release(); assert.deepEqual(await delayed, receipt);
+    originalClient.close();
     const failed = { operationId: crypto.randomUUID(), text: 'retry rejected' };
     await client.finalizeSubmission({ sessionId, submission: failed });
     const retry = { sessionId, operationId: failed.operationId, attemptId: crypto.randomUUID() };
@@ -135,7 +145,11 @@ test('compiled App socket finalizes delayed originals and retries; deleted failu
     await assert.rejects(client.retryFailed({ ...retry, operationId: submission.operationId }));
     await assert.rejects(client.deleteFailed({ sessionId: 'another-session', operationId: failed.operationId }));
     assert.equal((await client.submit({ operationId: crypto.randomUUID(), text: 'ordinary chat still works' })).state,'submitted');
-  } finally { releaseOldSubmit.release(); client.close(); await app.close(); await f.close(); }
+  } finally {
+    releaseOldSubmit.release();
+    await delayed?.catch(() => {});
+    originalClient.close(); client.close(); await app.close(); await f.close();
+  }
 });
 
 test('missing original bytes block the entire retry, retain immutable source binding, and remain deletable', async () => {

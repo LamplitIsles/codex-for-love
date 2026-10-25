@@ -442,7 +442,7 @@ scripts for isolated package verification.
 
 ### Post source UI — App #4352 / CFL #4349
 
-`lamplit-app.sha` pins original-root clean App commit
+Historical Post source admission used original-root clean App commit
 `14d6ba54a4e8f4768c81ae87047bb774a212176f`, tree
 `c0be129d37f3facc01faf05f22e073409a860e1a`. App owns the strict `PostSource`
 public contract and existing Framework7 source header/avatar/bubble branches;
@@ -467,3 +467,24 @@ schema; native acceptance uses representable synthetic names and the unchanged
 exact App browser bytes. The CFL-owned scratch runner changes only that hostile
 fixture label to BMP characters and resolves imports to the approved original
 App root. This does not alter App product source or widen Post validators.
+
+
+### Demand recovery — App #4619 / CFL #4621
+
+`lamplit-app.sha` pins merged `410509a38ab70da430672dd6d0f25e3b457c66af`,
+tree `a513c4d39e77989034815de16e00fb441ec7965e` (App #4635 / PR35). Only two
+fixtures changed after `de2e1baf`; product/package/lock bytes retain reviewed
+`73d6ce968cbee96d3be0f5e91a61c747afdd0e13` behavior. Apache-2.0 App owns client,
+controller and Partner recovery; the preceding server readiness/restoration delta
+from CFL's `14d6ba54` is included. No unrelated UI is imported.
+
+App's standard candidate archive SHA256 is
+`dd5e00940cfbb53e204a70b370c088edd2d01fa41a051214e896c5143cf8820c`;
+its source archive is
+`d38857f4b00c88108b6afcba2eeebea7c0ce41816b31a51b5669a9afd6c8a8c1`,
+and contracts archive is
+`e3013b1d221236ffb392fb980309f0fafa7f56969e070d556a98a46995d1a9cf`.
+Those archives identify reviewed `73d6ce9`, not the later merge commit. CFL builds
+from the clean exact merged Git pin through strict preparation, carrying the App
+license, imports and font license. App-owned packaged browser/socket evidence is
+reused; CFL verifies Node/Partner/native receipts and complete packaging separately.

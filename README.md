@@ -466,6 +466,16 @@ and contracts using its explicit Rolldown dependency, licenses and
 sibling checkout. Public GitHub source is retrieved at the exact recorded SHA.
 See [source preparation and isolated acceptance](docs/default-shared-frontend.md)
 for complete artifacts and the verification boundary.
+
+The shared chat sends no idle heartbeat. Observed transport failure attempts an
+immediate reconnect; failed attempts back off. Network/foreground hints and user
+recovery can interrupt that wait and coalesce an in-flight attempt. Readiness
+requires a valid snapshot and subscription. A silent lost connection may delay
+new replies until communication or recovery; unknown submissions retain their
+original receipt IDs and are never automatically resent. Policy closure requires
+explicit recovery. CFL deployment is held for spec #4621; candidate verification
+does not update any running instance.
+
 `GET /api/chat/appearance` supplies the configured name, avatars and horizontal/vertical
 backgrounds to the shared UI. Successful replies end quietly; failure and stop notices
 remain visible. Text and selected images appear immediately as normal outgoing bubbles, before
