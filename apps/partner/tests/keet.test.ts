@@ -247,6 +247,11 @@ test('trusted Groups are a standing conversation rule and aliases promote only a
     assert.equal(first.additionalContext['codex-for-love.keet-reactions'], undefined);
     assert.doesNotMatch(JSON.stringify(first), /send_message requires|Untrusted Keet Group quotation/);
     assert.equal((await app.post(alias)).status, 202);
+    // This restart checks completed-turn persistence, not resuming an active fake turn.
+    await eventually(async () => {
+      const snapshot = await partner.snapshot();
+      return !snapshot.typing && snapshot.results?.some(result => result.sourceIds.includes(`keet:webhook:${alias.eventId}`) && result.answers.length > 0) === true;
+    });
     await app.app.close(); app = undefined;
     const resumed = await f.createPartner(); app = await host(resumed, f.directory);
     assert.equal((await app.post(alias)).status, 202);
