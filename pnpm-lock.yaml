@@ -24,8 +24,8 @@ importers:
   apps/partner:
     dependencies:
       '@jaminzhou/codex-app-server-client':
-        specifier: github:lamplitisles/codex-app-server-client#56ab11736036d6a5c3dd6e150498dec2d95b2bf5
-        version: https://codeload.github.com/lamplitisles/codex-app-server-client/tar.gz/56ab11736036d6a5c3dd6e150498dec2d95b2bf5
+        specifier: github:lamplitisles/codex-app-server-client#f265d43fcf5d9611b81a8bb490ba37190bcd443e
+        version: https://codeload.github.com/lamplitisles/codex-app-server-client/tar.gz/f265d43fcf5d9611b81a8bb490ba37190bcd443e
       '@lamplit/contracts':
         specifier: workspace:*
         version: link:../../.generated/shared-app/contracts
@@ -388,8 +388,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@jaminzhou/codex-app-server-client@https://codeload.github.com/lamplitisles/codex-app-server-client/tar.gz/56ab11736036d6a5c3dd6e150498dec2d95b2bf5':
-    resolution: {gitHosted: true, integrity: sha512-IbBg93HLFS/D+t5spdsRLorX9/pZL+g3QosP4rh2y/9+3FIDEpZuJQ6o6+oZ9A0+eVXDE/C6QV4oDNAbbL/aRg==, tarball: https://codeload.github.com/lamplitisles/codex-app-server-client/tar.gz/56ab11736036d6a5c3dd6e150498dec2d95b2bf5}
+  '@jaminzhou/codex-app-server-client@https://codeload.github.com/lamplitisles/codex-app-server-client/tar.gz/f265d43fcf5d9611b81a8bb490ba37190bcd443e':
+    resolution: {gitHosted: true, integrity: sha512-Z7QP0FguWW8mUzFqEyc+/WPR2PlbuQVve+2J6Gt+gua0wmQTQPubqwnZ8c3KwScPA29je/ChyTF3oTkD58brxg==, tarball: https://codeload.github.com/lamplitisles/codex-app-server-client/tar.gz/f265d43fcf5d9611b81a8bb490ba37190bcd443e}
     version: 0.2.1
     engines: {node: '>=18'}
 
@@ -1289,7 +1289,7 @@ snapshots:
   '@img/sharp-win32-x64@0.34.5':
     optional: true
 
-  '@jaminzhou/codex-app-server-client@https://codeload.github.com/lamplitisles/codex-app-server-client/tar.gz/56ab11736036d6a5c3dd6e150498dec2d95b2bf5':
+  '@jaminzhou/codex-app-server-client@https://codeload.github.com/lamplitisles/codex-app-server-client/tar.gz/f265d43fcf5d9611b81a8bb490ba37190bcd443e':
     dependencies:
       '@openai/codex': 0.154.0
       '@types/node': 26.1.1

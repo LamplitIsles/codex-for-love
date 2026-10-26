@@ -2,7 +2,7 @@ packages:
   - apps/partner
   - .generated/shared-app/contracts
 allowBuilds:
-  '@jaminzhou/codex-app-server-client@https://codeload.github.com/lamplitisles/codex-app-server-client/tar.gz/56ab11736036d6a5c3dd6e150498dec2d95b2bf5': true
+  '@jaminzhou/codex-app-server-client@https://codeload.github.com/lamplitisles/codex-app-server-client/tar.gz/f265d43fcf5d9611b81a8bb490ba37190bcd443e': true
   esbuild: true
   sharp: true
   koffi: false

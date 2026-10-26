@@ -17,12 +17,16 @@ and exact SHA, without additional credentials. Future pin changes must also be
 reachable there; following latest main is not the formal source contract.
 
 ```sh
-pnpm source:prepare
+pnpm --config.verify-deps-before-run=false source:prepare
 pnpm install --frozen-lockfile
 pnpm check
 pnpm build
 pnpm test
 ```
+
+For a fresh checkout, disable pnpm’s automatic install-before-run on this first
+command: the contracts workspace does not exist until preparation completes.
+Use `--strict` for formal candidates.
 
 Preparation runs App frozen install, existing Paraglide generation, check, build
 and test. It materializes browser and compiled public package exports into

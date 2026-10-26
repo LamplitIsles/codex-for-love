@@ -66,7 +66,7 @@ jobs:
         run: |
           npm install --global npm@11.17.0 corepack@0.35.0
           corepack enable
-          CFL_SOURCE_SHA="$GITHUB_SHA" corepack pnpm source:prepare --strict
+          CFL_SOURCE_SHA="$GITHUB_SHA" corepack pnpm --config.verify-deps-before-run=false source:prepare --strict
           corepack pnpm install --frozen-lockfile
       - name: Typecheck, build, and test CFL
         working-directory: ${{ github.workspace }}/cfl-release-source

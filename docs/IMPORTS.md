@@ -95,9 +95,9 @@ provenance with the chunks; logical v3 keeps its separate final-message contract
 
 ## External official runtime
 
-The runtime targets Codex app-server `0.159.1` over SDK-managed JSONL stdio
+The runtime targets Codex app-server `0.164.0` over SDK-managed JSONL stdio
 through `@jaminzhou/codex-app-server-client` pinned to immutable source revision
-`56ab11736036d6a5c3dd6e150498dec2d95b2bf5` of
+`f265d43fcf5d9611b81a8bb490ba37190bcd443e` of
 `lamplitisles/codex-app-server-client`. The SDK supplies typed protocol
 bindings, strict boundary validation and process/RPC lifecycle management. The
 published CFL package vendors that pinned SDK revision and supplies an explicit
@@ -109,6 +109,14 @@ clients, history and compaction. The Companion does not use the official
 durable queue APIs. No Codex source checkout, provider
 token, Bridge model transport, OAuth parser, or compatibility adapter is
 copied into this repository.
+
+This SDK revision retains the generated `0.154.0` raw schemas and standalone
+baseline. Its existing generator applies a narrow effective compatibility
+contract: historical `namespaceTools` is optional in
+`modelProvider/capabilities/read`, while `imageGeneration` and `webSearch` remain
+required booleans. This matches the observed `0.164.0` response without fabricating
+a field or disabling strict validation. The reviewed source commit is consumed
+directly; no SDK npm release or merge is implied by this pin.
 
 The SDK is independently authored by JaminZhou under the MIT License; its
 generated protocol bindings and JSON Schema are derived from OpenAI Codex
@@ -140,6 +148,35 @@ part of the current application. The old artifact-preparation script was
 removed with that runtime.
 
 ## Native release artifact
+
+The 0.164.0 candidate pins both native packages at `0.7.0`, assembled from
+LamplitIsles Codex fork revision `cf7bc7b89dbd0bd5e02d8e7200ede137b2a5531f`
+with provenance label `cfl/v0.164.0-native.0.7.0`. The exact upstream baseline is
+`rust-v0.164.0`, commit `6aaac694803004a63c6f393d153c96d22521a6b9`.
+Native packages retain the archive's `provenance.json`, executable bytes,
+Apache-2.0 license and upstream notice. The provenance label identifies a local
+candidate; it does not claim a published Git tag, npm release or deployment.
+
+| Native source archive target | SHA256 |
+| --- | --- |
+| `x86_64-unknown-linux-musl` | `6e9b7dbf0009ec4472fe8a9bfe623be4294f99e7d23d790e82db33a1de81e30a` |
+| `aarch64-apple-darwin` | `5736d4ab31c74abd2bfffe147e22ffe38044c7e066efb639403ab77d43e7ff52` |
+
+Each archive includes the matching official Codex `0.164.0` code-mode helper.
+Linux app-server SHA256 is
+`1dda783f0411d0e6f4434cfcd415f845e40ec487c608e4a37d7e737aac5cef0e`;
+Linux helper SHA256 is
+`8ee4f472e92ac226a189e98998633b2d07f989f208515750764db660369f2926`.
+Mac ARM64 app-server SHA256 is
+`f68f7a892e16fb238f80ce75dd634d24f9ad5d14d754c201397b59ef43c8cfa6`;
+Mac helper SHA256 is
+`416721e33af8822041dc650793512b3e58d43e0be4f3a5c6187eb4dfaad3148a`.
+Linux executable bytes match the earlier `f695fb4` test candidate; its probe
+results remain attributed to that tested source, with final-source equivalence
+verified by matching bytes. Host acceptance and review evidence live in task
+scratch; packaging provenance does not establish final publication approval.
+
+### Prior 0.6.0 release
 
 The Linux x64 native npm package
 `@lamplitisles/codex-for-love-linux-x64@0.6.0` contains the Codex 0.159.1

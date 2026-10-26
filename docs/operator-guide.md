@@ -118,10 +118,11 @@ workflow is described below.
   `npm install -g @lamplitisles/codex-for-love`. It brings the
   exact matching native app-server and code-mode host package (musl on Linux).
   Windows and Intel Macs are unsupported. This checkout pins
-  the matching Codex 0.159.1 native packages for both supported platforms.
+  the matching Codex 0.164.0 native packages for both supported platforms.
 - The Partner uses `@jaminzhou/codex-app-server-client` 0.2.1 for typed,
   SDK-managed stdio. Its generated protocol baseline is Codex 0.154.0; the
-  Codex 0.159.1 app-server passes CFL's strict SDK integration checks. CFL
+  Codex 0.164.0 app-server is the exact target of CFL's strict SDK integration
+  checks, which must pass against the reviewed native artifact before release. CFL
   always invokes `codex.command` as a direct app-server; the SDK
   does not select a CLI fallback.
 - An existing official Codex login. Run `codex login status` and complete the
@@ -331,7 +332,7 @@ pnpm --filter @lamplitisles/partner cli import-session \
 ```
 
 The command translates every finalized user and Partner text message and
-completed compact boundary into a native Codex 0.159.1 rollout. A historical
+completed compact boundary into a native Codex 0.164.0 rollout. A historical
 turn superseded by a later turn may lack `turn/end`; its finalized messages are
 still retained. Official pagination keeps
 the complete visible conversation, while only the newest compact replacement
@@ -344,7 +345,7 @@ byte-for-byte into `<new-workspace>/.lamplit/historical-media/`, and associated
 with their original user messages. The two DSH Companion avatars are decoded
 from the explicit DSH settings file into `<new-workspace>/.lamplit/profile/`;
 TOML stores their workspace-relative paths. Persona remains CFL-owned. Because
-Codex 0.159.1 path resume does not run the SessionStart startup hook, the
+Codex 0.164.0 path resume does not run the SessionStart startup hook, the
 converter places current relationship context directly into the initial active
 history exactly once; later compact hooks refresh it normally.
 
@@ -356,7 +357,7 @@ command does not claim rollback. All automated checks use temporary state and a
 fake or loopback provider.
 
 Run the isolated fixture suite with `pnpm test`. The pinned-runtime import
-check additionally requires the Codex 0.159.1 app-server executable and still uses
+check additionally requires the Codex 0.164.0 app-server executable and still uses
 only a loopback Responses provider:
 
 ```sh
@@ -372,7 +373,8 @@ pnpm --filter @lamplitisles/partner test:real-sdk
 
 It verifies the SDK handshake and strict validation, native turn start and
 steering, paginated history, interruption, dynamic tools, local image input
-and ordinary resume. These probes do not establish live-account image
+ordinary resume, manual and automatic local compaction, persisted checkpoint
+unload/resume and the absence of remote compaction routes. These probes do not establish live-account image
 generation or remote compaction-result behavior.
 
 ## Configuration and ownership
@@ -592,7 +594,7 @@ The local summary uses a neutral continuity prefix; builtin OpenAI provider
 identity is unchanged. Without the override, upstream routing remains active;
 remote-v2 does not consume `compact_prompt`.
 
-An imported candidate uses the same owned hook declaration. Codex 0.159.1 path
+An imported candidate uses the same owned hook declaration. Codex 0.164.0 path
 resume does not execute the SessionStart startup hook, so conversion writes the
 current relationship state once into active history and marks startup bootstrap
 complete. The imported checkpoint is already in official history. A later

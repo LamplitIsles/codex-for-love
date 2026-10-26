@@ -1,10 +1,11 @@
 import { execFileSync, spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtemp, mkdir, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { SUPPORTED_CODEX_VERSION } from '../apps/partner/runtime/config.ts';
 
 const root = resolve(import.meta.dirname, '..');
 const temporary = await realpath(await mkdtemp(join(tmpdir(), 'cfl-artifact-smoke-')));
@@ -50,20 +51,40 @@ try {
   const native = `${nativePackageName}@${nativeVersion}`;
   const prefix = join(temporary, 'prefix');
   const installInputs = [publicRegistry ? main : join(artifacts, main)];
-  execFileSync('npm', ['install', '--global', '--ignore-scripts', '--prefer-online', '--prefix', prefix, ...installInputs], { stdio: 'inherit', timeout: 120_000 });
-  execFileSync(join(prefix, 'bin', 'codex-for-love'), ['--help'], { stdio: 'inherit', env: { ...process.env, HOME: join(temporary, 'home') } });
+  if (process.env.CFL_NATIVE_TARBALL) {
+    if (publicRegistry) throw new Error('A local native tarball cannot establish public-registry acceptance.');
+    const archive = resolve(process.env.CFL_NATIVE_TARBALL);
+    const candidate = archiveManifest(archive);
+    if (candidate.name !== nativePackageName || candidate.version !== nativeVersion
+      || candidate.os?.join(',') !== process.platform || candidate.cpu?.join(',') !== process.arch) {
+      throw new Error('Local native tarball does not match the main pin and matching host.');
+    }
+    installInputs.push(archive);
+  }
+  const isolatedEnv = { PATH: process.env.PATH, HOME: join(temporary, 'home'),
+    CODEX_HOME: join(temporary, 'codex-home'), XDG_CONFIG_HOME: join(temporary, 'config'),
+    XDG_DATA_HOME: join(temporary, 'data'), XDG_CACHE_HOME: join(temporary, 'cache'),
+    npm_config_cache: join(temporary, 'npm-cache'), npm_config_userconfig: join(temporary, 'npmrc'),
+    npm_config_globalconfig: join(temporary, 'global-npmrc') };
+  await Promise.all([isolatedEnv.HOME, isolatedEnv.CODEX_HOME, isolatedEnv.XDG_CONFIG_HOME, isolatedEnv.XDG_DATA_HOME, isolatedEnv.XDG_CACHE_HOME].map(path => mkdir(path, { recursive: true })));
+  execFileSync('npm', ['install', '--global', '--ignore-scripts', '--prefer-online', '--prefix', prefix, ...installInputs], { stdio: 'inherit', timeout: 120_000, env: isolatedEnv });
+  execFileSync(join(prefix, 'bin', 'codex-for-love'), ['--help'], { stdio: 'inherit', env: isolatedEnv });
   const mainRoot = join(prefix, 'lib', 'node_modules', '@lamplitisles', 'codex-for-love');
   const installedRequire = createRequire(join(mainRoot, 'bin', 'codex-for-love.mjs'));
   const nativeManifestPath = installedRequire.resolve(`${nativePackageName}/package.json`);
   const installedNativeVersion = JSON.parse(await readFile(nativeManifestPath, 'utf8')).version;
   if (installedNativeVersion !== nativeVersion) throw new Error(`Expected ${native}, installed ${installedNativeVersion ?? 'unknown'}.`);
   const nativeRoot = dirname(nativeManifestPath);
-  execFileSync(join(nativeRoot, 'bin', 'codex-app-server'), ['--version'], { stdio: 'inherit' });
-  execFileSync(join(nativeRoot, 'bin', 'codex-code-mode-host'), ['--help'], { stdio: 'ignore' });
+  const reportedVersion = execFileSync(join(nativeRoot, 'bin', 'codex-app-server'), ['--version'], { encoding: 'utf8', env: isolatedEnv }).trim();
+  if (reportedVersion !== `codex-app-server ${SUPPORTED_CODEX_VERSION}`) throw new Error(`Unsupported packaged app-server: ${reportedVersion}`);
+  console.log(reportedVersion);
+  execFileSync(join(nativeRoot, 'bin', 'codex-code-mode-host'), ['--help'], { stdio: 'ignore', env: isolatedEnv });
 
   const fakeServer = join(root, 'apps', 'partner', 'tests', 'fake-app-server-entry.mjs');
   const fakeExecutable = join(nativeRoot, 'bin', 'codex-app-server');
-  await writeFile(fakeExecutable, `#!/usr/bin/env node\nimport ${JSON.stringify(pathToFileURL(fakeServer).href)};\n`, { mode: 0o755 });
+  const fakeReplacement = `${fakeExecutable}.fake`;
+  await writeFile(fakeReplacement, `#!/usr/bin/env node\nimport ${JSON.stringify(pathToFileURL(fakeServer).href)};\n`, { mode: 0o755 });
+  await rename(fakeReplacement, fakeExecutable);
   const fixture = join(temporary, 'fixture');
   await mkdir(fixture, { recursive: true });
   await writeFile(join(fixture, 'persona.md'), 'You are Mica.');
@@ -73,7 +94,7 @@ try {
   const workspace = join(fixture, 'workspace');
   const runtime = spawn(join(prefix, 'bin', 'codex-for-love'), ['serve', join(fixture, 'partner.toml')], {
     detached: true,
-    env: { ...process.env, HOME: join(temporary, 'home'), FAKE_SERVER_ROOT: fixture, FAKE_SERVER_STATE: join(fixture, 'fake-state.json'), FAKE_SERVER_REQUESTS: join(fixture, 'requests.jsonl'), FAKE_SERVER_CONTROL: join(fixture, 'control.json'), FAKE_HOOK_COMMAND: `'${process.execPath}' '${join(mainRoot, 'vendor', 'runtime', 'session-start-hook.mjs')}' '${join(workspace, '.lamplit', 'context-bootstrap.json')}'`, FAKE_CONFIG_PATH: join(workspace, '.codex', 'config.toml') },
+    env: { ...isolatedEnv, FAKE_SERVER_ROOT: fixture, FAKE_SERVER_STATE: join(fixture, 'fake-state.json'), FAKE_SERVER_REQUESTS: join(fixture, 'requests.jsonl'), FAKE_SERVER_CONTROL: join(fixture, 'control.json'), FAKE_HOOK_COMMAND: `'${process.execPath}' '${join(mainRoot, 'vendor', 'runtime', 'session-start-hook.mjs')}' '${join(workspace, '.lamplit', 'context-bootstrap.json')}'`, FAKE_CONFIG_PATH: join(workspace, '.codex', 'config.toml') },
     stdio: ['ignore', 'ignore', 'pipe'],
   });
   const closed = once(runtime, 'close');

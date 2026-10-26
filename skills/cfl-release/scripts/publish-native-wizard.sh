@@ -4,6 +4,8 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 usage:
+  publish-native-wizard.sh prepare <native-version> --linux
+  publish-native-wizard.sh prepare <native-version> --mac
   publish-native-wizard.sh login
   publish-native-wizard.sh publish <native-version> --linux
   publish-native-wizard.sh publish <native-version> --mac
@@ -20,7 +22,8 @@ if [[ "${1:-}" = login ]]; then
   exec npm login --registry https://registry.npmjs.org
 fi
 
-[[ "${1:-}" = publish && "$#" = 3 ]] || { usage >&2; exit 64; }
+[[ ( "${1:-}" = prepare || "${1:-}" = publish ) && "$#" = 3 ]] || { usage >&2; exit 64; }
+ACTION=$1
 VERSION=$2
 PLATFORM=$3
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]] || fail "native version must be valid semver: $VERSION"
@@ -49,8 +52,10 @@ case "$PLATFORM" in
   *) usage >&2; exit 64 ;;
 esac
 
-ARCHIVE=$(find "$INPUT_DIR" -maxdepth 1 -type f -name "$ARCHIVE_PATTERN" -print -quit)
-[[ -n "$ARCHIVE" ]] || fail "expected $ARCHIVE_PATTERN in $INPUT_DIR"
+shopt -s nullglob
+ARCHIVES=("$INPUT_DIR"/$ARCHIVE_PATTERN)
+[[ "${#ARCHIVES[@]}" = 1 ]] || fail "expected exactly one $ARCHIVE_PATTERN in $INPUT_DIR"
+ARCHIVE=${ARCHIVES[0]}
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/cfl-native-publish.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT
 
@@ -66,6 +71,7 @@ assert_artifact() {
   for executable in bin/codex-app-server bin/codex-code-mode-host; do
     [[ -x "$directory/$executable" ]] || fail "$NAME archive lacks executable $executable"
   done
+  [[ -f "$directory/provenance.json" ]] || fail "$NAME archive lacks provenance.json"
 }
 
 PACKAGE_DIR=$(mktemp -d "$WORK/package.XXXXXX")
@@ -100,6 +106,28 @@ const [path, name, version, os, cpu] = process.argv.slice(2);
 const manifest = JSON.parse(fs.readFileSync(path, 'utf8'));
 if (manifest.name !== name || manifest.version !== version || manifest.os?.join(',') !== os || manifest.cpu?.join(',') !== cpu) process.exit(1);
 NODE
+
+if [[ "$ACTION" = prepare ]]; then
+  OUTPUT_DIR=${CFL_NATIVE_OUTPUT_DIR:-"$INPUT_DIR/tarballs"}
+  mkdir -p "$OUTPUT_DIR"
+  OUTPUT="$OUTPUT_DIR/$FILENAME"
+  if [[ -e "$OUTPUT" ]]; then
+    cmp -s "$TARBALL" "$OUTPUT" || fail "refusing to replace different prepared bytes: $OUTPUT"
+  else
+    cp "$TARBALL" "$OUTPUT"
+  fi
+  node - "$OUTPUT" "$NAME" "$VERSION" <<'NODE'
+const fs = require('node:fs');
+const crypto = require('node:crypto');
+const path = require('node:path');
+const [file, name, version] = process.argv.slice(2);
+const bytes = fs.readFileSync(file);
+console.log(JSON.stringify({ artifact: path.resolve(file), name, version,
+  sha256: crypto.createHash('sha256').update(bytes).digest('hex'),
+  integrity: `sha512-${crypto.createHash('sha512').update(bytes).digest('base64')}` }, null, 2));
+NODE
+  exit 0
+fi
 
 printf 'Publishing %s@%s with dist-tag %s…\n' "$NAME" "$VERSION" "$DIST_TAG"
 npm publish "$TARBALL" --access public --tag "$DIST_TAG" --registry "$REGISTRY"

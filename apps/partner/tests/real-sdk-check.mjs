@@ -7,8 +7,8 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CodexAppServerClient, resolveCodexBinary } from '@jaminzhou/codex-app-server-client';
 import { compactionPrompt } from '../runtime/prompts.ts';
+import { SUPPORTED_CODEX_VERSION as CODEX_VERSION } from '../runtime/config.ts';
 
-const CODEX_VERSION = '0.159.1';
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGP4DwQACfsD/fteaysAAAAASUVORK5CYII=', 'base64');
 
 function sleep(milliseconds) {
@@ -43,6 +43,20 @@ function latestUserText(body) {
   const messages = (body.input ?? []).filter((item) => item.type === 'message');
   const latest = messages.at(-1);
   return latest?.content?.filter((part) => part.type === 'input_text').map((part) => part.text).join(' ') ?? '';
+}
+
+function assertCheckpointContext(body) {
+  assert.ok(body, 'provider received the post-compaction context');
+  const input = JSON.stringify(body.input);
+  assert.equal(input.split('CUSTOMIZED_LOCAL_CHECKPOINT').length - 1, 1, 'one active summary checkpoint');
+  assert.ok(input.includes('The following checkpoint summarizes earlier conversation.'));
+  // Native prefix/context restoration may add items. Check removed turn content,
+  // not replacement-history length or an assumed context item layout.
+  for (const previousInput of ['invoke dynamic tool', 'text with local image']) {
+    assert.equal(body.input.some(item => item.type === 'message'
+      && item.content?.some(part => part.text === previousInput)), false, `prior turn is not replayed: ${previousInput}`);
+  }
+  assert.equal(body.input.some(item => item.call_id === 'real-probe-call'), false, 'prior tool call/output is not replayed');
 }
 
 async function readBody(request) {
@@ -142,7 +156,8 @@ async function main() {
   });
   await new Promise((resolve) => provider.listen(0, '127.0.0.1', resolve));
   const port = provider.address().port;
-  const mcpConfig = `model = "gpt-5.2"
+  const mcpConfig = `thread_unload_delay_secs = 1
+model = "gpt-5.2"
 model_provider = "openai"
 openai_base_url = "http://127.0.0.1:${port}/v1"
 [mcp_servers.companion]
@@ -200,6 +215,10 @@ plugins = false
     assert.equal(initialized.codexHome, codexHome);
     assert.equal(initialized.platformFamily, 'unix');
     assert.equal(initialized.platformOs, process.platform === 'darwin' ? 'macos' : 'linux');
+    const capabilities = await client.call('modelProvider/capabilities/read', {});
+    assert.equal(capabilities.imageGeneration, true);
+    assert.equal(typeof capabilities.webSearch, 'boolean');
+    assert.equal(capabilities.namespaceTools, undefined, '0.164 capabilities omit the historical field');
 
     const started = await client.call('thread/start', {
       model: 'gpt-5.2',
@@ -303,9 +322,7 @@ plugins = false
       && notification.params.turn.id === manualFollowUp.turn.id
       && notification.params.turn.status === 'completed'), 'post-manual-compaction turn completion');
     const manualFollowUpRequest = modelRequests.slice(beforeManualFollowUp).at(-1);
-    assert.ok(manualFollowUpRequest);
-    assert.ok(JSON.stringify(manualFollowUpRequest).includes('CUSTOMIZED_LOCAL_CHECKPOINT'));
-    assert.ok(JSON.stringify(manualFollowUpRequest).includes('The following checkpoint summarizes earlier conversation.'));
+    assertCheckpointContext(manualFollowUpRequest);
     const sessionFiles = await readdir(join(codexHome, 'sessions'), { recursive: true });
     const rolloutFile = sessionFiles.find((path) => path.endsWith('.jsonl') && path.includes(threadId));
     assert.ok(rolloutFile, 'official session rollout exists');
@@ -313,6 +330,41 @@ plugins = false
     assert.ok(rollout.some((entry) => entry.type === 'compacted'
       && JSON.stringify(entry.payload).includes('CUSTOMIZED_LOCAL_CHECKPOINT')), 'checkpoint persisted in official compacted record');
 
+    // Resume from the persisted compacted rollout, rather than the active thread.
+    console.log('PASS manual local compaction: one summary, no prior-turn/tool replay, persisted checkpoint');
+    const beforeUnsubscribe = notifications.length;
+    const unsubscribed = await client.call('thread/unsubscribe', { threadId });
+    assert.equal(unsubscribed.status, 'unsubscribed');
+    await waitFor(() => notifications.slice(beforeUnsubscribe).some((notification) =>
+      notification.method === 'thread/closed' && notification.params.threadId === threadId), 'checkpoint thread unload');
+    const resumedCheckpoint = await client.call('thread/resume', {
+      threadId, model: 'gpt-5.2', modelProvider: 'openai', cwd: workspace,
+      approvalPolicy: 'never', sandbox: 'danger-full-access', excludeTurns: true,
+      config: { compact_prompt: compactionPrompt, experimental_local_compaction: true },
+    });
+    assert.equal(resumedCheckpoint.thread.id, threadId);
+    const beforeResumeFollowUp = modelRequests.length;
+    const resumedFollowUp = await client.call('turn/start', {
+      threadId, input: [{ type: 'text', text: 'after checkpoint resume', text_elements: [] }],
+      clientUserMessageId: 'real-checkpoint-resume-follow-up',
+    });
+    await waitFor(() => notifications.some((notification) => notification.method === 'turn/completed'
+      && notification.params.turn.id === resumedFollowUp.turn.id
+      && notification.params.turn.status === 'completed'), 'resumed checkpoint follow-up');
+    assertCheckpointContext(modelRequests.slice(beforeResumeFollowUp).at(-1));
+
+    console.log('PASS persisted checkpoint unload/resume: one summary and no prior-turn/tool replay');
+    const beforeResumedCompaction = localCompactionRequests.length;
+    const beforeResumedEvents = notifications.length;
+    await client.call('thread/compact/start', { threadId });
+    await waitFor(() => localCompactionRequests.length > beforeResumedCompaction, 'resumed local compaction request');
+    await waitFor(() => notifications.slice(beforeResumedEvents).some((notification) =>
+      notification.method === 'turn/completed' && notification.params.threadId === threadId
+      && notification.params.turn.status === 'completed'), 'resumed local compaction completion');
+    assert.equal(latestUserText(localCompactionRequests.at(-1)), compactionPrompt);
+    assert.equal(remoteCompactionRequests.length, 0, 'resumed local override must not use remote compaction');
+
+    console.log('PASS actual resumed local compaction: unchanged prompt and zero remote requests');
     autoCompactionMode = true;
     const autoStarted = await client.call('thread/start', {
       model: 'gpt-5.2',
@@ -352,6 +404,7 @@ plugins = false
     assert.equal(automaticCompaction.input.some((item) => item.type === 'compaction_trigger'), false);
     assert.equal(remoteCompactionRequests.length, 0, 'local override must not issue a remote compaction request');
 
+    console.log('PASS automatic local compaction: unchanged prompt, completed follow-up and zero remote requests');
     const steeringStart = await client.call('turn/start', {
       threadId,
       input: [{ type: 'text', text: 'hold steering', text_elements: [] }],
@@ -458,7 +511,7 @@ plugins = false
     assert.equal(importedRequestText.split('HISTORY_IMPORT_USER').length - 1, 1);
     assert.equal(importedRequestText.split('HISTORY_IMPORT_ASSISTANT').length - 1, 1);
 
-    console.log(`real SDK check passed: ${initialized.userAgent}; handshake, durable history resume/ordinary resume, native start/steer, multiple-input history, interrupt/fresh start, paginated history/items, dynamic tool, text/localImage, strict validation`);
+    console.log(`real SDK check passed: ${initialized.userAgent}; handshake, manual/resumed/automatic local compaction, persisted checkpoint unload/resume, no remote compaction route, durable history resume/ordinary resume, native start/steer, multiple-input history, interrupt/fresh start, paginated history/items, dynamic tool, text/localImage, strict validation`);
   } finally {
     steeringReleased = true;
     releaseSteering();

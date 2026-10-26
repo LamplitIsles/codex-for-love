@@ -30,8 +30,14 @@ are the installed-runtime selection contract.
 - For a native update, use the `codex` fork's
   `skills/cfl-codex-native-release/SKILL.md` to create reviewed local Linux
   and macOS archives. Copy them into `.scratch/native-release-<version>/`,
-  then use its three local commands: `login`, `publish <version> --linux`, and
-  `publish <version> --mac`. Each publish command builds and validates only its
+  then use this skill’s existing
+  `scripts/publish-native-wizard.sh`. Run `prepare <version> --linux` and
+  `prepare <version> --mac` to retain exact tarballs in the input directory’s
+  `tarballs/` (or `CFL_NATIVE_OUTPUT_DIR`). `CFL_NATIVE_INPUT_DIR` selects the
+  reviewed archives. Preparation reports SHA256 and npm integrity, refuses
+  conflicting existing bytes, and does not authenticate or publish.
+  The original `login`, `publish <version> --linux`, and
+  `publish <version> --mac` commands remain available. Each publish command builds and validates only its
   selected scoped native tarball before one direct `npm publish`; it does not
   immediately query the registry after submission. The Linux and macOS packages
   are independently built and independently published. A native-only publication
@@ -56,6 +62,22 @@ Main-package publication is tag-driven and uses the repository's governed tag
 workflow and GitHub OIDC publisher. Do not substitute a token-based local
 `npm publish`, publish before native dependencies, or treat registry propagation
 delay as a reason to republish an immutable version.
+
+For acceptance before publication, set `CFL_ARTIFACT_DIR` to the prepared main
+artifact directory and `CFL_NATIVE_TARBALL` to the matching prepared native tgz,
+then run `pnpm release:smoke` on Linux x64 and Mac ARM64 in fresh test-owned
+prefixes. The smoke verifies exact package pin/platform and executable version
+before replacing only its temporary native executable with the fake engine.
+A local tarball cannot be used with `CFL_PUBLIC_SMOKE=1`.
+
+Orc publishes the exact retained and host-accepted native tarballs with
+`npm publish <exact-native.tgz> --access public --tag latest --registry https://registry.npmjs.org`.
+Recheck immutable version availability immediately before that submission;
+never repack accepted bytes or overwrite an occupied version. After both native
+versions are public, run `pnpm release:preflight v<main-version>` and follow the
+existing tag/OIDC main workflow. Publication and live promotion remain Orc-owned.
+The absent `release/` directory held obsolete metadata, deliberately removed when
+the main optional-dependency pin became authoritative; do not restore it.
 
 ## Handoff
 

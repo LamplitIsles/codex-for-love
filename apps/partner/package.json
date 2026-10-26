@@ -12,7 +12,7 @@
     "cli": "node runtime/cli.ts"
   },
   "dependencies": {
-    "@jaminzhou/codex-app-server-client": "github:lamplitisles/codex-app-server-client#56ab11736036d6a5c3dd6e150498dec2d95b2bf5",
+    "@jaminzhou/codex-app-server-client": "github:lamplitisles/codex-app-server-client#f265d43fcf5d9611b81a8bb490ba37190bcd443e",
     "@lamplit/contracts": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "koffi": "3.3.3",
