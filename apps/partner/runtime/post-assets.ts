@@ -6,13 +6,17 @@ import { imageLimits, inputImages, materializeImages, type MaterializedInputImag
 
 export const postAssetLimit = 16 * 1024 * 1024;
 const formats = { 'image/png': 'png', 'image/jpeg': 'jpeg', 'image/webp': 'webp', 'image/gif': 'gif' } as const;
-async function boundedBody(response: Response, limit: number): Promise<Buffer> {
+async function boundedBody(response: Response, limit: number, signal?: AbortSignal): Promise<Buffer> {
   if (!response.ok || !response.body || Number(response.headers.get('content-length')) > limit) { await response.body?.cancel(); throw new Error('Post asset unavailable'); }
   const reader = response.body.getReader(); const chunks: Uint8Array[] = []; let size = 0;
+  // Bind cancellation to the reader: fetch's signal may stop reaching its body after GC.
+  const cancel = () => { void reader.cancel(signal?.reason).catch(() => undefined); };
+  signal?.addEventListener('abort', cancel, { once: true });
   try {
-    for (;;) { const { value, done } = await reader.read(); if (done) break; size += value.length; if (size > limit) throw new Error('Post asset exceeds limit'); chunks.push(value); }
+    signal?.throwIfAborted();
+    for (;;) { const { value, done } = await reader.read(); signal?.throwIfAborted(); if (done) break; size += value.length; if (size > limit) throw new Error('Post asset exceeds limit'); chunks.push(value); }
     return Buffer.concat(chunks);
-  } finally { await reader.cancel().catch(() => undefined); reader.releaseLock(); }
+  } finally { signal?.removeEventListener('abort', cancel); await reader.cancel().catch(() => undefined); reader.releaseLock(); }
 }
 function assetUrl(endpoint: string, id: string): URL {
   const path = `/assets/${encodeURIComponent(Id.parse(id))}`;
@@ -21,11 +25,12 @@ function assetUrl(endpoint: string, id: string): URL {
   return url;
 }
 export async function fetchPostAsset(endpoint: string, token: string, asset: Pick<AssetV1, 'asset_id' | 'mime' | 'size'>, signal?: AbortSignal): Promise<Buffer> {
+  const requestSignal = AbortSignal.any([AbortSignal.timeout(15_000), ...(signal ? [signal] : [])]);
   const response = await fetch(assetUrl(endpoint, asset.asset_id), {
-    headers: { authorization: `Bearer ${token}` }, redirect: 'error', signal: AbortSignal.any([AbortSignal.timeout(15_000), ...(signal ? [signal] : [])]),
+    headers: { authorization: `Bearer ${token}` }, redirect: 'error', signal: requestSignal,
   });
   if (response.headers.get('content-type')?.split(';')[0].trim() !== asset.mime) { await response.body?.cancel(); throw new Error('Post asset MIME mismatch'); }
-  const bytes = await boundedBody(response, postAssetLimit);
+  const bytes = await boundedBody(response, postAssetLimit, requestSignal);
   if (!bytes.length || (asset.size !== null && bytes.length !== asset.size)) throw new Error('Post asset size mismatch');
   return bytes;
 }

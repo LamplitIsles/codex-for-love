@@ -593,10 +593,27 @@ test('changed Post origin holds old pending source and permits current binding w
   } finally { await h?.close(); await s.close(); await other.close(); }
 });
 
-test('Post full-body deadline aborts a stalled response without caller cancellation', { timeout:20_000 }, async () => {
+test('Post full-body deadline aborts a stalled response without caller cancellation', { timeout:20_000 }, async t => {
   const post = await postService(); post.assetMode = 'stall'; const start = Date.now();
-  try { await assert.rejects(fetchPostAsset(post.endpoint,post.token,examples.upload.result)); assert(Date.now()-start < 17_000); }
-  finally { await post.close(); }
+  // Exercise GC during the pending body read without changing the suite's GC policy.
+  const child = spawn(process.execPath, ['--expose-gc', '--input-type=module', '--eval', `
+    import assert from 'node:assert/strict';
+    import { fetchPostAsset } from ${JSON.stringify(new URL('../runtime/post-assets.ts', import.meta.url).href)};
+    const gc = setInterval(() => global.gc(), 100);
+    try {
+      await assert.rejects(fetchPostAsset(process.env.POST_TEST_ENDPOINT, process.env.POST_TEST_TOKEN,
+        JSON.parse(process.env.POST_TEST_ASSET)), { name: 'TimeoutError' });
+    } finally { clearInterval(gc); }
+  `], { env: { POST_TEST_ENDPOINT:post.endpoint, POST_TEST_TOKEN:post.token, POST_TEST_ASSET:JSON.stringify(examples.upload.result) }, stdio:['ignore','ignore','pipe'] });
+  const closed = once(child, 'close'); let stderr = '';
+  child.stderr.on('data', chunk => { stderr += chunk; });
+  t.after(() => { child.kill('SIGKILL'); });
+  try {
+    const [code] = await closed;
+    assert.equal(code, 0, stderr);
+    assert(Date.now()-start < 17_000);
+    await eventually(async () => post.assetOpen === 0);
+  } finally { child.kill('SIGKILL'); await post.close(); }
 });
 
 test('historical Matrix provenance remains truthful in existing public history after restart', async () => {

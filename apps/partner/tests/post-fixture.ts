@@ -28,12 +28,14 @@ export async function postService() {
   let conversationMode: LookupMode = 'normal';
   let conversationOpen = 0;
   let discoveryOpen = 0;
+  let assetOpen = 0;
   let conversationResult: unknown = examples.tools.get_conversation.result;
   let accountResult: unknown = { items: ['qq', 'matrix'].map(platform => ({ ...examples.tools.list_accounts.result.items[0], account_id: `${platform}-main`, platform })) };
   const server = createServer(async (req, res) => {
     requests.push({ path: req.url, authorization: req.headers.authorization });
     if (req.headers.authorization !== `Bearer ${token}`) { res.writeHead(401).end(); return; }
     if (req.url?.startsWith('/assets')) {
+      assetOpen++; res.once('close', () => { assetOpen--; });
       if (assetMode === 'fail') { res.writeHead(503).end(); return; }
       if (assetMode === 'redirect') { res.writeHead(302, { location: redirectTo }).end(); return; }
       if (assetMode === 'stall') { res.writeHead(200, { 'content-type': 'image/png' }); res.write(bytes.subarray(0,8)); return; }
@@ -72,6 +74,7 @@ export async function postService() {
     endpoint: `http://127.0.0.1:${(server.address() as { port: number }).port}`, token, receiver, requests, bytes, assetBytes,
     set assetMode(value: typeof assetMode) { assetMode = value; },
     set redirectTo(value: string) { redirectTo = value; },
+    get assetOpen() { return assetOpen; },
     get conversationOpen() { return conversationOpen; },
     set conversationMode(value: typeof conversationMode) { conversationMode = value; },
     get discoveryOpen() { return discoveryOpen; },
