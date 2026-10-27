@@ -102,7 +102,7 @@ for current availability and usage details.
 fast = true
 ```
 
-On N5, Shio is the only CFL instance: system unit `codex-for-love-shio.service`, running as `neil` on port 3084. Orc promotes a verified complete application package and its exact pinned native dependency after review and publication. Mac is a build/smoke host with no CFL service. See [Host-local Partner environments](docs/development-environments.md) for preparation, promotion and launcher-only rollback.
+On N5, Shio is the only CFL instance: Neil’s user systemd unit `codex-for-love-shio.service`, serving port 3084. Orc promotes a verified complete application package and its exact pinned native dependency after review and publication. Mac is a build/smoke host with no CFL service. See [Host-local Partner environments](docs/development-environments.md) for preparation, promotion and launcher-only rollback.
 
 Optional chat backgrounds are configured in the Partner TOML, separately from browser appearance preferences:
 

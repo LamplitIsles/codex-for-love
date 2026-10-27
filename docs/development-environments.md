@@ -5,22 +5,27 @@ Merging a PR and publishing npm packages do not deploy a Partner instance.
 
 ## Current N5 target
 
-N5 runs one CFL instance: Shio, as the **system** unit
-`codex-for-love-shio.service`, running as `neil`, serving loopback port **3084**.
-Use `systemctl` without `--user` for this target. There are no N5 Mika dev or
-staging targets. The Mac is a native build and package-smoke host; it has no CFL
-service to install, restart or promote.
+N5 runs one CFL instance: Shio, as Neil's **user** systemd unit
+`codex-for-love-shio.service`, serving loopback port **3084** with its existing
+configuration and state. Run its `systemctl --user` commands as `neil`; in a
+non-login shell set `XDG_RUNTIME_DIR=/run/user/1001` if needed. The managed unit
+definition is `n5-services/user-units/codex-for-love-shio.service` in
+`elec-debian-setup`. The existing privileged HOME mount and pre-start gate guard
+Neil's user manager; preserve that gate. There are no N5 Mika dev or staging
+targets. The Mac is a native build and package-smoke host; it has no CFL service
+to install, restart or promote.
 
 At the 2026-10-26 inventory, Shio served complete candidate
 `5a566957cc94f626da933f87b0a3b045e73d3d41` with native package root
-`/home/neil/.local/lib/codex-for-love-linux-x64-0.6.0`. These identify the prior
-rollback artifacts, not the next installation destination. Reinspect the actual
-unit and drop-in metadata immediately before promotion; do not assume the current
-launcher or configuration location from an old example.
+`/home/neil/.local/lib/codex-for-love-linux-x64-0.6.0`. These identify historical
+artifacts, not necessarily the current rollback artifacts or the next installation
+destination. Reinspect the actual unit and
+drop-in metadata immediately before promotion; do not assume the current launcher
+or configuration location from an old example.
 
 ```sh
-systemctl show codex-for-love-shio.service \
-  -p User -p FragmentPath -p DropInPaths -p ExecStart -p MainPID
+systemctl --user show codex-for-love-shio.service \
+  -p FragmentPath -p DropInPaths -p WorkingDirectory -p ExecStart -p MainPID
 ```
 
 Read only the required launcher metadata. Preserve environment-file references
@@ -81,24 +86,43 @@ fake-engine package smoke. Keep the candidate independent of mutable checkout
 build output and dependencies. Retain the prior candidate, native package and
 dependency prefixes for rollback.
 
-Before changing the launcher, preserve its exact prior drop-in bytes and record
-the prior process identity and static-resource manifest. Change only the intended
-Shio launcher reference to the verified candidate and matching native root,
-preserving its existing configuration argument and environment-file references.
-For an extracted runtime the command has this form, with paths obtained from the
-actual unit rather than assumed:
+Before changing the launcher, inspect the actual unit fragment, its ownership,
+permissions and any drop-ins; stop and resolve unknown or unexpected metadata,
+files or overrides before proceeding. Compare the fragment with the reviewed
+host-repository definition, preserve its exact current bytes in a protected
+rollback location, and record the prior process identity and static-resource
+manifest. Preserve any reviewed drop-ins unchanged and retain their exact bytes
+if the change requires touching them.
+
+Coordinate a reviewed change to the managed Shio unit in `elec-debian-setup`:
+update its launcher and working directory as needed for the verified candidate
+and matching native root, preserving its existing configuration argument,
+environment-file references and other service behavior. For an extracted runtime
+the command has this form, with paths obtained from the actual unit rather than
+assumed:
 
 ```text
 <node24> <candidate>/package/vendor/runtime/cli.mjs --native-package-root <verified-native-root> serve <existing-fixed-partner.toml>
 ```
 
-Reload systemd and restart the same system unit; never run a parallel Partner:
+After host-repository review and merge, install that exact reviewed unit as Neil
+at the inspected fragment path. Before replacing it, verify that the installed bytes,
+ownership, permissions and drop-ins still match the inspected baseline; stop on
+any change or unknown artifact. Stage the reviewed file in the same directory,
+verify its bytes and appropriate owner and mode, then replace the known fragment
+with the staged file. Do not overwrite an unknown object. The host repository's
+`scripts/n5-neil.py install` is an initial/exact-match installer: it refuses a
+differing existing unit and is not the upgrade command.
+
+Reload Neil's user manager and restart the same Shio unit; never run a parallel
+Partner:
 
 ```sh
-sudo systemctl daemon-reload
-sudo systemctl restart codex-for-love-shio.service
-systemctl is-active codex-for-love-shio.service
-systemctl show codex-for-love-shio.service -p MainPID -p ExecStart
+systemctl --user daemon-reload
+systemctl --user restart codex-for-love-shio.service
+systemctl --user is-active codex-for-love-shio.service
+systemctl --user status codex-for-love-shio.service
+systemctl --user show codex-for-love-shio.service -p MainPID -p WorkingDirectory -p ExecStart
 ss -ltn '( sport = :3084 )'
 curl --fail http://127.0.0.1:3084/
 ```
@@ -110,10 +134,14 @@ version, serving readiness, and every served browser resource against the accept
 or send messages. This establishes installation and serving identity; it does not
 establish resolution of historical provider 429 incidents.
 
-If promotion fails, restore only the prior launcher bytes and references to the
-retained code/native dependencies, reload and restart the same Shio unit, then
-verify original process identity, readiness and resource hashes. Never copy or
-restore instance state, credentials, configuration or conversations as rollback.
+If promotion fails, first inspect the fragment and drop-ins again; stop if their
+bytes or metadata are unknown. Restore the saved exact prior unit bytes, and any
+deliberately changed drop-in bytes, only over the known promoted artifacts, using
+the retained code/native dependencies. As Neil, run `systemctl --user daemon-reload`
+and `systemctl --user restart codex-for-love-shio.service`, then verify original
+process identity, readiness and resource hashes with the same checks above.
+Never copy or restore instance state, credentials, configuration or conversations
+as rollback.
 
 ## Historical WSL targets
 
@@ -121,7 +149,8 @@ Earlier Kosmos WSL guidance described user units `codex-for-love-dev.service`
 (Mika, 3082), `codex-for-love-staging.service` (3083), and
 `codex-for-love-prod.service` (Shio, 3084), under
 `~/.local/state/codex-for-love/{dev,staging,prod}/`. Those are historical targets,
-not N5 deployment commands. Prior reports referring to user-unit overrides,
-`prod-current` or dev-then-prod promotion apply to that WSL environment only.
+not N5 deployment commands. Prior WSL reports referring to overrides for those
+units, `prod-current` or dev-then-prod promotion apply to that WSL environment
+only; they do not describe the N5 Shio user unit or its launcher.
 The earlier dev-service authorization does not authorize inventing an N5 dev
 instance. Any work on a different host must first establish its actual targets.
