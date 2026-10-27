@@ -9,6 +9,7 @@ import { createPartner } from './partner.ts';
 import { createWebServer } from './server.ts';
 import { createConversationSearch } from './conversation-search.ts';
 import { migrateRelationshipJournal } from './migrate-relationship-journal.ts';
+import { prepareFrontend } from './startup-frontend.ts';
 
 const cliArgs = process.argv.slice(2);
 if (cliArgs[0] === '--') cliArgs.shift();
@@ -72,7 +73,7 @@ if (command === 'credential') {
   finally { await rm(temporary, { force: true }); }
   console.log('Credential saved. Restart the runtime to apply it.');
 } else if (command === 'serve') {
-  const assets = fileURLToPath(new URL('../build/', import.meta.url));
+  const assets = config.frontend ? await prepareFrontend(config.frontend, import.meta.url) : fileURLToPath(new URL('../build/', import.meta.url));
   await access(join(assets, 'index.html'));
   const credentials = await loadCredentials(config.state);
   const partner = await createPartner(config, credentials);

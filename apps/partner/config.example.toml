@@ -3,6 +3,8 @@ persona = "./persona.example.md"
 state = "./state"
 workspace = "./workspace"
 port = 3082
+# Optional: resolve canonical App main on each startup, or use a full lowercase commit SHA.
+# frontend = "latest"
 
 # A one-time already-compacted physical v0 or logical v3 DSH log can be inspected or imported with:
 # pnpm --filter @lamplitisles/partner cli import-session /path/to/partner.toml /path/to/session.jsonl /path/to/.dsh/dsh-companion/state.jsonl /path/to/attachments/v1 /path/to/new-workspace /path/to/dsh/settings.yaml --dry-run

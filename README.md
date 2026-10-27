@@ -61,6 +61,10 @@ A companion's life should not disappear into an opaque service. CFL keeps its ap
 
 The official Codex thread remains the conversation authority. CFL does not duplicate model transcripts, reasoning, or tool payloads into its own database. The workspace can be read, backed up, searched, corrected, and moved with ordinary local tools.
 
+The packaged frontend works without a separate App checkout. Operators may instead
+select canonical App `latest` or an exact commit at startup; see the
+[frontend selection guide](docs/operator-guide.md#independent-frontend-selection).
+
 ## Quick start
 
 The CLI supports **Linux x64 and macOS Apple Silicon** and includes the matching standalone Codex app-server and code-mode host. It requires Node 24 and an existing official Codex login. This checkout's launcher checks that the installed native package matches the main package's exact pin before starting. CFL owns the app-server version contract; TOML configures the model and runtime options. This checkout pins Codex 0.164.0 native packages for both platforms.

@@ -18,6 +18,7 @@ const schema = z.object({
   persona: z.string().min(1),
   state: z.string().default('./state'),
   workspace: z.string().optional(),
+  frontend: z.union([z.literal('latest'), z.string().regex(/^[a-f0-9]{40}$/u, 'Frontend must be latest or a full lowercase commit SHA')]).optional(),
   avatars: z.object({
     companion: z.string().min(1),
     user: z.string().min(1),

@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { execFileSync, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { createServer } from 'node:net';
-import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { cp, mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
 import { join, resolve } from 'node:path';
@@ -55,4 +55,25 @@ try {
     runtime.kill('SIGTERM');
     const [code] = await closed; assert.equal(code, 0, stderr);
   }
+  // Exercise the actual bundled CLI with a fully manifested, test-owned cached
+  // revision. This avoids network and builds while verifying package metadata.
+  const source = JSON.parse(await readFile(join(packageRoot, 'vendor/source.json'), 'utf8'));
+  const revision = '1'.repeat(40);
+  const cache = join(root, 'cache', 'lamplitisles/codex-for-love/frontend', revision);
+  await mkdir(cache, { recursive: true });
+  await cp(join(packageRoot, 'vendor/build'), join(cache, 'browser'), { recursive: true });
+  await cp(join(import.meta.dirname, '../.generated/shared-app/contracts/dist'), join(cache, 'contracts/dist'), { recursive: true });
+  await cp(join(import.meta.dirname, '../.generated/shared-app/licenses'), join(cache, 'licenses'), { recursive: true });
+  await writeFile(join(cache, 'manifest.json'), JSON.stringify({ revision, browser: source.browser, contracts: Object.fromEntries(Object.entries(source.contracts).filter(([key]) => key.startsWith('dist/'))), licenses: source.licenses }));
+  await writeFile(config, `frontend = "${revision}"\n` + await readFile(config, 'utf8'));
+  const selected = spawn(process.execPath, [join(packageRoot, 'vendor/runtime/cli.mjs'), 'serve', config], { cwd: root, env: { PATH: process.env.PATH, HOME: f.directory, XDG_CACHE_HOME: join(root, 'cache'), ...f.appServer.env, FAKE_HOOK_COMMAND: `${quote(process.execPath)} ${quote(join(packageRoot, 'vendor/runtime/session-start-hook.mjs'))} ${quote(join(f.workspace, '.lamplit/context-bootstrap.json'))}` }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const selectedClosed = once(selected, 'close'); let selectedOut = ''; let selectedErr = '';
+  selected.stdout.on('data', chunk => { selectedOut += chunk; }); selected.stderr.on('data', chunk => { selectedErr += chunk; });
+  try {
+    const origin = `http://127.0.0.1:${port}`;
+    await eventually(async () => { if (selected.exitCode !== null) throw new Error(selectedErr); try { return (await fetch(origin)).ok; } catch { return false; } }, 15000);
+    assert.match(selectedOut, new RegExp(`Frontend App ${revision}`));
+    assert.equal(await (await fetch(origin + '/')).text(), await (await fetch(origin + '/chat')).text());
+    console.log(`Packaged CLI selected and verified cached App ${revision} using bundled contract metadata.`);
+  } finally { selected.kill('SIGTERM'); const [code] = await selectedClosed; assert.equal(code, 0, selectedErr); }
 } finally { await f.close(); await rm(root, { recursive: true, force: true }); }

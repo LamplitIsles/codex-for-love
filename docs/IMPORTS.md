@@ -292,6 +292,16 @@ into ignored test-owned scratch; they are not copied into native product source.
 CFL's search adapter, subprocess data fixture and isolated host controls are
 original integration work. FlickLog itself and prompt semantics are unchanged.
 
+### Independently selected App at startup
+
+The optional startup selector builds source only from public canonical
+`https://github.com/LamplitIsles/lamplit-app` at the resolved exact commit.
+The cache records the commit and complete browser, compiled-contract and license
+hashes, and retains App's Apache-2.0 license, imports and Noto Sans SC OFL.
+The running CFL contracts remain those of its packaged or prepared source;
+only byte-identical compiled contracts permit the selected browser. The bundled
+default and its attribution remain part of each complete CFL artifact.
+
 ### Shared frontend and compiled public contracts from source
 
 The default Framework7/Svelte frontend and `@lamplit/contracts` public exports

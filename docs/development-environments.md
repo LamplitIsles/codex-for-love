@@ -86,6 +86,14 @@ fake-engine package smoke. Keep the candidate independent of mutable checkout
 build output and dependencies. Retain the prior candidate, native package and
 dependency prefixes for rollback.
 
+For configured independent frontend selection, the reviewed unit must expose Bun
+1.3.14, curl and tar on PATH and allow the documented network access. Set only
+the requested root `frontend` field in the existing TOML. After restart, record
+the resolved SHA from startup output and compare every served resource with that
+revision’s cache manifest; `latest` may have advanced since review. Reload browser
+pages. If preparation fails, follow the known-unit rollback below and restore the
+prior reviewed selector without modifying state or credentials.
+
 Before changing the launcher, inspect the actual unit fragment, its ownership,
 permissions and any drop-ins; stop and resolve unknown or unexpected metadata,
 files or overrides before proceeding. Compare the fragment with the reviewed
@@ -129,10 +137,12 @@ curl --fail http://127.0.0.1:3084/
 
 Budget up to 120 seconds with short readiness polls. Stop on process failure or
 restart loops. Verify actual process/native executable identity and supported
-version, serving readiness, and every served browser resource against the accepted
-`vendor/source.json` hashes. Fetch static resources only. Do not read conversations
-or send messages. This establishes installation and serving identity; it does not
-establish resolution of historical provider 429 incidents.
+version and serving readiness. When `frontend` is configured, compare every served
+browser resource against the selected resolved SHA's cache `manifest.json`; when it
+is absent, compare against the accepted bundled `vendor/source.json` browser hashes.
+Fetch static resources only. Do not read conversations or send messages. This
+establishes installation and serving identity; it does not establish resolution
+of historical provider 429 incidents.
 
 If promotion fails, first inspect the fragment and drop-ins again; stop if their
 bytes or metadata are unknown. Restore the saved exact prior unit bytes, and any

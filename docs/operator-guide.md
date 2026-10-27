@@ -650,12 +650,45 @@ Clearing restored input returns its offer; discard/dismiss hides it only for thi
 page/session and never changes native consumption. See
 [image/recovery protocol](image-send-recovery.md) for limits and isolated acceptance.
 
+## Independent frontend selection
+
+The default, when `frontend` is absent from the root of Partner TOML, is the
+App bundled with the CFL package. It needs neither network access nor Bun.
+To select a different canonical LamplitIsles/lamplit-app revision, set one field:
+
+```toml
+frontend = "latest"
+# Or: frontend = "410509a38ab70da430672dd6d0f25e3b457c66af"
+```
+
+`latest` resolves public GitHub `main` at every startup, so it trusts future
+main commits and requires network even when that revision is cached. A full
+lowercase 40-character SHA fixes the version and can reuse an intact cache
+offline. Other values fail configuration validation. CFL logs the resolved SHA
+before listening. To roll back, select a previously known SHA and restart; reload
+old browser pages after restart so their HTML and assets are from the same version.
+
+First preparation needs Node 24, `curl`, `tar`, Bun 1.3.14 on the service PATH,
+and access to canonical GitHub and the App lockfile's dependency registries.
+The frozen install and build can take minutes and need disk space. Proxy and CA
+settings are passed to a build with a private temporary HOME; Partner secrets
+and state are not forwarded. Prepared resources, source revision, compiled
+contract hashes and licenses live in `$XDG_CACHE_HOME/lamplitisles/codex-for-love/frontend`
+(or `~/.cache/lamplitisles/codex-for-love/frontend`). Protect this cache like the
+service account. A complete cache entry is rechecked before every use. Download,
+build, incomplete resources, integrity or contract mismatch stops startup with
+an error; no old or packaged frontend is substituted. Exact equality of compiled
+contracts is required, not a claim about semantic compatibility. Update CFL
+first when the selected App's contracts differ. If a cache entry is damaged,
+stop the service and remove only that SHA directory from the frontend cache;
+the next startup prepares it again and requires network access.
+
 ## Shared frontend build and acceptance
 
 Run [source preparation](default-shared-frontend.md) before frozen CFL installation.
 `pnpm build` verifies the prepared App browser and matching public contracts,
 then copies resources into `apps/partner/build`; packaging retains them and the
-bundled runtime. No App checkout is needed at runtime. `/` and `/chat` use identical HTML and root-relative assets.
+bundled runtime. The default needs no App checkout at runtime; configured selection prepares its own canonical source in the cache. `/` and `/chat` use identical HTML and root-relative assets.
 The former `/slice` route and `LAMPLIT_APP_ASSETS` selection are removed. Platform
 keeps hosted auth/PWA/management ownership. Companion MCP configuration semantics
 remain unchanged. Follow [default shared frontend](default-shared-frontend.md)
