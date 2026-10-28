@@ -53,14 +53,14 @@ export function postInput(event: EventV1, media: Record<string, string> = {}, di
   const text = postBody(event, media);
   if (display) {
     const label = (value: string) => JSON.stringify(Array.from(value.trim()).slice(0, 256).join('')).replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
-    const conversation = display.conversationName?.trim() ? label(display.conversationName) : `unknown (conversation ID ${label(m.conversation.id)})`;
+    const conversation = display.conversationName?.trim() ? JSON.stringify(display.conversationName).replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029') : 'name unavailable';
     const sender = m.sender.name?.trim() ? label(m.sender.name) : `unknown (ID ${label(m.sender.native_id)})`;
     return `[Post ${m.platform}; ${m.conversation.type} ${conversation}; sender ${sender}]\n${text}`;
   }
   return `[Post ${m.platform}; account ${JSON.stringify(m.account_id)}; conversation ${JSON.stringify(m.conversation.id)}; sender ${JSON.stringify(m.sender.native_id)}]\n${text}`;
 }
 /** Bounded authenticated MCP reads against the configured Post service. */
-async function postTool(endpoint: string, token: string, name: 'list_accounts' | 'get_conversation', args: Record<string, unknown>, ownerSignal?: AbortSignal): Promise<unknown> {
+async function postTool(endpoint: string, token: string, name: 'list_accounts' | 'list_conversations', args: Record<string, unknown>, ownerSignal?: AbortSignal): Promise<unknown> {
   const client = new Client({ name: 'codex-for-love-post-discovery', version: '1' });
   const retire = new AbortController();
   const signal = AbortSignal.any([AbortSignal.timeout(5_000), retire.signal, ...(ownerSignal ? [ownerSignal] : [])]);
@@ -77,7 +77,12 @@ async function postTool(endpoint: string, token: string, name: 'list_accounts' |
       signal.throwIfAborted();
       const response = await fetch(url, { ...init, redirect: 'error', signal: AbortSignal.any([signal, ...(init?.signal ? [init.signal] : [])]) });
       if (!response.body) return response;
-      const body = new TransformStream<Uint8Array, Uint8Array>();
+      let bytes = 0;
+      const body = new TransformStream<Uint8Array, Uint8Array>({ transform(chunk, controller) {
+        bytes += chunk.byteLength;
+        if (bytes > 1024 * 1024) throw new Error('Post response budget exceeded');
+        controller.enqueue(chunk);
+      } });
       track(response.body.pipeTo(body.writable, { signal })).catch(() => undefined);
       return new Response(body.readable, { status: response.status, statusText: response.statusText, headers: response.headers });
     })()) } : {}),
@@ -105,13 +110,26 @@ export async function discoverPost(endpoint: string, token: string, ownerSignal?
   } catch { throw new Error('Post startup discovery failed; check endpoint and private agent credential'); }
 }
 
-/** Optional display data for already accepted work; never authorizes a message. */
+/** Resolve only the current admitted source; captured names are immutable display data. */
 export async function postConversationName(endpoint: string, token: string, event: EventV1, signal: AbortSignal): Promise<string | null> {
   try {
     const m = event.message;
-    const value = ToolOutputs.get_conversation.parse(await postTool(endpoint, token, 'get_conversation', { account_id: m.account_id, conversation_id: m.conversation.id }, signal));
-    if (value.account_id !== m.account_id || value.conversation_id !== m.conversation.id || value.native_id !== m.conversation.native_id || value.type !== m.conversation.type) return null;
-    const name = value.name?.trim();
-    return name ? Array.from(name).slice(0, 256).join('') : null;
+    const deadline = AbortSignal.any([signal, AbortSignal.timeout(5_000)]);
+    const seen = new Set<string>();
+    let before: string | undefined;
+    for (let page = 0; page < 10; page++) {
+      const value = ToolOutputs.list_conversations.parse(await postTool(endpoint, token, 'list_conversations', { account_id: m.account_id, limit: 100, ...(before ? { before } : {}) }, deadline));
+      if (value.items.length > 100) return null;
+      const matches = value.items.filter(item => item.conversation_id === m.conversation.id);
+      if (matches.length) {
+        if (matches.length !== 1) return null;
+        const match = matches[0]!;
+        return match.account_id === m.account_id && match.native_id === m.conversation.native_id && match.type === m.conversation.type && match.name.trim() ? match.name : null;
+      }
+      if (!value.next_before || seen.has(value.next_before)) return null;
+      seen.add(value.next_before);
+      before = value.next_before;
+    }
+    return null;
   } catch { return null; }
 }

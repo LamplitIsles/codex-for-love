@@ -365,17 +365,18 @@ lookup returns retryable 503 without a receipt. Retry the same immutable deliver
 not a new delivery ID. Concurrent misses share one bounded lookup, and shutdown
 cancels and settles in-flight discovery before closing storage.
 
-Before submitting accepted Post work to the native turn, CFL makes one bounded
-`get_conversation` read for its genuine display name. Account, conversation,
-native ID and group/direct type must match the retained event. The name is
-limited to 256 characters and stays in untrusted external-data context alongside
-the existing sender name; routing IDs and group/direct type remain explicit.
-Missing, failed or mismatched names are `null` (unknown), and do not prevent an
-otherwise valid turn. Receipt ACK does not wait for this optional metadata read.
+Before submitting accepted Post work to the native turn, CFL reads authenticated
+`list_conversations` pages for the source account, bounded to ten pages, 100 items
+per page and five seconds. The account, conversation, native ID and group/direct
+type must match the retained event. The exact current name is untrusted external
+data alongside the separate sender name. Missing, revoked, failed, mismatched or
+out-of-budget lookups yield `null` and do not prevent an otherwise valid turn.
+Receipt ACK does not wait for this optional lookup. Conversation tools use the
+exact current name; names do not grant access. Post rejects ambiguous selections.
 
-Accepted Post message headers show platform, group/direct type, and genuine
-conversation and sender names. Names are bounded external display data; missing
-names fall back to the corresponding ID with an explicit unknown label. Routing
+Accepted Post message headers show platform, group/direct type, current
+conversation name when verified, and sender display name. An unavailable current
+name is labeled as such rather than using the captured name as a target. Routing
 IDs remain in structured metadata. Existing history and pending recovery text
 are not rewritten.
 

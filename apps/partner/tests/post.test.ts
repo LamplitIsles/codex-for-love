@@ -12,7 +12,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { fixture, eventually } from './fixture.ts';
 import { event, examples, postService } from './post-fixture.ts';
 import { createWebServer } from '../runtime/server.ts';
-import { postInput, postInputId, discoverPost } from '../runtime/post.ts';
+import { postInput, postInputId, discoverPost, postConversationName } from '../runtime/post.ts';
 import { ToolInputs, ToolOutputs, PostEventV1 } from '../runtime/post-contract.ts';
 import { openChat } from '@lamplit/contracts/client';
 import type { ChatView } from '@lamplit/contracts';
@@ -161,6 +161,53 @@ function contextValue(call: Awaited<ReturnType<typeof starts>>[number], prefix: 
     .map(([, value]) => value.value.replace(/^Part \d+\/\d+: /, '')).join('');
 }
 
+test('current source name requires an admitted exact identity across bounded directory pages', async () => {
+  const post = await postService();
+  try {
+    const e = event('directory'); e.message.conversation.name = 'Stale capture';
+    const source = { ...examples.tools.get_conversation.result, name: ' Current name ' };
+    const other = { ...source, conversation_id: 'another', native_id: 'another-native', name: 'Other' };
+    post.conversationPages = { '': { items: [other], next_before: 'next' }, next: { items: [], next_before: 'last' }, last: { items: [source], next_before: null } };
+    assert.equal(await postConversationName(post.endpoint, post.token, e, new AbortController().signal), ' Current name ');
+    const calls = post.requests.filter(r => r.tool === 'list_conversations');
+    assert.deepEqual(calls.map(r => r.args), [{ account_id: 'qq-main', limit: 100 }, { account_id: 'qq-main', limit: 100, before: 'next' }, { account_id: 'qq-main', limit: 100, before: 'last' }]);
+    post.conversationPages = { '': { items: [other], next_before: null } };
+    assert.equal(await postConversationName(post.endpoint, post.token, e, new AbortController().signal), null);
+    post.conversationPages = { '': { items: [], next_before: 'loop' }, loop: { items: [], next_before: 'loop' } };
+    assert.equal(await postConversationName(post.endpoint, post.token, e, new AbortController().signal), null);
+    post.conversationPages = { '': { items: Array.from({ length: 101 }, () => other), next_before: null } };
+    assert.equal(await postConversationName(post.endpoint, post.token, e, new AbortController().signal), null);
+    post.conversationPages = { '': { items: [{ ...other, name: 'x'.repeat(1024 * 1024) }], next_before: null } };
+    assert.equal(await postConversationName(post.endpoint, post.token, e, new AbortController().signal), null);
+    const pages = Object.fromEntries(Array.from({ length: 11 }, (_, i) => [i ? String(i) : '', { items: [], next_before: String(i + 1) }]));
+    post.conversationPages = pages;
+    const before = post.requests.filter(r => r.tool === 'list_conversations').length;
+    assert.equal(await postConversationName(post.endpoint, post.token, e, new AbortController().signal), null);
+    assert.equal(post.requests.filter(r => r.tool === 'list_conversations').length - before, 10);
+    post.conversationMode = 'unauthorized';
+    assert.equal(await postConversationName(post.endpoint, post.token, e, new AbortController().signal), null);
+    assert.equal(post.requests.filter(r => r.tool === 'send_message').length, 0);
+  } finally { await post.close(); }
+});
+
+test('retained capture stays immutable while native input uses the current source name', async () => {
+  const s = await setup(), { f, post } = s; let h: Awaited<ReturnType<typeof host>> | undefined;
+  try {
+    const partner = await f.createPartner(); h = await host(partner, f.directory, post.receiver);
+    const e = event('renamed-source'); e.message.conversation.name = 'Former name'; e.message.sender.name = 'Sender nickname';
+    post.conversation = { ...examples.tools.get_conversation.result, name: 'Current name' };
+    assert.equal((await h.send(e)).status, 202);
+    await eventually(async () => (await starts(f)).length === 1 && !(await partner.snapshot()).typing);
+    const call = (await starts(f))[0]!;
+    assert.equal(JSON.parse(contextValue(call, 'codex-for-love.post-authored')).conversation_name, 'Current name');
+    assert.match(call.input[0]!.text!, /Current name/);
+    assert.equal((await partner.snapshot()).messages.find(m => m.id === postInputId(post.endpoint, e))!.post!.source.conversationName, 'Former name');
+    assert.equal((await h.send(e)).status, 202);
+    assert.equal(post.requests.filter(r => r.tool === 'list_conversations').length, 1);
+    assert.equal(post.requests.filter(r => r.tool === 'send_message').length, 0);
+  } finally { await h?.close(); await s.close(); }
+});
+
 test('accepted group and direct work deliver genuine bounded names and type to native context', async () => {
   const s = await setup(), { f, post } = s; let h: Awaited<ReturnType<typeof host>> | undefined;
   try {
@@ -168,7 +215,7 @@ test('accepted group and direct work deliver genuine bounded names and type to n
     for (const [index, type] of (['group', 'direct'] as const).entries()) {
       const e = event(`names-${type}`); delete e.message.conversation.name; e.message.conversation.type = type;
       e.message.sender.name = 'Contact "name"\n' + '界'.repeat(300);
-      const name = type === 'group' ? 'Real "group"\n' + '界'.repeat(300) : 'Genuine contact';
+      const name = type === 'group' ? 'Real "group"\n' + '界'.repeat(200) : 'Genuine contact';
       post.conversation = { ...examples.tools.get_conversation.result, account_id: e.message.account_id,
         conversation_id: e.message.conversation.id, native_id: e.message.conversation.native_id, type, name };
       assert.equal((await h.send(e)).status, 202);
@@ -183,7 +230,7 @@ test('accepted group and direct work deliver genuine bounded names and type to n
       }
       assert.equal((await h.send(e)).status, 202);
     }
-    assert.equal(post.requests.filter(r => r.tool === 'get_conversation').length, 2, 'duplicates do not re-fetch names');
+    assert.equal(post.requests.filter(r => r.tool === 'list_conversations').length, 2, 'duplicates do not re-fetch names');
     assert.equal(post.requests.filter(r => r.tool === 'send_message').length, 0);
   } finally { await h?.close(); await s.close(); }
 });
@@ -196,7 +243,7 @@ test('accepted Post input prioritizes genuine names with bounded escaped ID fall
     for (const [index, type] of (['group', 'direct', 'group', 'direct'] as const).entries()) {
       const e = event(`readable-${index}`); delete e.message.conversation.name; e.message.conversation.type = type;
       e.message.sender.name = index < 2 ? 'Real "sender"\n' + '界'.repeat(300) : index === 3 ? 'Known sender' : undefined;
-      const name = index < 2 ? `Genuine ${type} "name"\n` + '界'.repeat(300) : undefined;
+      const name = index < 2 ? `Genuine ${type} "name"\n` + '界'.repeat(200) : undefined;
       post.conversationMode = index === 3 ? 'fail' : 'normal';
       post.conversation = { ...examples.tools.get_conversation.result, account_id: e.message.account_id,
         conversation_id: e.message.conversation.id, native_id: e.message.conversation.native_id, type, name };
@@ -215,7 +262,7 @@ test('accepted Post input prioritizes genuine names with bounded escaped ID fall
         assert(header!.includes(JSON.stringify(Array.from(e.message.sender.name!).slice(0, 256).join(''))));
         for (const id of [e.message.account_id, e.message.conversation.id, e.message.sender.native_id]) assert(!header!.includes(id));
       } else {
-        assert(header!.includes(`unknown (conversation ID ${JSON.stringify(e.message.conversation.id)})`));
+        assert(header!.includes('name unavailable'));
         assert(header!.includes(e.message.sender.name ? `sender ${JSON.stringify(e.message.sender.name)}` : `sender unknown (ID ${JSON.stringify(e.message.sender.native_id)})`));
         assert(!header!.includes(e.message.account_id));
       }
@@ -227,14 +274,14 @@ test('accepted Post input prioritizes genuine names with bounded escaped ID fall
       assert(snapshot.messages.some(m => m.input === text), 'accepted native text projects through existing source location');
       assert.equal((await h.send(e)).status, 202);
     }
-    assert.equal(post.requests.filter(r => r.tool === 'get_conversation').length, 4);
+    assert.equal(post.requests.filter(r => r.tool === 'list_conversations').length, 4);
     await h.close(); h = undefined;
     partner = await f.createPartner(); h = await host(partner, f.directory, post.receiver);
     for (const e of events) assert.equal((await h.send(e)).status, 202);
     const restartedView = await partner.snapshot();
     for (const text of rendered) assert(restartedView.messages.some(m => m.input === text), 'restart preserves exact accepted source text/body');
     assert.equal((await starts(f)).length, 4, 'restart duplicate does not rewrite or repeat accepted native input');
-    assert.equal(post.requests.filter(r => r.tool === 'get_conversation').length, 4);
+    assert.equal(post.requests.filter(r => r.tool === 'list_conversations').length, 4);
     assert.equal(post.requests.filter(r => r.tool === 'send_message').length, 0);
   } finally { await h?.close(); await s.close(); }
 });
@@ -252,7 +299,7 @@ test('conversation name absent, failed or mismatched is unknown without rejectin
       await eventually(async () => (await starts(f)).length === index + 1 && !(await partner.snapshot()).typing);
       const call = (await starts(f))[index]!;
       assert.equal(JSON.parse(contextValue(call, 'codex-for-love.post-authored')).conversation_name, null);
-      assert(call.input[0]!.text!.split('\n')[0]!.includes(`unknown (conversation ID ${JSON.stringify(e.message.conversation.id)})`));
+      assert(call.input[0]!.text!.split('\n')[0]!.includes('name unavailable'));
       assert.deepEqual(JSON.parse(contextValue(call, 'codex-for-love.post-metadata')).conversation, { id:e.message.conversation.id,native_id:e.message.conversation.native_id,type:e.message.conversation.type });
     }
     assert.equal(post.requests.filter(r => r.tool === 'send_message').length, 0);
@@ -268,7 +315,7 @@ for (const mode of ['stall-headers', 'stall-body'] as const) test(`conversation 
     assert.equal((await h.send(e)).status, 202); assert(Date.now() - began < 1000);
     await eventually(async () => post.conversationOpen === 1);
     assert.equal((await h.send(e)).status, 202);
-    assert.equal(post.requests.filter(r => r.tool === 'get_conversation').length, 1);
+    assert.equal(post.requests.filter(r => r.tool === 'list_conversations').length, 1);
     const closingAt = Date.now(); await partner.close(); assert(Date.now() - closingAt < 2000);
     await eventually(async () => post.conversationOpen === 0);
     assert.equal((await starts(f)).length, 0);
@@ -718,15 +765,18 @@ test('canonical send selector accepts names and rejects mixed targets through au
     for (const target of [
       { conversation_name: 'Owned group' },
       { conversation_name: 'Owned peer', account_id: 'qq-main', platform: 'qq', conversation_type: 'direct' },
-      { account_id: 'qq-main', conversation_id: 'owned-conversation' },
     ]) {
       const result = await client.callTool({ name: 'send_message', arguments: { ...common, ...target } });
       assert(!result.isError, 'canonical valid selector accepted by real MCP schema');
       assert.deepEqual(result.structuredContent, examples.tools.send_message.result, 'outputs unchanged; fixture does not resolve or send');
     }
     assert(listed.inputSchema.properties?.conversation_name, 'advertised tool exposes preferred name selector');
+    for (const name of ['get_conversation', 'list_members', 'read_messages']) {
+      assert(!(await client.callTool({ name, arguments: { conversation_name: 'Owned group', account_id: 'qq-main' } })).isError);
+      assert.equal((await client.callTool({ name, arguments: { account_id: 'qq-main', conversation_id: 'owned-conversation' } })).isError, true);
+    }
     for (const target of [
-      {}, { account_id: 'qq-main' }, { conversation_id: 'owned-conversation' },
+      {}, { account_id: 'qq-main' }, { conversation_id: 'owned-conversation' }, { account_id: 'qq-main', conversation_id: 'owned-conversation' },
       { conversation_name: '' }, { conversation_name: 'x'.repeat(257) },
       { conversation_name: 'Owned group', conversation_id: 'owned-conversation' },
       { conversation_name: 'Owned group', account_id: 'qq-main', conversation_id: 'owned-conversation' },
@@ -736,9 +786,6 @@ test('canonical send selector accepts names and rejects mixed targets through au
       const result = await client.callTool({ name: 'send_message', arguments: { ...common, ...target } });
       assert.equal(result.isError, true, 'invalid selector rejected by actual MCP fixture');
     }
-    const original = { account_id: 'qq-main', conversation_id: 'owned-conversation', ...common, reply_to_message_id: 'owned-reply' };
-    const parsed = ToolInputs.send_message.parse({ reply_to_message_id: original.reply_to_message_id, content: original.content, request_id: original.request_id, conversation_id: original.conversation_id, account_id: original.account_id });
-    assert.equal(JSON.stringify(parsed), JSON.stringify(original), 'original ID-selector serialized fingerprint/key order retained');
   } finally { await client.close(); await post.close(); }
 });
 
@@ -783,13 +830,13 @@ test('retained Post provenance reaches source UI with original body media and ti
       assert.equal(message.images![0]!.availability, 'available');
       expectedMessages.push(message);
     }
-    const reads = post.requests.filter(r => r.tool === 'get_conversation').length;
+    const reads = post.requests.filter(r => r.tool === 'list_conversations').length;
     const backend = createCodexChatBackend(partner);
     await backend.read();
     const history = await backend.history(JSON.stringify({ before: Number.MAX_SAFE_INTEGER }));
     for (const message of expectedMessages) assert.deepEqual(history.messages.find(m => m.id === message.id), message);
     await connect();
-    assert.equal(post.requests.filter(r => r.tool === 'get_conversation').length, reads, 'UI projection performs no remote metadata lookup');
+    assert.equal(post.requests.filter(r => r.tool === 'list_conversations').length, reads, 'UI projection performs no remote metadata lookup');
     chat!.close(); chat = undefined; socket = undefined;
     await h.close(); h = undefined;
     partner = await f.createPartner(); h = await host(partner, f.directory, post.receiver);
@@ -798,7 +845,7 @@ test('retained Post provenance reaches source UI with original body media and ti
     for (const message of expectedMessages) assert.deepEqual(restored.messages.find(m => m.id === message.id), message);
     await connect();
     assert.equal((await starts(f)).length, 4, 'history/duplicates never reingest or execute');
-    assert.equal(post.requests.filter(r => r.tool === 'get_conversation').length, reads);
+    assert.equal(post.requests.filter(r => r.tool === 'list_conversations').length, reads);
     assert.equal(post.requests.filter(r => r.tool === 'send_message').length, 0);
   } finally { chat?.close(); socket?.close(); await h?.close(); await s.close(); }
 });
@@ -818,8 +865,8 @@ test('captured Post conversation names are accepted as immutable external displa
       const call = (await starts(f))[index]!;
       const routing = JSON.parse(contextValue(call, 'codex-for-love.post-metadata'));
       assert.deepEqual(routing.conversation, { id: e.message.conversation.id, native_id: e.message.conversation.native_id, type: 'group' });
-      assert.equal(JSON.parse(contextValue(call, 'codex-for-love.post-authored')).conversation_name, name ?? null);
-      assert(call.input[0]!.text!.split('\n')[0]!.includes(name ? JSON.stringify(name) : 'unknown (conversation ID'));
+      assert.equal(JSON.parse(contextValue(call, 'codex-for-love.post-authored')).conversation_name, null);
+      assert(call.input[0]!.text!.split('\n')[0]!.includes('name unavailable'));
       assert.equal((await partner.snapshot()).messages.find(m => m.id === postInputId(post.endpoint, e))!.post!.source.conversationName, name);
       assert.equal((await h.send(e)).status, 202);
       const changed = structuredClone(e); changed.message.conversation = { ...e.message.conversation, name: 'Different captured name' };

@@ -225,7 +225,7 @@ function postAdditionalContext(event: EventV1, media: Record<string,string>, con
   const m = event.message;
   const conversation = { id: m.conversation.id, native_id: m.conversation.native_id, type: m.conversation.type };
   return {
-    'codex-for-love.post-source': { kind: 'application', value: 'External Post delivery. Routing identifies the source and explicit Post MCP target; delivery does not authorize outgoing messages. No automatic send.' },
+    'codex-for-love.post-source': { kind: 'application', value: 'External Post delivery. Routing metadata identifies the source; for an explicit outgoing action use the current conversation_name in post-authored. If unavailable, resolve it through authorized Post discovery or report it unavailable; never guess. Delivery does not authorize outgoing messages. No automatic send.' },
     ...contextEntries('codex-for-love.post-metadata', JSON.stringify({ schema_version: 1, type: event.type, direction: m.direction, mutation: m.mutation, delivery_id: event.delivery_id, agent_id: event.agent_id, message_id: m.id, account_id: m.account_id, platform: m.platform, conversation, sender_native_id: m.sender.native_id, timestamp: m.timestamp, sequence: m.sequence, native_message_id: m.native_message_id, mentions: m.mentions, reply: m.reply, wake: event.wake }), 'application'),
     ...contextEntries('codex-for-love.post-authored', JSON.stringify({ sender: m.sender, conversation_name: conversationName, content: m.content, assets: m.assets, media }), 'untrusted'),
     'codex-for-love.message-time': inputTimeContext('post', m.timestamp),
@@ -1017,7 +1017,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
   async function startIntent(intent: InputIntent): Promise<OfficialTurn | undefined> {
     if (closing || !appServer) throw new Error('Partner is unavailable');
     const postContext = intent.source === 'post' ? await store.postContext(intent.ids[0]!) : undefined;
-    const conversationName = postContext ? await postConversationName(postOrigin, credentials.post!, postContext.event, postAbort.signal) ?? postContext.event.message.conversation.name ?? null : null;
+    const conversationName = postContext ? await postConversationName(postOrigin, credentials.post!, postContext.event, postAbort.signal) : null;
     if (closing) throw new Error('Partner is unavailable');
     pendingStarts.set(intent.transportId, intent);
     submittingOperationId = intent.transportId;

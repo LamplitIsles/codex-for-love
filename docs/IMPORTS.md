@@ -438,7 +438,7 @@ integration work. Source-built packaging records its own resource hashes.
 
 `apps/partner/runtime/post-contract.ts` copies the executable finite schema from
 `lamplit-post/contracts/v1/index.ts` at immutable commit
-`eceb56d98cd7f85c93e90285febafc93c599e338` (FlickNote #4066/#4067, #4348/#4349).
+`96f771c08aa7f217dbfb195617f7fd1021071ef3` (FlickNote #4768/#4775).
 `apps/partner/tests/post-examples.json` copies that commit's
 `contracts/v1/examples.json`. License: AGPL-3.0, preserved in
 `licenses/lamplit-post-AGPL-3.0.txt`. CFL's Node fake service and receiver tests
@@ -447,14 +447,16 @@ no Bun-only receiver or adjacent mutable source is a runtime dependency.
 Historical Matrix source readers remain for persisted real provenance; the
 old Matrix ingress remains retired.
 
-The canonical input supports preferred conversation-name targets or original
-account/conversation IDs, preserving original ID key order for request fingerprints.
+The canonical conversation-targeted inputs require exact current names, with
+optional account, platform and type disambiguators. Internal conversation IDs
+remain in directory output and immutable event provenance.
 Send-only name mentions use `SendContent`; Message/Event/history retain native-ID
 Content. Optional captured `Message.conversation.name` is retained as original
 JSON and projected without a local display cache, SQL evolution or UI-time lookup.
-CFL adds no name/member resolver, send ledger or prompt policy. Canonical schema
-SHA256 `1c00ee1f2930344abccb98a30e46aea90e9d7c096b8edf4eae1875e7fe127bee`;
-examples SHA256 `3442a62378d6eb9a9612abf1d760e1f2d5802e60e8094f4c54e2a5e2bf74208a`.
+CFL resolves a source's current name through bounded authenticated directory
+pages; it adds no member resolver, send ledger or prompt policy. Canonical schema
+SHA256 `7d4ab5a4fd41718128c10e30ca589a55165d966fef0822bee6917fd7f1073f1b`;
+examples SHA256 `82f56f42e56ee85d6f23da283445245eecac0780eee529bced29cdf0fb1215e9`.
 Historical intermediate import identities and diagnostics remain in task evidence.
 
 ### Source-line reply acceptance — spec #4126 / App #4128

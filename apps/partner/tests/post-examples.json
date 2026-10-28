@@ -111,7 +111,7 @@
     "get_conversation": {
       "arguments": {
         "account_id": "qq-main",
-        "conversation_id": "cnv_example"
+        "conversation_name": "Example group"
       },
       "result": {
         "account_id": "qq-main",
@@ -133,7 +133,7 @@
     "list_members": {
       "arguments": {
         "account_id": "qq-main",
-        "conversation_id": "cnv_example"
+        "conversation_name": "Example group"
       },
       "result": {
         "items": [],
@@ -144,7 +144,7 @@
     "read_messages": {
       "arguments": {
         "account_id": "qq-main",
-        "conversation_id": "cnv_example"
+        "conversation_name": "Example group"
       },
       "result": {
         "items": [
