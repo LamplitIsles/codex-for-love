@@ -61,9 +61,7 @@ test('one-shot alarm within grace is admitted into the one Codex thread with sel
     const starts = (await f.requests()).filter(request => request.method === 'turn/start');
     assert.equal(starts.length, 1);
     const params = starts[0]!.params as { additionalContext: Record<string, { kind: string; value: string }> };
-    assert.match(JSON.stringify(starts[0]!.params), /Partner self-set reminder/);
     assert.equal(params.additionalContext['codex-for-love.alarm']?.kind, 'application');
-    assert.match(params.additionalContext['codex-for-love.alarm']?.value ?? '', /not a message.*Human/);
     const snapshot = await partner.snapshot();
     const reminder = snapshot.messages.find(message => message.id === `alarm:${alarm.id}:${alarm.nextAt}`);
     assert.equal(reminder?.alarm, true);

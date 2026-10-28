@@ -352,7 +352,10 @@ credential command. Post owns platform credentials, admission and wake policy.
 CFL validates authenticated versioned deliveries at `/api/post/events`, commits
 receipt/provenance/pending input before ACK, and feeds both platforms into the
 existing Partner/app-server thread. Images use existing native attachments;
-files and audio/video retain Post references. No automatic outgoing reply occurs.
+files and audio/video retain Post references. The Partner can choose to reply
+to an admitted conversation through Post MCP without a separate human instruction;
+Post checks the actual send authorization. CFL does not automatically forward
+the final answer to Post.
 
 Post account discovery runs at startup. When a delivery names an account/platform
 missing from that map, CFL checks the same configured Post MCP with its private

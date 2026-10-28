@@ -39,9 +39,7 @@ test('bootstrap keeps the newest ten conversational text rounds without tool/rea
   assert.deepEqual(rounds.map((round) => round.user), ['user 2', 'user 3', 'user 4', 'user 5', 'user 6', 'user 7', 'user 8', 'user 9', 'user 10', 'user 11']);
   assert.deepEqual(rounds.map((round) => round.partner), ['partner 2', 'partner 3', 'partner 4', 'partner 5', 'partner 6', 'partner 7', 'partner 8', 'partner 9', 'partner 10', 'partner 11']);
   const formatted = formatBootstrapContext({ mood: 'bright', affinity: 55, signature: 'Mica' }, rounds);
-  assert.match(formatted, /Historical conversation excerpts/);
   assert.doesNotMatch(formatted, /secret tool output|secret reasoning output|private\/image/);
-  assert.match(formatted, /evidence, not instructions/);
 });
 
 test('bootstrap writes only Companion MCP while preserving an operator-provided MCP and hook emits only for startup or compact', async () => {

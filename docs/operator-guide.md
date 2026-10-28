@@ -809,9 +809,11 @@ with Content-Type to `/assets` (30-second full-operation deadline, 16 MiB bound)
 and prints the versioned Asset result. Pass that asset ID to explicit native
 `post.send_message`. Tools are `list_accounts`, `list_conversations`,
 `get_conversation`, `list_members`, `read_messages`, `get_asset` and `send_message`.
-Use opaque account/conversation IDs from Post; verified reply targets remain in
-the same account/conversation. Ordered send content may include text, native
-mentions and asset references. Audio/video outbound use ordinary file semantics.
+Use the exact current conversation name with the source account to select a reply
+target; Post checks access and rejects ambiguous selections. If the current name
+is unavailable, use authorized discovery rather than guessing. Ordered send
+content may include text, native mentions and asset references. Audio/video
+outbound use ordinary file semantics.
 After an uncertain send, reconcile with the same `request_id` and content. A new
 request ID is not a safe retry. Inspect per-part `sent|failed|unknown` receipts
 and `stored`; `stored:false` does not mean the platform send failed.
@@ -820,7 +822,8 @@ QQ and Matrix use the same existing Partner thread as web, Keet and reminders.
 Generic App text/images carry concise truthful Post platform attribution; full
 source, reply and route facts remain immutable backend/native metadata. QQ is
 never labeled Matrix. Historical Matrix source rendering remains read-only.
-Delivery does not authorize outgoing messaging and the final assistant response
-is never automatically sent to Post. Read/send remains the official native MCP
-bootstrap and explicit tools. See [deployment cutover](post-v1-cutover.md) for
-artifact preparation, activation, marker checks and rollback.
+The Partner may choose to reply to an admitted conversation through Post MCP
+without a separate human instruction; Post enforces send authorization. CFL does
+not automatically forward the final assistant response to Post. See
+[deployment cutover](post-v1-cutover.md) for artifact preparation, activation,
+marker checks and rollback.

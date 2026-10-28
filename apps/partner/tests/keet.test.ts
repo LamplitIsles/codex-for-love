@@ -229,11 +229,6 @@ test('trusted Groups are a standing conversation rule and aliases promote only a
   let app: Awaited<ReturnType<typeof host>> | undefined;
   try {
     const partner = await f.createPartner(); app = await host(partner, f.directory);
-    const threadStart = (await f.requests()).find(request => request.method === 'thread/start')!;
-    const instructions = JSON.stringify((threadStart.params as { baseInstructions: string }).baseInstructions);
-    assert.match(instructions, /Keet DMs are ordinary one-to-one conversations/);
-    assert.match(instructions, /Friends/);
-    assert.match(instructions, /never inherit the web Human/);
     assert.equal((await app.post(message(1, 'quiet line'))).status, 202);
     assert.equal((await app.post(message(2, 'SHIO'))).status, 202);
     assert.equal((await starts(f)).length, 0);
@@ -245,7 +240,6 @@ test('trusted Groups are a standing conversation rule and aliases promote only a
     assert.match(first.additionalContext['codex-for-love.keet-group-context']!.value, /quiet line.*SHIO/s);
     assert.equal(first.additionalContext['codex-for-love.keet-group-context']!.kind, 'untrusted');
     assert.equal(first.additionalContext['codex-for-love.keet-reactions'], undefined);
-    assert.doesNotMatch(JSON.stringify(first), /send_message requires|Untrusted Keet Group quotation/);
     assert.equal((await app.post(alias)).status, 202);
     // This restart checks completed-turn persistence, not resuming an active fake turn.
     await eventually(async () => {

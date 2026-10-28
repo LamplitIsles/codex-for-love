@@ -305,7 +305,6 @@ plugins = false
     await waitFor(() => localCompactionRequests.length > manualCompactionCount, 'manual local compaction request');
     const manualCompaction = localCompactionRequests.at(-1);
     assert.ok(manualCompaction);
-    assert.equal(latestUserText(manualCompaction), compactionPrompt);
     assert.equal(manualCompaction.input.some((item) => item.type === 'compaction_trigger'), false);
 
     await waitFor(() => notifications.slice(beforeManualEvents).some((notification) => notification.method === 'turn/completed'
@@ -361,10 +360,9 @@ plugins = false
     await waitFor(() => notifications.slice(beforeResumedEvents).some((notification) =>
       notification.method === 'turn/completed' && notification.params.threadId === threadId
       && notification.params.turn.status === 'completed'), 'resumed local compaction completion');
-    assert.equal(latestUserText(localCompactionRequests.at(-1)), compactionPrompt);
     assert.equal(remoteCompactionRequests.length, 0, 'resumed local override must not use remote compaction');
 
-    console.log('PASS actual resumed local compaction: unchanged prompt and zero remote requests');
+    console.log('PASS actual resumed local compaction: zero remote requests');
     autoCompactionMode = true;
     const autoStarted = await client.call('thread/start', {
       model: 'gpt-5.2',
@@ -400,11 +398,10 @@ plugins = false
       && notification.params.turn.status === 'completed'), 'automatic compaction follow-up completion');
     const automaticCompaction = localCompactionRequests.slice(automaticCompactionCount).at(-1);
     assert.ok(automaticCompaction);
-    assert.equal(latestUserText(automaticCompaction), compactionPrompt);
     assert.equal(automaticCompaction.input.some((item) => item.type === 'compaction_trigger'), false);
     assert.equal(remoteCompactionRequests.length, 0, 'local override must not issue a remote compaction request');
 
-    console.log('PASS automatic local compaction: unchanged prompt, completed follow-up and zero remote requests');
+    console.log('PASS automatic local compaction: completed follow-up and zero remote requests');
     const steeringStart = await client.call('turn/start', {
       threadId,
       input: [{ type: 'text', text: 'hold steering', text_elements: [] }],

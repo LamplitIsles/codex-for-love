@@ -30,6 +30,7 @@ export async function postService() {
   let discoveryOpen = 0;
   let assetOpen = 0;
   let conversationResult: unknown = examples.tools.get_conversation.result;
+  let conversationsByAccount: Record<string, unknown> | undefined;
   let conversationPages: Record<string, unknown> | undefined;
   let accountResult: unknown = { items: ['qq', 'matrix'].map(platform => ({ ...examples.tools.list_accounts.result.items[0], account_id: `${platform}-main`, platform })) };
   const server = createServer(async (req, res) => {
@@ -62,9 +63,10 @@ export async function postService() {
       if (mode === 'stall-body') { res.writeHead(200, { 'content-type': 'application/json' }); res.write('{'); return; }
     }
     const mcp = new McpServer({ name: 'post', version: '1' });
-    for (const [name, input] of Object.entries(ToolInputs)) mcp.registerTool(name, { inputSchema: input }, async (args: { before?: string }) => {
+    for (const [name, input] of Object.entries(ToolInputs)) mcp.registerTool(name, { inputSchema: input }, async (args: { account_id?: string; before?: string }) => {
+      const conversation = conversationsByAccount ? conversationsByAccount[args.account_id ?? ''] : conversationResult;
       const value = name === 'list_accounts' ? accountResult : name === 'list_conversations'
-        ? conversationPages ? conversationPages[String((args as { before?: string }).before ?? '')] : { items: conversationResult === null ? [] : [conversationResult], next_before: null }
+        ? conversationPages ? conversationPages[String(args.before ?? '')] : { items: conversation == null ? [] : [conversation], next_before: null }
         : examples.tools[name].result;
       return { structuredContent: value as Record<string,unknown>, content: [{ type: 'text' as const, text: JSON.stringify(value) }] };
     });
@@ -83,6 +85,7 @@ export async function postService() {
     get discoveryOpen() { return discoveryOpen; },
     set accountMode(value: typeof accountMode) { accountMode = value; },
     set conversation(value: unknown) { conversationResult = value; },
+    set conversationsByAccount(value: Record<string, unknown> | undefined) { conversationsByAccount = value; },
     set conversationPages(value: Record<string, unknown> | undefined) { conversationPages = value; },
     set accounts(value: unknown) { accountResult = value; },
     async close() { await Promise.all([...active].map(mcp => mcp.close())); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); },

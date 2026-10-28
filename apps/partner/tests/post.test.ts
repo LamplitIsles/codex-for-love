@@ -387,6 +387,10 @@ test('QQ and Matrix use one native thread, immutable provenance, generic images/
   const s = await setup(), { f,post } = s; let h: Awaited<ReturnType<typeof host>> | undefined;
   const qq = event('qq'), matrix = event('matrix','matrix');
   try {
+    post.conversationsByAccount = {
+      'qq-main': examples.tools.get_conversation.result,
+      'matrix-main': { ...examples.tools.get_conversation.result, account_id: 'matrix-main', name: 'Matrix group' },
+    };
     let partner = await f.createPartner(); h = await host(partner,f.directory,post.receiver);
     await f.holdProvider(true);
     assert.equal((await h.send(qq)).status,202);
@@ -403,7 +407,12 @@ test('QQ and Matrix use one native thread, immutable provenance, generic images/
       assert.equal(call.input.filter(p => p.type === 'localImage').length,1);
       const metadata = Object.entries(call.additionalContext).filter(([k]) => k.startsWith('codex-for-love.post-metadata')).sort(([a],[b]) => a.localeCompare(b,undefined,{ numeric:true })).map(([,v]) => v.value).join('');
       const source = JSON.parse(metadata); assert.equal(source.platform,e.message.platform); assert.equal(source.account_id,e.message.account_id); assert.deepEqual(source.conversation,{ id:e.message.conversation.id,native_id:e.message.conversation.native_id,type:e.message.conversation.type });
-      assert.match(call.additionalContext['codex-for-love.post-source']!.value,/does not authorize outgoing/);
+      const authoredEntries = Object.entries(call.additionalContext).filter(([key]) => key.startsWith('codex-for-love.post-authored'));
+      assert(authoredEntries.length > 0);
+      for (const [, entry] of authoredEntries) assert.equal(entry.kind, 'untrusted');
+      const authored = JSON.parse(contextValue(call, 'codex-for-love.post-authored'));
+      assert.equal(authored.conversation_name, index === 0 ? 'Example group' : 'Matrix group');
+      assert.deepEqual(authored.content, e.message.content);
     }
     const view = await createCodexChatBackend(partner).read();
     assert(view.messages.some(m => m.source?.kind === 'post'));

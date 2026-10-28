@@ -142,7 +142,9 @@ _Avoid_: platform login, execution session key
 An immutable admitted wake message with factual platform, account, conversation,
 sender, reply and attachment provenance. Acknowledgment means the receiver has
 retained it durably; it does not mean execution or an outgoing reply succeeded.
-_Avoid_: automatic reply authorization, inferred mention, replayed platform history
+The Partner may choose to reply to the admitted conversation, subject to Post's
+authorization.
+_Avoid_: guaranteed reply, inferred mention, replayed platform history
 
 **Post asset**:
 An opaque reference to retained image or file bytes, including audio and video
