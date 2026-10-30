@@ -4,10 +4,11 @@ Status: accepted for the standalone core
 
 ## Decision
 
-Codex for Love runs one official Codex app-server process over SDK-managed
-JSONL stdio. The pinned `@jaminzhou/codex-app-server-client@0.2.1` owns the
-typed protocol boundary and transport lifecycle; the configured Codex
-executable remains the runtime selected by the operator.
+Codex for Love starts one official Codex app-server process and connects the pinned
+`@jaminzhou/codex-app-server-client` over its Unix WebSocket. CFL owns the
+process lifecycle; the SDK owns the typed protocol boundary and connection.
+The configured Codex executable remains the runtime selected by the operator.
+Socket configuration, directory requirements and recovery are described in the README.
 The app-server owns the authenticated model thread, model history, execution,
 official tools, skill discovery, selected MCP clients and compaction. The Node
 host owns only the Companion HTTP/SSE projection,
@@ -25,7 +26,7 @@ materialization errors remain durable application facts. The Companion does not
 call the app-server durable queue APIs. Official history is read through
 paginated thread APIs on startup, refresh and resume.
 
-CFL owns the app-server version contract, currently `0.159.1`; the published
+CFL owns the app-server version contract, currently `0.164.0`; the published
 main package pins its matching native packages. TOML does not support
 `codex.version`. The configured model defaults to `gpt-5.6-luna`.
 A project-local Codex config overlay declares the bundled

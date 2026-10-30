@@ -1,3 +1,4 @@
+import { startManagedAppServer } from './managed-app-server.ts';
 import { postInput, postConversationName, discoverPost, receiverAuthorized, validatePost } from './post.ts';
 import { postImage } from './post-assets.ts';
 import type { EventV1 } from './post-contract.ts';
@@ -512,6 +513,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
   const presentationFingerprints = new Map<string, string>();
   const turnControllers = new Map<string, AbortController>();
   let appServer: CodexAppServerClient | undefined;
+  let managedServer: Awaited<ReturnType<typeof startManagedAppServer>> | undefined;
   let threadId = '';
   let activeTurnId: string | null = null;
   let activeOperationId: string | null = null;
@@ -1571,22 +1573,19 @@ export async function createPartner(config: Config, credentials: Credentials, de
       if (closing) return;
       if (lastReportedSdkError === error) return;
       lastReportedSdkError = error;
+      if (appServer?.state === 'disconnected') void managedServer?.stop().catch(stopError => processError('app_server.stop_failed', stopError));
       processError('app_server.sdk_error', error, { threadId });
       notify();
     };
+    const socketPath = config.codex.socket_path ?? join(paths.workspaceRoot, '.lamplit/run/codex.sock');
+    managedServer = await startManagedAppServer(socketPath, selectedCodexPath, paths.workspaceRoot, environment, injected);
     appServer = new CodexAppServerClient({
-      appServerArgs: injected.appServerArgs,
+      transport: { type: 'unix', socketPath },
       capabilities: { ...injected.capabilities, experimentalApi: true, requestAttestation: false },
       clientInfo: { ...injected.clientInfo, name: 'codex-for-love', title: 'Codex for Love', version: '0.1.0' },
-      codexPath: selectedCodexPath,
-      codexExecutableType: 'app-server',
-      configOverrides: injected.configOverrides,
-      cwd: paths.workspaceRoot,
-      env: environment,
       onUnhandledError: reportAppServerError,
       protocolValidation: 'strict',
       requestTimeoutMs: injected.requestTimeoutMs ?? 60_000,
-      stderrBufferLines: injected.stderrBufferLines,
     });
     unsubscribeAppServer = [
       appServer.onError(reportAppServerError),
@@ -1689,6 +1688,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
     for (const unsubscribe of unsubscribeAppServer.splice(0)) unsubscribe();
     for (const controller of turnControllers.values()) controller.abort();
     await appServer?.close().catch(() => undefined);
+    await managedServer?.stop().catch(() => undefined);
     await store.close().catch(() => undefined);
     throw error;
   }
@@ -2228,6 +2228,8 @@ export async function createPartner(config: Config, credentials: Credentials, de
         let closeError: unknown;
         try { await serverClose; }
         catch (error) { closeError = error; }
+        try { await managedServer?.stop(); }
+        catch (error) { closeError ??= error; }
         await Promise.allSettled([...postIngress]);
         await inputAdmission;
         await admission;

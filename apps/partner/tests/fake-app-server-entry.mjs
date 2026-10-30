@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-// CFL supplies `--listen stdio://` to the configured direct app-server.
+// The fixture supports both the Partner Unix listener and converter stdio.
 // Keep the protocol fake in its own module while making this test-owned entry
 // point behave like a Codex executable.
 import { writeFileSync } from 'node:fs';
@@ -16,6 +16,8 @@ if (process.env.FAKE_SERVER_LIFECYCLE) {
   const markExited = (code) => writeFileSync(process.env.FAKE_SERVER_LIFECYCLE, `exited:${process.pid}:${code}`);
   writeFileSync(process.env.FAKE_SERVER_LIFECYCLE, `running:${process.pid}`);
   process.on('exit', markExited);
-  for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.once(signal, () => { markExited(0); process.exit(0); });
+  if (!process.argv.includes('--listen') || !process.argv[process.argv.indexOf('--listen') + 1]?.startsWith('unix://')) {
+    for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.once(signal, () => { markExited(0); process.exit(0); });
+  }
 }
 import './fake-app-server.mjs';

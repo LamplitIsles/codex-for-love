@@ -33,6 +33,7 @@ const schema = z.object({
     command: z.string().min(1).default('codex-app-server'),
     model: z.string().min(1).default(DEFAULT_CODEX_MODEL),
     home: z.string().min(1).optional(),
+    socket_path: z.string().min(1).optional(),
     fast: z.boolean().default(false),
     local_compaction: z.boolean().default(false),
     context_round_limit: z.number().int().min(0).default(DEFAULT_CONTEXT_ROUND_LIMIT),
@@ -72,6 +73,7 @@ export async function loadConfig(path: string): Promise<Config> {
     codex: {
       ...config.codex,
       home: config.codex.home ? resolve(base, config.codex.home) : undefined,
+      socket_path: config.codex.socket_path ? resolve(base, config.codex.socket_path) : undefined,
     },
     post: config.post ? { ...config.post, endpoint: postEndpoint(config.post.endpoint) } : undefined,
     keet: config.keet ? {

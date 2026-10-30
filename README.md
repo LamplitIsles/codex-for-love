@@ -91,6 +91,38 @@ codex-for-love serve /path/to/partner.toml
 
 CFL binds to `127.0.0.1` and prints the local URL. Use a fresh workspace for a new conversation.
 
+CFL starts its own Codex app-server and connects to it at
+`<workspace>/.lamplit/run/codex.sock`. To select another address, set
+`[codex] socket_path = "./run/codex.sock"`; relative paths resolve against the
+TOML file's directory. Restart Partner after changing it. The socket parent
+must be an instance-dedicated directory owned by the running user, with no
+permissions for group or other users, and no other service writing there.
+CFL creates missing directories privately, but does not change existing directory
+permissions. Codex restricts socket access to the user; any local client granted
+access can control this app-server, so protect the directory accordingly.
+Unix socket paths have platform byte limits (103 on macOS, 107 on Linux); use a
+shorter configured path if startup reports that the workspace path is too long.
+
+During normal Partner shutdown, CFL closes its connection and sends SIGTERM to
+the managed app-server. Codex drains active admissions and turns before it exits
+and normally removes its socket. CFL waits for that exit; after 30 seconds it
+logs the child PID as a diagnostic and continues waiting. An abnormal exit while
+waiting is reported as an error. If it remains stuck,
+inspect the PID and its service before intervening. A second SIGTERM to the
+confirmed app-server requests Codex's forced shutdown and can interrupt turns.
+A service manager may also signal the child independently; a second signal can
+force the drain. Its stop deadline or a forced termination may end the process
+sooner and leave a socket or symlink behind, including during startup.
+CFL refuses to start if anything already exists at the address. After a crash or
+forced shutdown, first stop Partner, inspect the process and path, and stop the
+confirmed managed app-server if it remains running. Confirm no app-server or
+other service owns the path, then remove only the confirmed abandoned entry and
+restart. Never remove a path whose ownership is uncertain; choose another
+private path instead. Codex's native listener can remove a stale socket created
+after CFL's startup check, so the dedicated directory must not be concurrently
+written by other services. The listener's readiness log is not peer authentication
+against replacement by another process under the same user.
+
 Set `[codex] fast = true` in Partner TOML to request native Fast (`priority`)
 for both new and resumed threads. `false` or omission explicitly selects the
 ordinary (`default`) tier, including after Fast was previously enabled. Restart

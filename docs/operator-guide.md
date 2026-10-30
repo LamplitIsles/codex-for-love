@@ -120,7 +120,8 @@ workflow is described below.
   Windows and Intel Macs are unsupported. This checkout pins
   the matching Codex 0.164.0 native packages for both supported platforms.
 - The Partner uses `@jaminzhou/codex-app-server-client` 0.2.1 for typed,
-  SDK-managed stdio. Its generated protocol baseline is Codex 0.154.0; the
+  Unix WebSocket connections to the app-server process managed by CFL. Its
+  generated protocol baseline is Codex 0.154.0; the
   Codex 0.164.0 app-server is the exact target of CFL's strict SDK integration
   checks, which must pass against the reviewed native artifact before release. CFL
   always invokes `codex.command` as a direct app-server; the SDK

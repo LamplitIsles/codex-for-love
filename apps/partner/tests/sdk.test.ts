@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import {
@@ -18,7 +18,7 @@ test('CFL always launches the direct app-server with one managed handshake', asy
     const requests = await f.requests();
     assert.equal(requests.filter((request) => request.method === 'initialize').length, 1);
     assert.equal(requests.filter((request) => request.method === 'initialized').length, 1);
-    assert.deepEqual(JSON.parse(await readFile(f.appServer.env!.FAKE_SERVER_ARGS!, 'utf8')), ['--listen', 'stdio://']);
+    assert.deepEqual(JSON.parse(await readFile(f.appServer.env!.FAKE_SERVER_ARGS!, 'utf8')), ['--listen', `unix://${join(f.workspace, '.lamplit/run/codex.sock')}`]);
     const context = JSON.parse(await readFile(f.appServer.env!.FAKE_SERVER_CONTEXT!, 'utf8')) as { cwd: string; codexHome: string | null; sentinel: string | null };
     assert.equal(context.cwd, f.workspace);
     assert.equal(context.codexHome, f.config.codex.home);
@@ -29,6 +29,106 @@ test('CFL always launches the direct app-server with one managed handshake', asy
     await eventually(async () => (await readFile(f.appServer.env!.FAKE_SERVER_LIFECYCLE!, 'utf8')).startsWith('exited:'), 2_000);
     await f.close();
   }
+});
+
+test('configured socket uses a private directory and is removed on normal close and restart', async () => {
+  const f = await fixture();
+  const path = join(f.directory, 'run', 'custom.sock');
+  f.config.codex.socket_path = path;
+  try {
+    let partner = await f.createPartner();
+    assert.deepEqual(JSON.parse(await readFile(f.appServer.env.FAKE_SERVER_ARGS!, 'utf8')), ['--listen', `unix://${path}`]);
+    assert.equal((await lstat(join(f.directory, 'run'))).mode & 0o077, 0);
+    await partner.close();
+    await assert.rejects(lstat(path), { code: 'ENOENT' });
+    partner = await f.createPartner();
+    await partner.close();
+    await assert.rejects(lstat(path), { code: 'ENOENT' });
+  } finally { await f.close(); }
+});
+
+test('normal close waits for the managed server to drain beyond two seconds', async () => {
+  const f = await fixture(); f.appServer.env.FAKE_SHUTDOWN_DELAY_MS = '3500';
+  f.appServer.env.FAKE_SERVER_SIGNAL = join(f.directory, 'signal');
+  const partner = await f.createPartner();
+  let finished = false;
+  const closing = partner.close().then(() => { finished = true; });
+  try {
+    await eventually(async () => { try { return await readFile(f.appServer.env.FAKE_SERVER_SIGNAL!, 'utf8') === 'SIGTERM'; } catch { return false; } });
+    await new Promise(resolve => setTimeout(resolve, 2200));
+    assert.equal(finished, false);
+    assert.match(await readFile(f.appServer.env.FAKE_SERVER_LIFECYCLE!, 'utf8'), /^running:/);
+    await closing;
+    assert.match(await readFile(f.appServer.env.FAKE_SERVER_LIFECYCLE!, 'utf8'), /^exited:\d+:0$/);
+    await assert.rejects(lstat(join(f.workspace, '.lamplit/run/codex.sock')), { code: 'ENOENT' });
+  } finally { await closing; await f.close(); }
+});
+
+test('abnormal child exit during shutdown is reported', async () => {
+  const f = await fixture(); f.appServer.env.FAKE_SHUTDOWN_EXIT_CODE = '42';
+  const partner = await f.createPartner();
+  try {
+    await assert.rejects(partner.close(), /exited abnormally during shutdown.*inspect its socket/);
+  } finally { await f.close().catch(() => undefined); }
+});
+
+test('startup failure reports safely before waiting for a listener without its readiness log', async t => {
+  const logs: string[] = [];
+  t.mock.method(console, 'error', (...args: unknown[]) => { logs.push(args.map(String).join(' ')); });
+  const f = await fixture();
+  f.appServer.env.FAKE_NO_LISTEN_LOG = 'true'; f.appServer.env.FAKE_SHUTDOWN_DELAY_MS = '3500';
+  f.appServer.env.FAKE_SERVER_SIGNAL = join(f.directory, 'signal');
+  f.appServer.requestTimeoutMs = 2000;
+  let finished = false;
+  const starting = f.createPartner().then(() => { throw new Error('unexpected startup'); }, error => { finished = true; return error; });
+  try {
+    await eventually(async () => { try { return await readFile(f.appServer.env.FAKE_SERVER_SIGNAL!, 'utf8') === 'SIGTERM'; } catch { return false; } });
+    await new Promise(resolve => setTimeout(resolve, 2200));
+    assert.equal(finished, false);
+    assert.ok(logs.some(line => line.includes('app_server.startup_failed') && line.includes('listen_timeout') && line.includes(join(f.workspace, '.lamplit/run/codex.sock'))));
+    assert.ok(logs.every(line => !line.includes('private-fixture-stderr')));
+    assert.match(await readFile(f.appServer.env.FAKE_SERVER_LIFECYCLE!, 'utf8'), /^running:/);
+    assert.match(String(await starting), /Timed out waiting for Codex app-server socket/);
+    assert.match(await readFile(f.appServer.env.FAKE_SERVER_LIFECYCLE!, 'utf8'), /^exited:\d+:0$/);
+    await assert.rejects(lstat(join(f.workspace, '.lamplit/run/codex.sock')), { code: 'ENOENT' });
+  } finally { await starting; await f.close(); }
+});
+
+test('startup and cleanup failures are both reported and preserved', async t => {
+  const logs: string[] = [];
+  t.mock.method(console, 'error', (...args: unknown[]) => { logs.push(args.map(String).join(' ')); });
+  const f = await fixture();
+  f.appServer.env.FAKE_NO_LISTEN_LOG = 'true'; f.appServer.env.FAKE_SHUTDOWN_EXIT_CODE = '42';
+  f.appServer.requestTimeoutMs = 2000;
+  try {
+    await assert.rejects(f.createPartner(), (error: unknown) => {
+      assert.ok(error instanceof AggregateError);
+      assert.match(String(error.errors[0]), /Timed out waiting for Codex app-server socket/);
+      assert.match(String(error.errors[1]), /exited abnormally during shutdown/);
+      assert.equal(error.cause, error.errors[0]);
+      return true;
+    });
+    assert.ok(logs.some(line => line.includes('app_server.startup_failed') && line.includes('listen_timeout')));
+    assert.ok(logs.some(line => line.includes('app_server.startup_cleanup_failed') && line.includes('abnormal_exit')));
+    assert.ok(logs.every(line => !line.includes('private-fixture-stderr')));
+  } finally { await f.close(); }
+});
+
+test('existing paths, public directories, and overlong paths fail without changing them', async () => {
+  const f = await fixture();
+  try {
+    const directory = join(f.directory, 'run'); await mkdir(directory, { mode: 0o700 });
+    const path = join(directory, 'codex.sock'); f.config.codex.socket_path = path;
+    await writeFile(path, 'other service');
+    await assert.rejects(f.createPartner(), /socket path already exists/);
+    assert.equal(await readFile(path, 'utf8'), 'other service');
+    f.config.codex.socket_path = join(directory, 'missing.sock');
+    await chmod(directory, 0o755);
+    await assert.rejects(f.createPartner(), /directory must be owned.*private/);
+    assert.equal((await lstat(directory)).mode & 0o777, 0o755);
+    f.config.codex.socket_path = join(f.directory, 'x'.repeat(120));
+    await assert.rejects(f.createPartner(), /shorter.*socket_path/);
+  } finally { await f.close(); }
 });
 
 test('wrong version and missing executable fail after SDK cleanup', async () => {
@@ -56,9 +156,24 @@ test('process exit during startup fails the Partner and releases the SDK process
   try {
     await assert.rejects(f.createPartner());
     await eventually(async () => /exited:\d+:42$/.test(await readFile(f.appServer.env!.FAKE_SERVER_LIFECYCLE!, 'utf8')), 2_000);
+    const path = join(f.workspace, '.lamplit/run/codex.sock');
+    assert.equal((await lstat(path)).isSocket(), true);
+    delete f.appServer.env.FAKE_EXIT_AFTER_INITIALIZE;
+    await assert.rejects(f.createPartner(), /socket path already exists/);
+    assert.equal((await lstat(path)).isSocket(), true);
   } finally {
     await f.close();
   }
+});
+
+test('connection loss stops the managed process without replaying an uncertain admission', async () => {
+  const f = await fixture(); f.appServer.env.FAKE_DISCONNECT_METHOD = 'turn/start';
+  const partner = await f.createPartner();
+  try {
+    await partner.submit(randomUUID(), 'uncertain admission');
+    await eventually(async () => (await readFile(f.appServer.env.FAKE_SERVER_LIFECYCLE!, 'utf8')).startsWith('exited:'), 2_000);
+    assert.equal((await f.requests()).filter(request => request.method === 'turn/start').length, 1);
+  } finally { await partner.close(); await f.close(); }
 });
 
 test('strict SDK validation rejects a malformed known response', async () => {

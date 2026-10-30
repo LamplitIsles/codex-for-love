@@ -95,12 +95,14 @@ provenance with the chunks; logical v3 keeps its separate final-message contract
 
 ## External official runtime
 
-The runtime targets Codex app-server `0.164.0` over SDK-managed JSONL stdio
-through `@jaminzhou/codex-app-server-client` pinned to immutable source revision
+The Partner starts its own Codex app-server `0.164.0` and connects over Unix
+WebSocket using `@jaminzhou/codex-app-server-client` pinned to immutable source revision
 `f265d43fcf5d9611b81a8bb490ba37190bcd443e` of
 `lamplitisles/codex-app-server-client`. The SDK supplies typed protocol
-bindings, strict boundary validation and process/RPC lifecycle management. The
-published CFL package vendors that pinned SDK revision and supplies an explicit
+bindings, strict boundary validation and connection/RPC lifecycle management;
+CFL manages the Partner app-server process. The one-time DSH converter retains
+its separate SDK-managed stdio app-server invocation. The published CFL
+package vendors that pinned SDK revision and supplies an explicit
 LamplitIsles standalone app-server binary, so end-user installation does not
 clone the SDK or select its bundled official CLI fallback.
 The runtime relies on the operator's existing official device-auth login for

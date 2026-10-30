@@ -90,7 +90,7 @@ export async function fixture(directoryRoot?: string) {
       config.codex.command = executable;
       config.codex.local_compaction = true;
     },
-    async close() { await partner?.close(); await rm(directory, { recursive: true, force: true }); },
+    async close() { try { await partner?.close(); } finally { await rm(directory, { recursive: true, force: true }); } },
   };
 }
 

@@ -2,6 +2,8 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeF
 import { spawnSync } from 'node:child_process';
 import { basename, join } from 'node:path';
 import { createInterface } from 'node:readline';
+import { createServer } from 'node:http';
+import { WebSocketServer } from 'ws';
 
 const root = process.env.FAKE_SERVER_ROOT;
 const statePath = process.env.FAKE_SERVER_STATE;
@@ -15,8 +17,10 @@ function readJson(path, fallback) {
   try { return JSON.parse(readFileSync(path, 'utf8')); } catch { return fallback; }
 }
 function save() { writeFileSync(statePath + '.next', JSON.stringify(state)); renameSync(statePath + '.next', statePath); }
+let client;
 function send(value) {
-  process.stdout.write(`${JSON.stringify(value)}\n`);
+  if (client) client.send(JSON.stringify(value));
+  else process.stdout.write(`${JSON.stringify(value)}\n`);
   if (value.method === 'item/tool/call') {
     state.toolCalls = (state.toolCalls ?? 0) + 1;
     save();
@@ -528,8 +532,7 @@ if (process.env.FAKE_IMAGES_FIXTURE === 'true') {
   }, 10).unref();
 }
 
-const lines = createInterface({ input: process.stdin });
-lines.on('line', async (line) => {
+async function receive(line) {
   if (!line.trim()) return;
   const request = JSON.parse(line);
   log(request);
@@ -542,6 +545,7 @@ lines.on('line', async (line) => {
   if (request.id === undefined) return;
   try {
     const result = await handle(request);
+    if (process.env.FAKE_DISCONNECT_METHOD === request.method && client) { client.terminate(); return; }
     if (process.env.FAKE_DROP_RESPONSE_METHOD === request.method) return;
     send({ id: request.id, result });
   }
@@ -549,4 +553,24 @@ lines.on('line', async (line) => {
     const code = typeof error?.code === 'number' ? error.code : -32603;
     send({ id: request.id, error: { code, message: error instanceof Error ? error.message : String(error), ...(error?.data !== undefined ? { data: error.data } : {}) } });
   }
-});
+}
+const listen = process.argv[process.argv.indexOf('--listen') + 1];
+if (listen?.startsWith('unix://')) {
+  const server = createServer();
+  const sockets = new WebSocketServer({ server });
+  sockets.on('connection', ws => { client = ws; ws.on('message', data => void receive(String(data))); });
+  server.listen(listen.slice('unix://'.length), () => {
+    if (process.env.FAKE_NO_LISTEN_LOG === 'true') process.stderr.write('private-fixture-stderr\n');
+    else process.stderr.write(JSON.stringify({ target: 'codex_app_server_transport::transport::unix_socket', fields: { message: 'app-server control socket listening' } }) + '\n');
+  });
+  for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.once(signal, () => {
+    if (process.env.FAKE_SERVER_SIGNAL) writeFileSync(process.env.FAKE_SERVER_SIGNAL, signal);
+    setTimeout(() => {
+      for (const ws of sockets.clients) ws.terminate();
+      server.close(() => process.exit(Number(process.env.FAKE_SHUTDOWN_EXIT_CODE ?? 0)));
+    }, Number(process.env.FAKE_SHUTDOWN_DELAY_MS ?? 0));
+  });
+} else {
+  const lines = createInterface({ input: process.stdin });
+  lines.on('line', line => void receive(line));
+}
