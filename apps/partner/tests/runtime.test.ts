@@ -6,6 +6,8 @@ import { join } from 'node:path';
 import { fixture, eventually } from './fixture.ts';
 import { Store } from '../runtime/store.ts';
 import { partnerPaths } from '../runtime/storage-paths.ts';
+import { loadConfig } from '../runtime/config.ts';
+import { compactionPrompt } from '../runtime/prompts.ts';
 
 const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGP4DwQACfsD/fteaysAAAAASUVORK5CYII=';
 const photo = { type: 'image' as const, mediaType: 'image/png' as const, name: 'steer.png', data: png };
@@ -56,6 +58,9 @@ test('official app-server owns the thread, native turns and history across an or
     await eventually(async () => (await partner.snapshot()).results?.some((result) => result.sourceIds.includes(afterResumeId) && result.answers.length > 0) === true);
     assert.equal((await f.requests()).filter((request) => request.method === 'thread/start').length, 1);
     assert.equal((await f.requests()).filter((request) => request.method === 'thread/resume').length, 1);
+    const resume = (await f.requests()).find((request) => request.method === 'thread/resume');
+    assert(resume);
+    assert.doesNotMatch(JSON.stringify(resume.params), /compact_prompt|experimental_local_compaction/);
   } finally { await partner.close(); await f.close(); }
 });
 
@@ -101,24 +106,58 @@ test('startup waits only for the bundled Companion MCP and ignores optional MCP 
   try { await assert.rejects(failed.createPartner(), /companion/); } finally { await failed.close(); }
 });
 
-test('local compaction is enabled on start and resume', async () => {
+test('default local compaction is enabled on start and resume', async () => {
   const f = await fixture();
   await f.enableLocalCompaction();
+  const configPath = join(f.directory, 'partner.toml');
+  await writeFile(configPath, 'name = "Mica"\npersona = "persona.md"\n');
+  f.config.codex.local_compaction = (await loadConfig(configPath)).codex.local_compaction;
   let partner = await f.createPartner();
   try {
     const start = (await f.requests()).find((request) => request.method === 'thread/start');
     assert(start);
     assert.equal((start.params as { config: Record<string, unknown> }).config.experimental_local_compaction, true);
+    assert.equal((start.params as { config: Record<string, unknown> }).config.compact_prompt, compactionPrompt);
 
     await partner.close();
     partner = await f.createPartner();
     const resume = (await f.requests()).find((request) => request.method === 'thread/resume');
     assert(resume);
     assert.equal((resume.params as { config: Record<string, unknown> }).config.experimental_local_compaction, true);
+    assert.equal((resume.params as { config: Record<string, unknown> }).config.compact_prompt, compactionPrompt);
   } finally {
     await partner.close();
     await f.close();
   }
+});
+
+test('configured prompts and persona are sent on start and reloaded on resume', async () => {
+  const f = await fixture();
+  await f.enableLocalCompaction();
+  const companion = join(f.directory, 'companion.md');
+  const compaction = join(f.directory, 'compaction.md');
+  await writeFile(companion, 'custom companion\n');
+  await writeFile(compaction, 'custom compact\n');
+  f.config.prompts = { companion, compaction };
+  let partner = await f.createPartner();
+  try {
+    const start = (await f.requests()).find(request => request.method === 'thread/start');
+    assert(start);
+    const params = start.params as { baseInstructions: string; config: Record<string, unknown> };
+    assert.equal(params.baseInstructions, `custom companion\n\n\n${await readFile(f.config.persona, 'utf8')}`);
+    assert.equal(params.config.compact_prompt, 'custom compact\n');
+    assert.equal(params.config.experimental_local_compaction, true);
+    await writeFile(companion, 'updated companion');
+    await writeFile(compaction, 'updated compact');
+    await partner.close();
+    partner = await f.createPartner();
+    const resume = (await f.requests()).find(request => request.method === 'thread/resume');
+    assert(resume);
+    const resumed = resume.params as { baseInstructions: string; config: Record<string, unknown> };
+    assert.equal(resumed.baseInstructions, `updated companion\n\n${await readFile(f.config.persona, 'utf8')}`);
+    assert.equal(resumed.config.compact_prompt, 'updated compact');
+    assert.equal(resumed.config.experimental_local_compaction, true);
+  } finally { await partner.close(); await f.close(); }
 });
 
 test('an active native turn receives ordered steering inputs without a second turn', async () => {

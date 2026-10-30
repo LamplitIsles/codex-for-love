@@ -16,6 +16,10 @@ const keetNames = z.array(z.string().min(1).refine(value => Array.from(value).le
 const schema = z.object({
   name: z.string().min(1),
   persona: z.string().min(1),
+  prompts: z.object({
+    companion: z.string().refine(value => value.trim().length > 0, 'Prompt path must not be empty').optional(),
+    compaction: z.string().refine(value => value.trim().length > 0, 'Prompt path must not be empty').optional(),
+  }).strict().optional(),
   state: z.string().default('./state'),
   workspace: z.string().optional(),
   frontend: z.union([z.literal('latest'), z.string().regex(/^[a-f0-9]{40}$/u, 'Frontend must be latest or a full lowercase commit SHA')]).optional(),
@@ -35,9 +39,9 @@ const schema = z.object({
     home: z.string().min(1).optional(),
     socket_path: z.string().min(1).optional(),
     fast: z.boolean().default(false),
-    local_compaction: z.boolean().default(false),
+    local_compaction: z.boolean().default(true),
     context_round_limit: z.number().int().min(0).default(DEFAULT_CONTEXT_ROUND_LIMIT),
-  }).strict().default({ command: 'codex-app-server', model: DEFAULT_CODEX_MODEL, fast: false, local_compaction: false, context_round_limit: DEFAULT_CONTEXT_ROUND_LIMIT }),
+  }).strict().default({ command: 'codex-app-server', model: DEFAULT_CODEX_MODEL, fast: false, local_compaction: true, context_round_limit: DEFAULT_CONTEXT_ROUND_LIMIT }),
   speech: z.object({
     endpoint: z.url().default('https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation'),
     tts: ttsSchema.optional(),
@@ -49,7 +53,11 @@ const schema = z.object({
   }).strict().optional(),
   post: z.object({ endpoint: z.string().min(1), agent_id: z.string().min(1).max(256) }).strict().optional(),
   pet: z.object({ enabled: z.boolean().default(false) }).strict().default({ enabled: false }),
-}).strict();
+}).strict().superRefine((config, context) => {
+  if (config.prompts?.compaction && !config.codex.local_compaction) {
+    context.addIssue({ code: 'custom', path: ['prompts', 'compaction'], message: 'Compaction prompt requires codex.local_compaction = true' });
+  }
+});
 
 export type Config = z.infer<typeof schema> & { configPath?: string };
 
@@ -61,6 +69,10 @@ export async function loadConfig(path: string): Promise<Config> {
     configPath: resolve(path),
     state: resolve(base, config.state),
     persona: resolve(base, config.persona),
+    prompts: config.prompts ? {
+      companion: config.prompts.companion ? resolve(base, config.prompts.companion) : undefined,
+      compaction: config.prompts.compaction ? resolve(base, config.prompts.compaction) : undefined,
+    } : undefined,
     workspace: resolve(base, config.workspace ?? `${config.state}/workspace`),
     avatars: config.avatars ? {
       companion: resolve(base, config.avatars.companion),

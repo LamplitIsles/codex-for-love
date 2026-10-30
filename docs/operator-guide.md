@@ -382,9 +382,14 @@ generation or remote compaction-result behavior.
 
 `apps/partner/config.example.toml` is the complete operator-facing shape:
 
-- `name` and `persona` select the Partner identity. The Owner-maintained
-  companion base instructions are loaded from `runtime/prompts.ts`; the worker
-  only assembles them with the selected persona.
+- `name` and `persona` select the Partner identity. Optional `[prompts]`
+  `companion` and `compaction` paths independently replace the source defaults
+  in `runtime/prompts.ts`. Paths may be absolute or relative to the TOML file;
+  files must contain non-whitespace UTF-8 text. Their contents are preserved,
+  and no filename extension is required. Persona and generated channel context
+  are appended separately to the selected Companion base. Files are read on
+  startup or session import; restart Partner to pick up changes. Import dry-run
+  validates the same configured files.
 - Published installs select the standalone app-server through the main
   package's exact native dependency pin. Their configuration needs only
   `codex.model`, optional `codex.home`, and optional `local_compaction`; the
@@ -580,20 +585,22 @@ Current usage uses `last.totalTokens` and `modelContextWindow`; completion
 invalidates old tokens, retaining capacity until fresh native usage. Missing
 usage displays zero quietly. The shared compact command rechecks auth/session
 and native idle/pending/recovery admission; lost replies do not replay it.
-The patched Codex build can
-route manual and automatic compaction through the official local summarizer,
-which consumes the Owner-authored `compactionPrompt`. Enable it explicitly:
+Partner enables local compaction by default, routing manual and automatic
+compaction through the official local summarizer in the patched Codex build,
+which consumes the source compaction
+prompt or `[prompts] compaction` when configured. To retain upstream routing:
 
 ```toml
 [codex]
-local_compaction = true
+local_compaction = false
 ```
 
 The SDK handshake verifies the app-server protocol version before CFL sets the
 override on both thread start and resume.
 The local summary uses a neutral continuity prefix; builtin OpenAI provider
-identity is unchanged. Without the override, upstream routing remains active;
-remote-v2 does not consume `compact_prompt`.
+identity is unchanged. With local compaction disabled, upstream routing remains
+active; remote-v2 does not consume `compact_prompt`, so a configured compaction
+file together with `local_compaction = false` is rejected.
 
 An imported candidate uses the same owned hook declaration. Codex 0.164.0 path
 resume does not execute the SessionStart startup hook, so conversion writes the

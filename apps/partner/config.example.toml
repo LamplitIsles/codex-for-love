@@ -23,6 +23,12 @@ user = "./workspace/.lamplit/profile/user-avatar.png"
 #landscape = "./workspace/.lamplit/profile/background-landscape.jpg"
 #portrait = "./workspace/.lamplit/profile/background-portrait.jpg"
 
+# Optional UTF-8 prompt files, resolved relative to this TOML. Omitted paths
+# use the source defaults. Restart Partner after editing either file.
+#[prompts]
+#companion = "./prompts/companion.md" # Persona is appended separately.
+#compaction = "./prompts/compaction.md" # Requires local compaction.
+
 [codex]
 # Fast requests native priority; false (default) explicitly uses ordinary tier.
 # Applies to new/resumed threads; restart Partner after changing it.
@@ -32,7 +38,9 @@ model = "gpt-5.6-luna"
 # exact main-package native dependency pin. A checkout configuration may set
 # command to a direct codex-app-server path.
 # CFL owns the supported app-server version; do not set codex.version.
-# local_compaction = true
+# Local compaction is enabled by default. Set false for upstream routing;
+# a custom compaction prompt cannot be used when it is false.
+# local_compaction = false
 # Number of newest complete text rounds included only after compaction. The
 # default is 10; the 4,000-token soft budget can select fewer long rounds.
 # Restart Partner after changing this value.

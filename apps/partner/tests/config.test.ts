@@ -4,6 +4,50 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { loadConfig, loadCredentials } from '../runtime/config.ts';
+import { loadPrompts } from '../runtime/load-prompts.ts';
+import { companionPrompt, compactionPrompt } from '../runtime/prompts.ts';
+
+test('prompt paths and local compaction are resolved and validated independently', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'lamplit-prompts-config-'));
+  try {
+    const path = join(directory, 'partner.toml');
+    const base = 'name = "Mica"\npersona = "persona.md"\n';
+    for (const entry of ['', '[codex]\n']) {
+      await writeFile(path, base + entry);
+      const config = await loadConfig(path);
+      assert.equal(config.codex.local_compaction, true);
+      assert.deepEqual(await loadPrompts(config), { companion: companionPrompt, compaction: compactionPrompt });
+    }
+    await writeFile(path, `${base}[codex]\nlocal_compaction = false\n`);
+    assert.equal((await loadConfig(path)).codex.local_compaction, false);
+    await writeFile(path, `${base}[codex]\nlocal_compaction = false\n[prompts]\ncompaction = "compact.md"\n`);
+    await assert.rejects(loadConfig(path), /local_compaction/);
+    for (const value of ['""', '"   "', '1']) {
+      await writeFile(path, `${base}[prompts]\ncompanion = ${value}\n`);
+      await assert.rejects(loadConfig(path), /companion/);
+    }
+    await writeFile(path, `${base}[prompts]\nunknown = "prompt.md"\n`);
+    await assert.rejects(loadConfig(path));
+    const companion = join(directory, 'companion');
+    const compaction = join(directory, 'compact.md');
+    await writeFile(companion, '\ufeff  replacement base\n');
+    await writeFile(compaction, 'replacement compact\n');
+    await writeFile(path, `${base}[prompts]\ncompanion = "companion"\n`);
+    let config = await loadConfig(path);
+    assert.equal(config.prompts?.companion, companion);
+    assert.deepEqual(await loadPrompts(config), { companion: '\ufeff  replacement base\n', compaction: compactionPrompt });
+    await writeFile(path, `${base}[prompts]\ncompaction = ${JSON.stringify(compaction)}\n`);
+    config = await loadConfig(path);
+    assert.equal(config.prompts?.compaction, compaction);
+    assert.deepEqual(await loadPrompts(config), { companion: companionPrompt, compaction: 'replacement compact\n' });
+    await writeFile(compaction, ' \n\t');
+    await assert.rejects(loadPrompts(config), /prompts\.compaction.*empty/);
+    await writeFile(compaction, Buffer.from([0xff]));
+    await assert.rejects(loadPrompts(config), /prompts\.compaction.*UTF-8/);
+    await rm(compaction);
+    await assert.rejects(loadPrompts(config), /prompts\.compaction.*compact\.md/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
 
 test('private Post credentials load independently without platform environment overrides', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'lamplit-credentials-test-'));

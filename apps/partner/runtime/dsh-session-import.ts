@@ -16,7 +16,7 @@ import {
   trustOwnedHooks,
   writeBootstrapFile,
 } from './context-bootstrap.ts';
-import { compactionPrompt, companionPrompt } from './prompts.ts';
+import { loadPrompts } from './load-prompts.ts';
 import { Store } from './store.ts';
 import { replaceRelationshipJournal } from './relationship-journal.ts';
 import { partnerPaths } from './storage-paths.ts';
@@ -831,7 +831,7 @@ function responseMessage(role: 'user' | 'assistant', value: string): Record<stri
   return { type: 'message', id: `msg_${randomUUID().replaceAll('-', '')}`, role, content: [{ type: role === 'user' ? 'input_text' : 'output_text', text: value }], ...(role === 'assistant' ? { phase: 'final_answer' } : {}) };
 }
 
-function buildRollout(extraction: DshImportExtraction, media: readonly ResolvedMedia[], threadId: string, destination: string, persona: string, relationship: CompanionState, modelProvider = 'openai'): ImportedRollout {
+function buildRollout(extraction: DshImportExtraction, media: readonly ResolvedMedia[], threadId: string, destination: string, baseInstructions: string, relationship: CompanionState, modelProvider = 'openai'): ImportedRollout {
   const created = new Date().toISOString();
   const initialWindow = randomUUID();
   const lines: RolloutLine[] = [];
@@ -841,7 +841,7 @@ function buildRollout(extraction: DshImportExtraction, media: readonly ResolvedM
   const add = (type: string, payload: Record<string, unknown>, timestamp = created) => lines.push({ timestamp, ordinal: lines.length, type, payload });
   add('session_meta', {
     session_id: threadId, id: threadId, timestamp: created, cwd: destination, originator: 'codex_app_server_client_ts', cli_version: SUPPORTED_CODEX_VERSION, source: 'vscode', model_provider: modelProvider,
-    base_instructions: { text: `${companionPrompt}\n\n${persona}`, provenance: { type: 'custom' } }, history_mode: 'paginated', context_window: { window_id: initialWindow },
+    base_instructions: { text: baseInstructions, provenance: { type: 'custom' } }, history_mode: 'paginated', context_window: { window_id: initialWindow },
   });
   let window = initialWindow;
   let windowNumber = 0;
@@ -915,13 +915,15 @@ export async function convertDshSession(
   const existingDestination = await assertEmptyDestination(destination);
   const persona = await readFile(config.persona, 'utf8');
   if (!persona.trim()) throw new Error('Persona must not be empty');
+  const prompts = await loadPrompts(config);
+  const baseInstructions = `${prompts.companion}\n\n${persona}`;
   const codexHome = resolve(dependencies.appServer?.env?.CODEX_HOME ?? config.codex.home ?? '');
   if (!config.codex.home && !dependencies.appServer?.env?.CODEX_HOME) invalid('Session import requires an explicit test-owned or configured Codex home');
   const threadId = randomUUID();
   const rolloutPath = rolloutPathFor(codexHome, threadId);
   const currentRelationship = relationships.at(-1)?.state;
   if (!currentRelationship) invalid('Companion state history contains no current record');
-  const rollout = buildRollout(extraction, media, threadId, destination, persona, currentRelationship);
+  const rollout = buildRollout(extraction, media, threadId, destination, baseInstructions, currentRelationship);
   if (options.dryRun) {
     return {
       dryRun: true,
@@ -993,12 +995,12 @@ export async function convertDshSession(
       cwd: destination,
       approvalPolicy: 'never' as const,
       sandbox: 'danger-full-access' as const,
-      baseInstructions: `${companionPrompt}\n\n${persona}`,
+      baseInstructions,
       config: {
         'features.hooks': true,
         'features.image_generation': true,
         ...(config.codex.local_compaction
-          ? { compact_prompt: compactionPrompt, experimental_local_compaction: true }
+          ? { compact_prompt: prompts.compaction, experimental_local_compaction: true }
           : {}),
       },
     };

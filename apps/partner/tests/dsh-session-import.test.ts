@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { convertDshSession, DshSessionImportError, inspectDshLog } from '../runtime/dsh-session-import.ts';
@@ -205,6 +205,12 @@ test('dry-run is side-effect free and conversion creates one native candidate', 
   try {
     const source = await sources(f);
     const settings = join(f.directory, 'settings.yaml');
+    await f.enableLocalCompaction();
+    const companion = join(f.directory, 'companion.md');
+    const compaction = join(f.directory, 'compaction.md');
+    f.config.prompts = { companion, compaction };
+    await writeFile(companion, 'Custom companion instructions');
+    await writeFile(compaction, 'Custom continuity instructions');
     const companionAvatar = Buffer.from('companion avatar');
     const userAvatar = Buffer.from('user avatar');
     f.config.avatars = {
@@ -215,6 +221,11 @@ test('dry-run is side-effect free and conversion creates one native candidate', 
     const beforeSession = await readFile(source.session);
     const beforeState = await readFile(source.state);
     const beforeMedia = await readFile(join(source.attachments, 'objects', source.digest.slice(0, 2), source.digest));
+    await writeFile(compaction, '   ');
+    await assert.rejects(convertDshSession(f.config, source.session, source.state, source.attachments, f.workspace, { appServer: f.appServer }, { dryRun: true, dshSettingsPath: settings }), /prompts\.compaction.*empty/);
+    assert.equal((await f.requests()).length, 0);
+    assert.deepEqual(await readdir(f.workspace), []);
+    await writeFile(compaction, 'Custom continuity instructions');
     const dry = await convertDshSession(f.config, source.session, source.state, source.attachments, f.workspace, { appServer: f.appServer }, { dryRun: true, dshSettingsPath: settings });
     assert.equal(dry.destination.created, false);
     assert.equal(dry.report.relationships, 2);
@@ -223,6 +234,9 @@ test('dry-run is side-effect free and conversion creates one native candidate', 
     const converted = await convertDshSession(f.config, source.session, source.state, source.attachments, f.workspace, { appServer: f.appServer }, { dshSettingsPath: settings });
     const rolloutPath = converted.destination.rolloutPath!;
     const rollout = (await readFile(rolloutPath, 'utf8')).trim().split('\n').map((line) => JSON.parse(line) as Row);
+    const meta = rollout.find((line) => line.type === 'session_meta')!.payload as Row;
+    const expectedBase = `Custom companion instructions\n\n${await readFile(f.config.persona, 'utf8')}`;
+    assert.equal((meta.base_instructions as Row).text, expectedBase);
     assert.equal(rollout.filter((line) => line.type === 'compacted').length, 2);
     const started = rollout.filter((line) => line.type === 'event_msg' && (line.payload as Row)?.type === 'task_started')
       .map((line) => ((line.payload as Row).started_at));
@@ -241,6 +255,9 @@ test('dry-run is side-effect free and conversion creates one native candidate', 
     assert.doesNotMatch(JSON.stringify(rollout), /discard me|source framing/);
     const resume = (await f.requests()).find((request) => request.method === 'thread/resume')!;
     assert.equal((resume.params as Row).path, rolloutPath);
+    assert.equal((resume.params as Row).baseInstructions, expectedBase);
+    assert.equal(((resume.params as Row).config as Row).compact_prompt, 'Custom continuity instructions');
+    assert.equal(((resume.params as Row).config as Row).experimental_local_compaction, true);
     assert.equal('history' in (resume.params as Row), false);
     const fakeState = JSON.parse(await readFile(f.appServer.env.FAKE_SERVER_STATE!, 'utf8')) as { importedHistory: unknown[]; turns: unknown[] };
     assert.match(JSON.stringify(fakeState.importedHistory), /second summary/);

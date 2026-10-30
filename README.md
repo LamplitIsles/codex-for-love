@@ -91,6 +91,13 @@ codex-for-love serve /path/to/partner.toml
 
 CFL binds to `127.0.0.1` and prints the local URL. Use a fresh workspace for a new conversation.
 
+Optional `[prompts] companion` and `compaction` paths select UTF-8 prompt files;
+omitted paths use the source defaults, and persona remains separate. Paths are
+relative to the TOML file unless absolute. Restart after changing them. Local
+compaction is enabled by default; `[codex] local_compaction = false` retains
+upstream routing and cannot be combined with a compaction prompt override. See
+the [operator guide](docs/operator-guide.md#configuration-and-ownership).
+
 CFL starts its own Codex app-server and connects to it at
 `<workspace>/.lamplit/run/codex.sock`. To select another address, set
 `[codex] socket_path = "./run/codex.sock"`; relative paths resolve against the

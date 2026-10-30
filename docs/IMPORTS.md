@@ -40,10 +40,11 @@ for the packaged App remain in its retained source attribution and license paylo
 `apps/partner/runtime/prompts.ts` adapts the approved Companion base prompt and
 continuity prompt artifact from
 `packages/dsh-companion/src/prompt.ts` and `compaction.ts` at the same
-`29ed11a` revision. The Owner maintains prompt semantics. The current host
-assembles the base instructions with the configured persona; it does not send
-the independent compaction prompt to remote-v2, whose official path uses base
-instructions plus `CompactionTrigger`/history.
+`29ed11a` revision. These source prompts remain the defaults; operators can
+select separate prompt files. The host assembles the selected base instructions
+with the configured persona. Local compaction receives the selected compaction
+prompt; remote-v2 uses base instructions plus `CompactionTrigger`/history and
+does not consume the independent compaction prompt.
 
 `apps/partner/runtime/speech.ts` adapts the Qwen3-ASR-Flash request/response
 shape and retained Alibaba/ByteDance short-audio transport contracts from
