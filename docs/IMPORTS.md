@@ -522,7 +522,7 @@ App root. This does not alter App product source or widen Post validators.
 
 ### Demand recovery — App #4619 / CFL #4621
 
-`lamplit-app.sha` pins merged `410509a38ab70da430672dd6d0f25e3b457c66af`,
+The earlier pin was merged `410509a38ab70da430672dd6d0f25e3b457c66af`,
 tree `a513c4d39e77989034815de16e00fb441ec7965e` (App #4635 / PR35). Only two
 fixtures changed after `de2e1baf`; product/package/lock bytes retain reviewed
 `73d6ce968cbee96d3be0f5e91a61c747afdd0e13` behavior. Apache-2.0 App owns client,
@@ -539,3 +539,11 @@ Those archives identify reviewed `73d6ce9`, not the later merge commit. CFL buil
 from the clean exact merged Git pin through strict preparation, carrying the App
 license, imports and font license. App-owned packaged browser/socket evidence is
 reused; CFL verifies Node/Partner/native receipts and complete packaging separately.
+
+### Relationship history ordering — App PR36 / CFL #4974
+
+`lamplit-app.sha` pins merged `b446bebc6308205fb5c7165a69d6bb7a804fe233`,
+tree `a5584d37d9b21f8125b9fb80d84b0aa4858d68a0`. App owns the Companion
+relationship history presentation, pagination controls and related translations;
+the App change also updates its panel browser test and documentation. Package
+manifests, Bun lock and public contracts are unchanged from the previous pin.
