@@ -11,32 +11,46 @@ test('prompt paths and local compaction are resolved and validated independently
   const directory = await mkdtemp(join(tmpdir(), 'lamplit-prompts-config-'));
   try {
     const path = join(directory, 'partner.toml');
-    const base = 'name = "Mica"\npersona = "persona.md"\n';
+    const base = 'name = "Mica"\n';
+    const prompts = '[prompts]\npersona = "persona.md"\n';
+    for (const invalid of ['', '[prompts]\n', '[prompts]\npersona = ""\n']) {
+      await writeFile(path, base + invalid);
+      await assert.rejects(loadConfig(path), /prompts|persona/);
+    }
+    await writeFile(path, `${base}persona = "old.md"\n${prompts}`);
+    await assert.rejects(loadConfig(path), /persona/);
+    const absolutePersona = join(directory, 'absolute.md');
+    await writeFile(path, `${base}state = "state"\nworkspace = "workspace"\n[prompts]\npersona = ${JSON.stringify(absolutePersona)}\n`);
+    const absolute = await loadConfig(path);
+    assert.equal(absolute.prompts.persona, absolutePersona);
+    assert.equal(absolute.state, join(directory, 'state'));
+    assert.equal(absolute.workspace, join(directory, 'workspace'));
     for (const entry of ['', '[codex]\n']) {
-      await writeFile(path, base + entry);
+      await writeFile(path, base + entry + prompts);
       const config = await loadConfig(path);
+      assert.equal(config.prompts.persona, join(directory, 'persona.md'));
       assert.equal(config.codex.local_compaction, true);
       assert.deepEqual(await loadPrompts(config), { companion: companionPrompt, compaction: compactionPrompt });
     }
-    await writeFile(path, `${base}[codex]\nlocal_compaction = false\n`);
+    await writeFile(path, `${base}[codex]\nlocal_compaction = false\n${prompts}`);
     assert.equal((await loadConfig(path)).codex.local_compaction, false);
-    await writeFile(path, `${base}[codex]\nlocal_compaction = false\n[prompts]\ncompaction = "compact.md"\n`);
+    await writeFile(path, `${base}[codex]\nlocal_compaction = false\n${prompts}compaction = "compact.md"\n`);
     await assert.rejects(loadConfig(path), /local_compaction/);
     for (const value of ['""', '"   "', '1']) {
-      await writeFile(path, `${base}[prompts]\ncompanion = ${value}\n`);
+      await writeFile(path, `${base}${prompts}companion = ${value}\n`);
       await assert.rejects(loadConfig(path), /companion/);
     }
-    await writeFile(path, `${base}[prompts]\nunknown = "prompt.md"\n`);
+    await writeFile(path, `${base}${prompts}unknown = "prompt.md"\n`);
     await assert.rejects(loadConfig(path));
     const companion = join(directory, 'companion');
     const compaction = join(directory, 'compact.md');
     await writeFile(companion, '\ufeff  replacement base\n');
     await writeFile(compaction, 'replacement compact\n');
-    await writeFile(path, `${base}[prompts]\ncompanion = "companion"\n`);
+    await writeFile(path, `${base}${prompts}companion = "companion"\n`);
     let config = await loadConfig(path);
     assert.equal(config.prompts?.companion, companion);
     assert.deepEqual(await loadPrompts(config), { companion: '\ufeff  replacement base\n', compaction: compactionPrompt });
-    await writeFile(path, `${base}[prompts]\ncompaction = ${JSON.stringify(compaction)}\n`);
+    await writeFile(path, `${base}${prompts}compaction = ${JSON.stringify(compaction)}\n`);
     config = await loadConfig(path);
     assert.equal(config.prompts?.compaction, compaction);
     assert.deepEqual(await loadPrompts(config), { companion: companionPrompt, compaction: 'replacement compact\n' });
@@ -66,33 +80,33 @@ test('CFL config fixes execution to a direct app-server', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'lamplit-config-test-'));
   try {
     const path = join(directory, 'partner.toml');
-    await writeFile(path, 'name = "Mica"\npersona = "persona.md"\nstate = "state"\n');
+    await writeFile(path, 'name = "Mica"\nprompts = { persona = "persona.md" }\nstate = "state"\n');
     const defaults = await loadConfig(path);
     assert.equal(defaults.codex.command, 'codex-app-server');
     assert.equal(defaults.codex.context_round_limit, 10);
     assert.equal(defaults.codex.socket_path, undefined);
-    await writeFile(path, 'name = "Mica"\npersona = "persona.md"\n[codex]\nsocket_path = "run/codex.sock"\n');
+    await writeFile(path, 'name = "Mica"\nprompts = { persona = "persona.md" }\n[codex]\nsocket_path = "run/codex.sock"\n');
     assert.equal((await loadConfig(path)).codex.socket_path, join(directory, 'run/codex.sock'));
-    await writeFile(path, 'name = "Mica"\npersona = "persona.md"\n[codex]\nsocket_path = ""\n');
+    await writeFile(path, 'name = "Mica"\nprompts = { persona = "persona.md" }\n[codex]\nsocket_path = ""\n');
     await assert.rejects(loadConfig(path), /socket_path/);
     assert.equal(defaults.listen_host, '127.0.0.1');
 
-    await writeFile(path, 'name = "Mica"\npersona = "persona.md"\nstate = "state"\nlisten_host = "0.0.0.0"\n');
+    await writeFile(path, 'name = "Mica"\nprompts = { persona = "persona.md" }\nstate = "state"\nlisten_host = "0.0.0.0"\n');
     assert.equal((await loadConfig(path)).listen_host, '0.0.0.0');
 
-    await writeFile(path, 'name = "Mica"\npersona = "persona.md"\nstate = "state"\nlisten_host = "localhost"\n');
+    await writeFile(path, 'name = "Mica"\nprompts = { persona = "persona.md" }\nstate = "state"\nlisten_host = "localhost"\n');
     await assert.rejects(loadConfig(path), /IPv4/);
 
-    await writeFile(path, 'name = "Mica"\npersona = "persona.md"\nstate = "state"\n[codex]\ncontext_round_limit = 3\n');
+    await writeFile(path, 'name = "Mica"\nprompts = { persona = "persona.md" }\nstate = "state"\n[codex]\ncontext_round_limit = 3\n');
     assert.equal((await loadConfig(path)).codex.context_round_limit, 3);
 
-    await writeFile(path, 'name = "Mica"\npersona = "persona.md"\nstate = "state"\n[codex]\ncontext_round_limit = -1\n');
+    await writeFile(path, 'name = "Mica"\nprompts = { persona = "persona.md" }\nstate = "state"\n[codex]\ncontext_round_limit = -1\n');
     await assert.rejects(loadConfig(path), />=0/);
 
-    await writeFile(path, 'name = "Mica"\npersona = "persona.md"\nstate = "state"\n[codex]\nexecutable_type = "cli"\n');
+    await writeFile(path, 'name = "Mica"\nprompts = { persona = "persona.md" }\nstate = "state"\n[codex]\nexecutable_type = "cli"\n');
     await assert.rejects(loadConfig(path), /executable_type/);
 
-    await writeFile(path, 'name = "Mica"\npersona = "persona.md"\nstate = "state"\n[codex]\nprovenance = "./provenance.json"\n');
+    await writeFile(path, 'name = "Mica"\nprompts = { persona = "persona.md" }\nstate = "state"\n[codex]\nprovenance = "./provenance.json"\n');
     await assert.rejects(loadConfig(path), /provenance/);
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -102,7 +116,7 @@ test('CFL config fixes execution to a direct app-server', async () => {
 test('Keet configuration is optional but rejects non-loopback or path endpoints', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'lamplit-keet-config-test-'));
   try {
-    const path = join(directory, 'partner.toml'); const base = 'name = "Mica"\npersona = "persona.md"\nstate = "state"\n';
+    const path = join(directory, 'partner.toml'); const base = 'name = "Mica"\nprompts = { persona = "persona.md" }\nstate = "state"\n';
     await writeFile(path, `${base}[keet]\nendpoint = "http://127.0.0.1:18769"\n`); assert.equal((await loadConfig(path)).keet?.endpoint, "http://127.0.0.1:18769");
     await writeFile(path, `${base}[keet]\nmedia_root = "/tmp/media"\n`); await assert.rejects(loadConfig(path));
     await writeFile(path, `${base}[keet]\nendpoint = "http://example.test:1"\n`); await assert.rejects(loadConfig(path), /bare/);
@@ -120,7 +134,7 @@ test('Keet configuration is optional but rejects non-loopback or path endpoints'
 test('TTS speed is a bounded provider capability', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'lamplit-tts-config-test-'));
   try {
-    const path = join(directory, 'partner.toml'); const base = 'name = "Mica"\npersona = "persona.md"\nstate = "state"\n[speech.tts]\n';
+    const path = join(directory, 'partner.toml'); const base = 'name = "Mica"\nprompts = { persona = "persona.md" }\nstate = "state"\n[speech.tts]\n';
     await writeFile(path, `${base}provider = "minimax"\nvoice = "Chinese (Mandarin)_Soft_Girl"\nspeed = 1.15\n`); assert.equal((await loadConfig(path)).speech?.tts?.speed, 1.15);
     await writeFile(path, `${base}provider = "alibaba"\nvoice = "Cherry"\nspeed = 1.15\n`); await assert.rejects(loadConfig(path), /Alibaba TTS speed/);
     await writeFile(path, `${base}provider = "bytedance"\nvoice = "voice"\nspeed = 2.1\n`); await assert.rejects(loadConfig(path), /<=2/);
@@ -132,7 +146,7 @@ test('background configuration is optional and requires both relative compositio
   const directory = await mkdtemp(join(tmpdir(), 'lamplit-background-config-'));
   try {
     const path = join(directory, 'partner.toml');
-    const base = 'name = "Mica"\npersona = "persona.md"\n';
+    const base = 'name = "Mica"\nprompts = { persona = "persona.md" }\n';
     await writeFile(path, base);
     assert.equal((await loadConfig(path)).backgrounds, undefined);
     await writeFile(path, `${base}[backgrounds]\nlandscape = "workspace/wide.jpg"\nportrait = "workspace/tall.webp"\n`);
@@ -148,7 +162,7 @@ test('background configuration is optional and requires both relative compositio
 test('codex.fast is strictly boolean and defaults false at both nesting levels', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'lamplit-fast-config-'));
   try {
-    const path = join(directory, 'partner.toml'); const base = 'name = "Mica"\npersona = "persona.md"\n';
+    const path = join(directory, 'partner.toml'); const base = 'name = "Mica"\nprompts = { persona = "persona.md" }\n';
     for (const [entry, expected] of [['', false], ['[codex]\n', false], ['[codex]\nfast = true\n', true], ['[codex]\nfast = false\n', false]] as const) {
       await writeFile(path, base + entry);
       assert.equal((await loadConfig(path)).codex.fast, expected);

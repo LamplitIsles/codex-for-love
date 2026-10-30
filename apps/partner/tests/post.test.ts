@@ -498,7 +498,7 @@ test('Post MCP bootstrap, tools and private credential CLI preserve operator dec
   try {
     await mkdir(join(f.workspace,'.codex'),{ recursive:true });
     await writeFile(codexPath,'model_reasoning_effort="low"\n[mcp_servers.matrix]\nurl="http://127.0.0.1:1234/mcp"\nbearer_token_env_var="CFL_MATRIX_TOKEN"\n[mcp_servers.operator]\ncommand="operator-tool"\n');
-    await writeFile(configPath,`name="Test"\npersona="persona.md"\nstate="."\n[post]\nendpoint="${post.endpoint}"\nagent_id="cfl"\n`);
+    await writeFile(configPath,`name="Test"\nprompts={ persona="persona.md" }\nstate="."\n[post]\nendpoint="${post.endpoint}"\nagent_id="cfl"\n`);
     assert.deepEqual((await loadConfig(configPath)).post,f.config.post);
     async function credential(name: string, token: string) {
       const child = spawn(process.execPath,[join(import.meta.dirname,'../runtime/cli.ts'),'credential',configPath,name,'--stdin'],{ stdio:['pipe','pipe','pipe'] });

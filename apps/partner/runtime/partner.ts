@@ -459,7 +459,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
   let postRefresh: Promise<void> | undefined;
   const postIngress = new Set<Promise<void>>();
   const keetEnabled = Boolean(config.keet?.endpoint && credentials.keet);
-  const persona = await readFile(config.persona, 'utf8');
+  const persona = await readFile(config.prompts.persona, 'utf8');
   if (!persona.trim()) throw new Error('Persona must not be empty');
   const paths = partnerPaths(config.workspace!);
   const profileMediaType = (path: string) => ({ '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif' })[extname(path).toLowerCase()];

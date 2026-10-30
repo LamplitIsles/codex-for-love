@@ -165,7 +165,7 @@ host with that configuration:
 ```sh
 cp apps/partner/config.example.toml /path/to/partner.toml
 cp apps/partner/persona.example.md /path/to/persona.md
-# Edit partner.toml so persona points at /path/to/persona.md.
+# Edit [prompts].persona in partner.toml to point at /path/to/persona.md.
 pnpm --filter @lamplitisles/partner start -- /path/to/partner.toml
 ```
 
@@ -380,11 +380,14 @@ generation or remote compaction-result behavior.
 
 ## Configuration and ownership
 
-`apps/partner/config.example.toml` is the complete operator-facing shape:
+`apps/partner/config.example.toml` is the complete operator-facing shape. The
+config filename is arbitrary; `partner.toml` is an example, and the CLI uses
+the path passed to it:
 
-- `name` and `persona` select the Partner identity. Optional `[prompts]`
-  `companion` and `compaction` paths independently replace the source defaults
-  in `runtime/prompts.ts`. Paths may be absolute or relative to the TOML file;
+- `name` and required `[prompts] persona` select the Partner identity. The
+  old top-level `persona` is rejected; move it into `[prompts]` before
+  upgrading. Optional `[prompts]` `companion` and `compaction` paths independently
+  replace the source defaults in `runtime/prompts.ts`. Paths may be absolute or relative to the TOML file;
   files must contain non-whitespace UTF-8 text. Their contents are preserved,
   and no filename extension is required. Persona and generated channel context
   are appended separately to the selected Companion base. Files are read on

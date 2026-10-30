@@ -59,7 +59,7 @@ test('public panels read native journal, diary, catalogue and SQLite; MCP writes
     assert.equal((await client.diaryRead({ sessionId: input.sessionId, name: '2026-01-01.md' })).status, 'found');
     await writeFile(join(f.workspace, 'memory', '2026-01-01.md'), boundary + 'x');
     assert.equal((await client.diaryRead({ sessionId: input.sessionId, name: '2026-01-01.md' })).status, 'too-large');
-    await symlink(f.config.persona, join(f.workspace, 'memory', '2026-01-02.md'));
+    await symlink(f.config.prompts.persona, join(f.workspace, 'memory', '2026-01-02.md'));
     assert.equal((await client.diaryRead({ sessionId: input.sessionId, name: '2026-01-02.md' })).status, 'missing');
     assert.equal((await client.diaryList(input)).entries.includes('2026-01-02.md'), false);
     await assert.rejects(client.diaryRead({ sessionId: input.sessionId, name: '../persona.md' }));

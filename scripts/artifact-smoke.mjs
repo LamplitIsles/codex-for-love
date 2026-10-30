@@ -90,7 +90,7 @@ try {
   await writeFile(join(fixture, 'persona.md'), 'You are Mica.');
   await writeFile(join(fixture, 'control.json'), '{}');
   const port = 31982;
-  await writeFile(join(fixture, 'partner.toml'), `name = "Mica"\npersona = "./persona.md"\nstate = "./state"\nworkspace = "./workspace"\nport = ${port}\n[codex]\nmodel = "gpt-5.6-luna"\ncommand = "./must-not-be-selected"\n`);
+  await writeFile(join(fixture, 'partner.toml'), `name = "Mica"\nprompts = { persona = "./persona.md" }\nstate = "./state"\nworkspace = "./workspace"\nport = ${port}\n[codex]\nmodel = "gpt-5.6-luna"\ncommand = "./must-not-be-selected"\n`);
   const workspace = join(fixture, 'workspace');
   const runtime = spawn(join(prefix, 'bin', 'codex-for-love'), ['serve', join(fixture, 'partner.toml')], {
     detached: true,

@@ -135,7 +135,7 @@ test('shutdown terminates and reaps an active build child', async () => {
 test('frontend TOML accepts only latest or a full lowercase commit', async () => {
   const root = await mkdtemp(join(tmpdir(), 'cfl-frontend-config-')); const path = join(root, 'partner.toml');
   try {
-    const base = 'name = "Test"\npersona = "persona.md"\n';
+    const base = 'name = "Test"\nprompts = { persona = "persona.md" }\n';
     await writeFile(path, base); assert.equal((await loadConfig(path)).frontend, undefined);
     for (const selector of ['latest', one]) { await writeFile(path, `${base}frontend = "${selector}"\n`); assert.equal((await loadConfig(path)).frontend, selector); }
     for (const selector of ['main', 'abc', one.toUpperCase().replace('1', 'A')]) { await writeFile(path, `${base}frontend = "${selector}"\n`); await assert.rejects(loadConfig(path)); }

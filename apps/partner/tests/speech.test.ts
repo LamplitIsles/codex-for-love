@@ -90,7 +90,7 @@ test('synthesis forwards cancellation to a hanging provider without publishing a
 test('credential CLI accepts non-printing tts stdin credentials', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'lamplit-cli-test-')); const config = join(directory, 'partner.toml');
   try {
-    await writeFile(config, `name = "test"\npersona = "persona.md"\nstate = "state"\n`);
+    await writeFile(config, `name = "test"\nprompts = { persona = "persona.md" }\nstate = "state"\n`);
     const result = await new Promise<{ out: string; err: string; code: number | null }>((resolve, reject) => { const child = spawn(process.execPath, ['runtime/cli.ts', 'credential', config, 'tts', '--stdin'], { cwd: new URL('..', import.meta.url), stdio: ['pipe', 'pipe', 'pipe'] }); let out=''; let err=''; child.stdout.on('data', data => out += data); child.stderr.on('data', data => err += data); child.once('error', reject); child.once('close', code => resolve({ out, err, code })); child.stdin.end('test-tts-secret\n'); });
     assert.equal(result.code, 0); assert.match(result.out, /Credential saved/); assert.doesNotMatch(result.out + result.err, /test-tts-secret/); assert.deepEqual(JSON.parse(await readFile(join(directory, 'state', 'credentials.json'), 'utf8')), { tts: 'test-tts-secret' });
   } finally { await rm(directory, { recursive: true, force: true }); }

@@ -15,11 +15,11 @@ const keetNames = z.array(z.string().min(1).refine(value => Array.from(value).le
 
 const schema = z.object({
   name: z.string().min(1),
-  persona: z.string().min(1),
   prompts: z.object({
+    persona: z.string().min(1),
     companion: z.string().refine(value => value.trim().length > 0, 'Prompt path must not be empty').optional(),
     compaction: z.string().refine(value => value.trim().length > 0, 'Prompt path must not be empty').optional(),
-  }).strict().optional(),
+  }).strict(),
   state: z.string().default('./state'),
   workspace: z.string().optional(),
   frontend: z.union([z.literal('latest'), z.string().regex(/^[a-f0-9]{40}$/u, 'Frontend must be latest or a full lowercase commit SHA')]).optional(),
@@ -54,7 +54,7 @@ const schema = z.object({
   post: z.object({ endpoint: z.string().min(1), agent_id: z.string().min(1).max(256) }).strict().optional(),
   pet: z.object({ enabled: z.boolean().default(false) }).strict().default({ enabled: false }),
 }).strict().superRefine((config, context) => {
-  if (config.prompts?.compaction && !config.codex.local_compaction) {
+  if (config.prompts.compaction && !config.codex.local_compaction) {
     context.addIssue({ code: 'custom', path: ['prompts', 'compaction'], message: 'Compaction prompt requires codex.local_compaction = true' });
   }
 });
@@ -68,11 +68,11 @@ export async function loadConfig(path: string): Promise<Config> {
     ...config,
     configPath: resolve(path),
     state: resolve(base, config.state),
-    persona: resolve(base, config.persona),
-    prompts: config.prompts ? {
+    prompts: {
+      persona: resolve(base, config.prompts.persona),
       companion: config.prompts.companion ? resolve(base, config.prompts.companion) : undefined,
       compaction: config.prompts.compaction ? resolve(base, config.prompts.compaction) : undefined,
-    } : undefined,
+    },
     workspace: resolve(base, config.workspace ?? `${config.state}/workspace`),
     avatars: config.avatars ? {
       companion: resolve(base, config.avatars.companion),

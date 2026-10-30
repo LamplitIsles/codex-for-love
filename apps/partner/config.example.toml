@@ -1,5 +1,4 @@
 name = "Mica"
-persona = "./persona.example.md"
 state = "./state"
 workspace = "./workspace"
 port = 3082
@@ -23,10 +22,12 @@ user = "./workspace/.lamplit/profile/user-avatar.png"
 #landscape = "./workspace/.lamplit/profile/background-landscape.jpg"
 #portrait = "./workspace/.lamplit/profile/background-portrait.jpg"
 
-# Optional UTF-8 prompt files, resolved relative to this TOML. Omitted paths
-# use the source defaults. Restart Partner after editing either file.
-#[prompts]
-#companion = "./prompts/companion.md" # Persona is appended separately.
+# Persona is required. Companion and compaction are optional UTF-8 prompt files;
+# omitted paths use source defaults. Paths resolve relative to this TOML.
+# Restart Partner after editing any of these files.
+[prompts]
+persona = "./persona.example.md"
+#companion = "./prompts/companion.md" # Persona is appended to the base.
 #compaction = "./prompts/compaction.md" # Requires local compaction.
 
 [codex]

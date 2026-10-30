@@ -913,7 +913,7 @@ export async function convertDshSession(
   const avatars = await readAvatars(config, options.dshSettingsPath, destination);
   extraction.report.avatars = avatars.length;
   const existingDestination = await assertEmptyDestination(destination);
-  const persona = await readFile(config.persona, 'utf8');
+  const persona = await readFile(config.prompts.persona, 'utf8');
   if (!persona.trim()) throw new Error('Persona must not be empty');
   const prompts = await loadPrompts(config);
   const baseInstructions = `${prompts.companion}\n\n${persona}`;

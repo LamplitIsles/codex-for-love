@@ -208,7 +208,7 @@ test('dry-run is side-effect free and conversion creates one native candidate', 
     await f.enableLocalCompaction();
     const companion = join(f.directory, 'companion.md');
     const compaction = join(f.directory, 'compaction.md');
-    f.config.prompts = { companion, compaction };
+    f.config.prompts = { ...f.config.prompts, companion, compaction };
     await writeFile(companion, 'Custom companion instructions');
     await writeFile(compaction, 'Custom continuity instructions');
     const companionAvatar = Buffer.from('companion avatar');
@@ -235,7 +235,7 @@ test('dry-run is side-effect free and conversion creates one native candidate', 
     const rolloutPath = converted.destination.rolloutPath!;
     const rollout = (await readFile(rolloutPath, 'utf8')).trim().split('\n').map((line) => JSON.parse(line) as Row);
     const meta = rollout.find((line) => line.type === 'session_meta')!.payload as Row;
-    const expectedBase = `Custom companion instructions\n\n${await readFile(f.config.persona, 'utf8')}`;
+    const expectedBase = `Custom companion instructions\n\n${await readFile(f.config.prompts.persona, 'utf8')}`;
     assert.equal((meta.base_instructions as Row).text, expectedBase);
     assert.equal(rollout.filter((line) => line.type === 'compacted').length, 2);
     const started = rollout.filter((line) => line.type === 'event_msg' && (line.payload as Row)?.type === 'task_started')

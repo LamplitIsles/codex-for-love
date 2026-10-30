@@ -74,6 +74,8 @@ npm install -g @lamplitisles/codex-for-love
 codex-for-love serve /path/to/partner.toml
 ```
 
+配置文件名可任意选择：`partner.toml` 只是示例，命令使用传入的路径。`[prompts]` 中的 `persona` 路径必填；旧的顶层 `persona` 会被拒绝，升级前需将其移入该表。
+
 CFL 会监听 `127.0.0.1`，并打印本地访问地址。开始一段新对话时，请使用新的工作区。
 
 在 Partner TOML 中设置 `[codex] fast = true` 可为新建和恢复的线程请求原生

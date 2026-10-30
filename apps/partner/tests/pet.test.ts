@@ -11,9 +11,9 @@ test('pet configuration defaults off and finite projection never carries executi
   const directory = await mkdtemp(join(tmpdir(), 'lamplit-pet-test-'));
   try {
     const config = join(directory, 'partner.toml');
-    await writeFile(config, 'name="Mica"\npersona="persona.md"\nstate="state"\n');
+    await writeFile(config, 'name="Mica"\nprompts={ persona="persona.md" }\nstate="state"\n');
     assert.equal((await loadConfig(config)).pet.enabled, false);
-    await writeFile(config, 'name="Mica"\npersona="persona.md"\nstate="state"\n[pet]\nenabled=true\n');
+    await writeFile(config, 'name="Mica"\nprompts={ persona="persona.md" }\nstate="state"\n[pet]\nenabled=true\n');
     assert.equal((await loadConfig(config)).pet.enabled, true);
     const pet = new PetActivityProjection(); pet.turnStarted(); pet.itemStarted({ type: 'agentMessage', text: 'secret answer' });
     assert.deepEqual(pet.snapshot(), { activity: 'replying', revision: 2 });

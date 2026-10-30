@@ -27,7 +27,7 @@ export async function fixture(directoryRoot?: string) {
   const fakeStatePath = join(directory, 'fake-state.json');
   await writeFile(controlPath, '{}', { mode: 0o600 });
   const config: Config = {
-    name: 'Mica', persona, state: directory, workspace, port: 3082, listen_host: '127.0.0.1',
+    name: 'Mica', prompts: { persona }, state: directory, workspace, port: 3082, listen_host: '127.0.0.1',
     codex: { command: fakeServer, model: 'gpt-5.6-luna', home: join(directory, 'codex-home'), fast: false, local_compaction: false, context_round_limit: 10 },
     pet: { enabled: false },
   };
