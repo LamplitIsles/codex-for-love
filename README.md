@@ -81,6 +81,10 @@ codex login status
 npm install -g @lamplitisles/codex-for-love
 ```
 
+Forgejo main-branch snapshots use a CI token with LamplitIsles package
+publication access. Updating Shio is a separate manual operation; see
+[Forgejo snapshots](docs/operator-guide.md#forgejo-snapshots).
+
 ### 3. Create a companion
 
 Copy [`apps/partner/config.example.toml`](apps/partner/config.example.toml) and [`apps/partner/persona.example.md`](apps/partner/persona.example.md) somewhere private. Update the name and paths in the TOML file, then run:

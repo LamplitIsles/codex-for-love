@@ -67,17 +67,22 @@ async function main() {
     console.log(`Staged ${name}@${staged.version}`);
     return;
   }
-  if (action !== 'publish' || !artifact || !process.env.FORGEJO_PACKAGES_TOKEN || !shaPattern.test(sha) || !manifest.version.endsWith(`.snapshot.g${sha}`) && !manifest.version.endsWith(`-snapshot.g${sha}`)) throw new Error('Missing artifact, token, or matching snapshot identity');
+  const token = process.env.FORGEJO_PACKAGES_TOKEN ?? '';
+  if (action !== 'publish' || !artifact || !/^[\x21-\x7e]+$/u.test(token) || !shaPattern.test(sha) || !manifest.version.endsWith(`.snapshot.g${sha}`) && !manifest.version.endsWith(`-snapshot.g${sha}`)) throw new Error('Missing artifact, token, or matching snapshot identity');
   await verifySnapshotArtifact(artifact, manifest, sha);
   const integrity = `sha512-${createHash('sha512').update(await readFile(artifact)).digest('base64')}`;
   let response;
   try {
-    const auth = await fetch('https://forgejo.n5.guion.io/api/v1/user', { headers: { Authorization: `Bearer ${process.env.FORGEJO_PACKAGES_TOKEN}` }, signal: AbortSignal.timeout(30000) });
-    if (!auth.ok) throw new Error('Authentication failed');
-    response = await fetch(`${registry}${encodeURIComponent(name)}`, { headers: { Authorization: `Bearer ${process.env.FORGEJO_PACKAGES_TOKEN}` }, signal: AbortSignal.timeout(30000) });
+    response = await fetch(`${registry}${encodeURIComponent(name)}`, { headers: { Authorization: `Bearer ${token}` }, redirect: 'error', signal: AbortSignal.timeout(30000) });
   } catch { throw new Error('Cannot verify snapshot registry; inspect before retrying'); }
-  if (!response.ok && response.status !== 404) throw new Error(`Cannot verify snapshot registry (HTTP ${response.status})`);
+  if (response.status !== 200 && response.status !== 404) throw new Error(`Cannot verify snapshot registry (HTTP ${response.status})`);
   const metadata = response.status === 404 ? null : await response.json();
+  const isObject = value => value !== null && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype;
+  if (response.status === 200 && (!isObject(metadata) || !isObject(metadata.versions) || !Object.keys(metadata.versions).length || !isObject(metadata['dist-tags']))) throw new Error('Invalid snapshot registry metadata; inspect before publishing');
+  if (metadata !== null) {
+    const latest = metadata['dist-tags'].latest;
+    if (typeof latest !== 'string' || !Object.hasOwn(metadata.versions, latest) || !isObject(metadata.versions[latest]) || Object.hasOwn(metadata.versions, manifest.version) && !isObject(metadata.versions[manifest.version])) throw new Error('Invalid snapshot registry versions; inspect before publishing');
+  }
   const decision = registryDecision(metadata, manifest.version, integrity, sha, (older, newer) => {
     try { execFileSync('git', ['merge-base', '--is-ancestor', older, newer], { stdio: 'ignore' }); return true; } catch { return false; }
   });

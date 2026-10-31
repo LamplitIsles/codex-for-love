@@ -719,7 +719,11 @@ with the selected exact URL and no scope override in npm configuration. Do not s
 whole scope to Forgejo: it also contains the public native dependencies.
 
 Woodpecker requires the `forgejo_packages_token` secret with package publication
-access. Publication serializes its own main workflows, verifies the current
+access for LamplitIsles. The publisher authenticates directly against the npm
+package registry; it does not require `read:user`. If the registry rejects the
+request, inspect the token's package scope and account and organization access
+before retrying.
+Publication serializes its own main workflows, verifies the current
 `latest` snapshot is an ancestor, and refuses conflicting bytes or ambiguous
 retries. Do not run an independent concurrent publisher against the same tag.
 A failed or uncertain publication requires registry inspection before any retry.
