@@ -3,7 +3,7 @@ import { once } from 'node:events';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { fixture, eventually } from './fixture.ts';
-import { createWebServer } from '../runtime/server.ts';
+import { createWebServer } from './web-server.ts';
 import { createCodexChatBackend } from '../runtime/chat.ts';
 import { partnerPaths } from '../runtime/storage-paths.ts';
 import type { Partner } from '../runtime/partner.ts';

@@ -76,6 +76,21 @@ test('private Post credentials load independently without platform environment o
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
+test('browser origin requires a canonical HTTPS hostname or local localhost HTTP', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'lamplit-origin-test-'));
+  try {
+    const path = join(directory, 'partner.toml');
+    for (const value of ['http://localhost:3082', 'https://partner.example.test', 'https://partner.example.test:8443']) {
+      await writeFile(path, `name = "Mica"\norigin = ${JSON.stringify(value)}\nprompts = { persona = "persona.md" }\n`);
+      assert.equal((await loadConfig(path)).origin, value);
+    }
+    for (const value of ['http://example.test', 'http://127.0.0.1:3082', 'https://127.0.0.1', 'https://[::1]', 'https://user:secret@example.test', 'https://example.test/path', 'https://example.test/', 'https://example.test?x=1']) {
+      await writeFile(path, `name = "Mica"\norigin = ${JSON.stringify(value)}\nprompts = { persona = "persona.md" }\n`);
+      await assert.rejects(loadConfig(path));
+    }
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
 test('CFL config fixes execution to a direct app-server', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'lamplit-config-test-'));
   try {

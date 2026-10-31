@@ -1,5 +1,9 @@
 # Source and license provenance
 
+## Browser Passkey verification
+
+CFL uses `@simplewebauthn/server` 14.0.3 (MIT), by Matthew Miller and contributors, for WebAuthn option generation and credential verification. The production bundle includes this package and its dependencies; release preparation retains their installed license and notice files under `vendor/licenses/webauthn/`. Browser integration belongs to the pinned App revision.
+
 This repository is an implementation destination copied from the
 LamplitIsles Companion application. Imported or adapted source is identified
 here so the runtime boundary stays clear; the official Codex app-server is an
@@ -543,8 +547,12 @@ reused; CFL verifies Node/Partner/native receipts and complete packaging separat
 
 ### Relationship history ordering — App PR36 / CFL #4974
 
-`lamplit-app.sha` pins merged `b446bebc6308205fb5c7165a69d6bb7a804fe233`,
+The prior pin was merged `b446bebc6308205fb5c7165a69d6bb7a804fe233`,
 tree `a5584d37d9b21f8125b9fb80d84b0aa4858d68a0`. App owns the Companion
 relationship history presentation, pagination controls and related translations;
 the App change also updates its panel browser test and documentation. Package
 manifests, Bun lock and public contracts are unchanged from the previous pin.
+
+### Browser Passkey — App PR37 / CFL #5061
+
+`lamplit-app.sha` pins merged `2579ed327228631f75b31e6d250008faab835576`, tree `f1486d19876a08b6eac19798ca4ff695ed83f475`. It is tree-identical to independently reviewed `8b03ded0be700d6ddd6502dffdbea6a161ef97d9`. App owns the Passkey browser experience and uses `@simplewebauthn/browser` 14.0.0; CFL owns verification and session enforcement. App's check, build, lint, 102 Bun tests and synthetic Chromium Passkey coverage passed on the reviewed source; CFL builds its resources and contracts from the merged pin.

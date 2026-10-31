@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import sharp from 'sharp';
 import { openChat } from '@lamplit/contracts/client';
 import type { ChatView } from '@lamplit/contracts';
-import { createWebServer } from '../runtime/server.ts';
+import { createWebServer } from './web-server.ts';
 import { fixture } from './fixture.ts';
 
 for (const [rounds, count] of [[1, 7], [1, 11], [31, 11]] as const) {

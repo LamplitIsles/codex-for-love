@@ -5,7 +5,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { fixture } from './fixture.ts';
 import { seedNativeConversationSearch } from './conversation-search-native-seed.ts';
-import { createWebServer } from '../runtime/server.ts';
+import { createWebServer } from './web-server.ts';
 import { createCodexChatBackend } from '../runtime/chat.ts';
 import type { Partner } from '../runtime/partner.ts';
 

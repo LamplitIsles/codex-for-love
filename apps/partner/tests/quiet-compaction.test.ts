@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { quietCompactionFixture } from './quiet-compaction-fixture.ts';
 import { createCodexChatBackend } from '../runtime/chat.ts';
 import { eventually } from './fixture.ts';
-import { createWebServer } from '../runtime/server.ts';
+import { createWebServer } from './web-server.ts';
 import { openChat } from '@lamplit/contracts/client';
 import { once } from 'node:events';
 

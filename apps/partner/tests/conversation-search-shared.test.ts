@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, realpath, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { openChat } from '@lamplit/contracts/client';
 import { createCodexChatBackend } from '../runtime/chat.ts';
-import { createWebServer } from '../runtime/server.ts';
+import { createWebServer } from './web-server.ts';
 import { seedConversationSearch } from './conversation-search-seed.ts';
 import { fixture } from './fixture.ts';
 
@@ -36,7 +36,8 @@ test('shared native search maps cards/context, preserves Unicode/full text and w
     assert.equal((await backend.search({ query: 'large selected' })).hits.length, 0);
     assert.deepEqual(await backend.read(), before);
     const calls = (await readFile(s.log, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
-    assert.ok(calls.every(c => c.cwd === f.workspace && c.home === f.config.codex.home));
+    const workspace = await realpath(f.workspace);
+    assert.ok(calls.every(c => c.cwd === workspace && c.home === f.config.codex.home));
     assert.ok(calls.some(c => c.args[0] === 'context'));
   } finally { await f.close(); }
 });

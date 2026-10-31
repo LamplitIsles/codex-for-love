@@ -8,7 +8,7 @@ import { fixture, eventually } from './fixture.ts';
 import { seedPanels, seedNow } from './panels-seed.ts';
 import { createAlarm } from '../runtime/alarms.ts';
 import { partnerPaths } from '../runtime/storage-paths.ts';
-import { createWebServer } from '../runtime/server.ts';
+import { createWebServer } from './web-server.ts';
 const evidence = resolve(process.argv[3]!); await mkdir(evidence, { recursive: true });
 const f = await fixture(); const root = f.directory; const seed = await seedPanels(f.workspace, f.appServer.env.FAKE_SERVER_STATE!);
 f.config.speech = { endpoint: 'http://127.0.0.1/unused-batch' }; f.credentials.speech = 'synthetic-fixture-key';

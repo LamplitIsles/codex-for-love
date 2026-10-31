@@ -5,7 +5,7 @@ import type { Partner } from './partner.ts';
 import type { ConversationSearch } from './conversation-search.ts';
 import { WebSocketServer } from 'ws';
 
-export function createCodexChatBackend(partner: Partner, authorize: () => Promise<boolean> = async () => true, conversationSearch?: ConversationSearch): ChatBackend {
+export function createCodexChatBackend(partner: Partner, authorize: () => Promise<boolean> = async () => true, conversationSearch?: ConversationSearch, authorizeCommit?: () => boolean): ChatBackend {
   const cursors = panelCursors();
   async function page(cursor?: string) {
     const options: { before?: number; anchor?: string } = cursor ? JSON.parse(cursor) : {};
@@ -88,12 +88,12 @@ export function createCodexChatBackend(partner: Partner, authorize: () => Promis
     },
     async history(before) { const p = await page(before); return { messages: p.messages, before: p.before }; },
     compact: input => partner.compact({ ...input, authorize }),
-    submit: input => partner.submitShared(input, authorize),
-    finalizeSubmission: input => partner.finalizeSubmission(input, authorize),
-    retryFailed: input => partner.retryFailed(input, authorize),
-    deleteFailed: input => partner.deleteFailed(input, authorize),
+    submit: input => partner.submitShared(input, authorize, authorizeCommit),
+    finalizeSubmission: input => partner.finalizeSubmission(input, authorize, authorizeCommit),
+    retryFailed: input => partner.retryFailed(input, authorize, authorizeCommit),
+    deleteFailed: input => partner.deleteFailed(input, authorize, authorizeCommit),
     lookup: id => partner.chatReceipt(id),
-    async stop(id) { return partner.chatStop(id); },
+    async stop(id) { if (authorizeCommit && !authorizeCommit()) throw new Error('Unauthorized'); return partner.chatStop(id); },
     async relationship() { return partner.relationship(); },
     async relationshipHistory(input) {
       const { scope, records } = await partner.relationshipRecords();
@@ -127,13 +127,13 @@ export function createCodexChatBackend(partner: Partner, authorize: () => Promis
     subscribe: listener => partner.subscribe(listener),
   };
 }
-export function createChatSocket(partner: Partner, authorize: (request: import('node:http').IncomingMessage) => Promise<boolean> = async () => true, conversationSearch?: ConversationSearch) {
+export function createChatSocket(partner: Partner, authorize: (request: import('node:http').IncomingMessage) => Promise<boolean> = async () => true, conversationSearch?: ConversationSearch, authorizeCommit?: (request: import('node:http').IncomingMessage) => boolean) {
   const sockets = new WebSocketServer({ noServer: true, maxPayload: 2 * 1024 * 1024 });
   const hosts = new Set<Awaited<ReturnType<typeof createChatHost>>>();
   sockets.on('connection', (ws, request) => {
     let channel: Awaited<ReturnType<typeof createChatHost>>['connect'] extends (...args: never[]) => infer R ? R : never;
     let closed = false;
-    const host = createChatHost(createCodexChatBackend(partner, async () => await authorize(request) && !closed && ws.readyState === ws.OPEN, conversationSearch));
+    const host = createChatHost(createCodexChatBackend(partner, async () => await authorize(request) && !closed && ws.readyState === ws.OPEN, conversationSearch, () => !closed && ws.readyState === ws.OPEN && (authorizeCommit?.(request) ?? true)));
     void host.then(h => { if (closed) h.close(); else hosts.add(h); }).catch(() => ws.close(1011, 'Chat unavailable'));
     ws.on('close', () => { closed = true; channel?.close(); void host.then(h => { h.close(); hosts.delete(h); }).catch(() => undefined); });
     // Register immediately; a browser may send subscription calls before host hydration completes.

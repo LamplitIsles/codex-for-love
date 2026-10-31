@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { fixture, eventually } from './fixture.ts';
-import { createWebServer } from '../runtime/server.ts';
+import { createWebServer } from './web-server.ts';
 import { partnerPaths } from '../runtime/storage-paths.ts';
 import { rollDice } from '../runtime/tools/dice-core.ts';
 

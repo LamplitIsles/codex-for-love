@@ -24,6 +24,7 @@ try {
   }
   if ([...files].some((file) => file.includes('.git') || file.endsWith('.tgz'))) throw new Error(`${name} contains a source-control or nested archive file.`);
   for (const file of ['bin/codex-for-love.mjs', 'vendor/runtime/cli.mjs', 'vendor/runtime/companion-mcp.mjs', 'vendor/runtime/session-start-hook.mjs', 'vendor/build/index.html', 'vendor/source.json', 'vendor/ecosystem-mcp.example.toml', 'vendor/licenses/NotoSansSC-OFL-1.1.txt', 'vendor/licenses/lamplit-app-Apache-2.0.txt', 'vendor/licenses/lamplit-app-IMPORTS.md', 'vendor/licenses/jaminzhou-codex-app-server-client-MIT.txt', 'vendor/licenses/openai-codex-generated-Apache-2.0.txt']) if (!files.has(file)) throw new Error(`${name} omits ${file}.`);
+  if (![...files].some(file => file.startsWith('vendor/licenses/webauthn/@simplewebauthn__server@14.0.3/'))) throw new Error(`${name} omits the WebAuthn verifier license.`);
   const ecosystemServers = parse(await readFile(join(path, 'vendor', 'ecosystem-mcp.example.toml'), 'utf8')).mcp_servers;
   if (Object.keys(ecosystemServers ?? {}).sort().join(',') !== 'flicknote,web') throw new Error(`${name} has an unexpected ecosystem MCP template.`);
   if (JSON.stringify(manifest).includes('github:')) throw new Error(`${name} exposes a Git dependency.`);

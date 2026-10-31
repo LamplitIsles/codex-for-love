@@ -1294,7 +1294,8 @@ export async function createPartner(config: Config, credentials: Credentials, de
     await markUnresolved({ ids: unconsumed, input: '', images: [], transportId: 'restore', source: 'none' });
   }
 
-  async function interruptActiveTurn(): Promise<void> {
+  async function interruptActiveTurn(authorize?: () => Promise<boolean>): Promise<void> {
+    if (authorize && !await authorize()) throw new Error('Unauthorized');
     if (interruptPromise) return interruptPromise;
     const requestedTurnId = activeTurnId;
     if (!requestedTurnId || !appServer) return;
@@ -1308,6 +1309,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
         } catch (error) {
           const actual = activeTurnInterruptMismatch(error);
           if (actual) {
+            if (authorize && !await authorize()) throw new Error('Unauthorized');
             turnId = actual;
             await appServer!.call('turn/interrupt', { threadId, turnId });
           } else if (!noActiveInterrupt(error)) {
@@ -1706,7 +1708,10 @@ export async function createPartner(config: Config, credentials: Credentials, de
   async function mutationGuard(sessionId: string, authorize: () => Promise<boolean>) {
     if (!await authorize() || closing || storageError || sessionId !== threadId) throw new Error('Unauthorized or unavailable session');
   }
-  function submitInput(id: string, input: string, values: readonly z.infer<typeof imageInputSchema>[] = [], replaces: readonly string[] = [], shared?: Submission, guard?: { sessionId: string; authorize: () => Promise<boolean> }, prepare?: () => Promise<Submission>) {
+  function commitGuard(sessionId: string, authorize?: () => boolean): (() => void) | undefined {
+    return authorize ? () => { if (!authorize() || closing || storageError || sessionId !== threadId) throw new Error('Unauthorized or unavailable session'); } : undefined;
+  }
+  function submitInput(id: string, input: string, values: readonly z.infer<typeof imageInputSchema>[] = [], replaces: readonly string[] = [], shared?: Submission, guard?: { sessionId: string; authorize: () => Promise<boolean>; beforeCommit?: () => void }, prepare?: () => Promise<Submission>) {
     if (input.trim() === '/compact') return Promise.reject(new Error('Use the compact command without images'));
     pendingHumanAdmissions += 1;
     const accepted = serializeInput(async () => {
@@ -1739,11 +1744,11 @@ export async function createPartner(config: Config, credentials: Credentials, de
       if (shared && JSON.stringify(images.map(image => image.id)) !== JSON.stringify((shared.images ?? []).map(image => image.attachmentId))) throw new Error('Staged original bytes changed');
       const materialized = await materializeImages(paths.workspaceRoot, images);
       if (guard) await mutationGuard(guard.sessionId, guard.authorize);
-      const admitted = await store.admit(id, input, materialized, shared ? { sessionId: threadId, input: shared } : undefined).catch(async error => {
+      const admitted = await store.admit(id, input, materialized, shared ? { sessionId: threadId, input: shared } : undefined, guard ? () => mutationGuard(guard.sessionId, guard.authorize) : undefined, guard?.beforeCommit).catch(async error => {
         // Store.admit rolls back atomically. Conflicts do not replace an existing identity.
         if (!shared || (error as { code?: string }).code === 'MESSAGE_IDENTITY_CONFLICT') throw error;
         if (guard) await mutationGuard(guard.sessionId, guard.authorize);
-        await store.failSubmission(shared, threadId, error instanceof Error ? error.message : String(error));
+        await store.failSubmission(shared, threadId, error instanceof Error ? error.message : String(error), guard?.beforeCommit);
         return undefined;
       });
       if (!admitted) return;
@@ -1869,7 +1874,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
     },
     workspaceImage(path: string | null) { return readWorkspaceImage(paths.workspaceRoot, path); },
     async sharedImageLimits() { return storageError || closing ? false as const : { ...imageLimits, mediaTypes: [...imageLimits.mediaTypes] }; },
-    async uploadImages(value: ImageUpload, authorize: () => Promise<boolean> = async () => true) {
+    async uploadImages(value: ImageUpload, authorize: () => Promise<boolean> = async () => true, authorizeCommit?: () => boolean) {
       const task = admission.then(async () => {
         if (closing || storageError || !await authorize()) throw new Error('Images unavailable');
         const raw = validateUpload(value, { ...imageLimits, mediaTypes: [...imageLimits.mediaTypes] });
@@ -1881,7 +1886,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
         const refs: ImageRef[] = materialized.map(image => ({ attachmentId: image.id, name: image.name, mediaType: image.media_type, availability: 'available' }));
         const fingerprint = createHash('sha256').update(JSON.stringify(input)).digest('hex');
         if (!await authorize()) throw new Error('Image authorization changed');
-        await store.stageImages(input.operationId, threadId, fingerprint, { images: materialized.map(({ id, operation_id, name, media_type, path }) => ({ id, operation_id, name, media_type, path })), refs, variants: input.images.map(({ preview, model }) => ({ preview, model })) });
+        await store.stageImages(input.operationId, threadId, fingerprint, { images: materialized.map(({ id, operation_id, name, media_type, path }) => ({ id, operation_id, name, media_type, path })), refs, variants: input.images.map(({ preview, model }) => ({ preview, model })) }, commitGuard(input.sessionId, authorizeCommit));
         return { sessionId: threadId, operationId: input.operationId, images: refs };
       });
       admission = task.then(() => undefined, () => undefined);
@@ -2092,19 +2097,25 @@ export async function createPartner(config: Config, credentials: Credentials, de
       if (activeTurnId === id) { activeTurnId = null; activeOperationId = null; }
       syncActiveTurn(); drainExternal(); notify(); return { stopped: true };
     },
-    submit: submitInput,
-    async submitShared(value: Submission, authorize: () => Promise<boolean> = async () => true) {
+    submit(id: string, input: string, values: readonly z.infer<typeof imageInputSchema>[] = [], replaces: readonly string[] = [], authorize?: () => boolean) {
+      const sessionId = threadId;
+      return submitInput(id, input, values, replaces, undefined, authorize ? {
+        sessionId, authorize: async () => authorize(),
+        beforeCommit: commitGuard(sessionId, authorize),
+      } : undefined);
+    },
+    async submitShared(value: Submission, authorize: () => Promise<boolean> = async () => true, authorizeCommit?: () => boolean) {
       const sessionId = threadId;
       pendingHumanAdmissions += 1;
       try {
         const normalized = normalizeSubmission(value);
-        await submitInput(normalized.operationId, normalized.text, [], normalized.replacementSourceIds ?? [], normalized, { sessionId, authorize });
+        await submitInput(normalized.operationId, normalized.text, [], normalized.replacementSourceIds ?? [], normalized, { sessionId, authorize, beforeCommit: commitGuard(sessionId, authorizeCommit) });
         const receipt = await this.chatReceipt(normalized.operationId);
         if (!receipt) throw new Error('Submission has no durable result');
         return receipt;
       } finally { pendingHumanAdmissions -= 1; }
     },
-    async finalizeSubmission(value: FinalizeSubmission, authorize: () => Promise<boolean> = async () => true): Promise<Receipt | null> {
+    async finalizeSubmission(value: FinalizeSubmission, authorize: () => Promise<boolean> = async () => true, authorizeCommit?: () => boolean): Promise<Receipt | null> {
       value = validate(FinalizeSubmissionSchema, value);
       return serializeInput(async () => {
         await mutationGuard(value.sessionId, authorize);
@@ -2120,21 +2131,22 @@ export async function createPartner(config: Config, credentials: Credentials, de
         const failed = await store.failedSubmission(input.operationId, value.sessionId);
         if ((accepted && accepted !== hash) || (failed && JSON.stringify(failed.input) !== JSON.stringify(input))) throw new Error('Message identity conflict');
         await mutationGuard(value.sessionId, authorize);
-        if (!accepted && !failed) await store.failSubmission(input, value.sessionId, 'Submission was not received');
+        if (!accepted && !failed) await store.failSubmission(input, value.sessionId, 'Submission was not received', commitGuard(value.sessionId, authorizeCommit));
         notify();
         return this.chatReceipt(input.operationId);
       });
     },
-    async retryFailed(value: RetryFailed, authorize: () => Promise<boolean> = async () => true): Promise<Receipt> {
+    async retryFailed(value: RetryFailed, authorize: () => Promise<boolean> = async () => true, authorizeCommit?: () => boolean): Promise<Receipt> {
       const { sessionId, operationId, attemptId } = validate(RetryFailedSchema, value);
-      await submitInput(attemptId, '', [], [], undefined, { sessionId, authorize }, async () => {
+      const beforeCommit = commitGuard(sessionId, authorizeCommit);
+      await submitInput(attemptId, '', [], [], undefined, { sessionId, authorize, beforeCommit }, async () => {
         await mutationGuard(sessionId, authorize);
         const previous = await store.retryAttempt(attemptId, sessionId, operationId);
         if (previous) return previous;
         const failed = await store.failedSubmission(operationId, sessionId);
         if (!failed || failed.replacedBy || await store.failureDeleted(operationId) || await store.messageMeta(operationId) || attemptId === operationId) throw new Error('Failed submission is no longer available');
         await mutationGuard(sessionId, authorize);
-        await store.retryAttempt(attemptId, sessionId, operationId, true);
+        await store.retryAttempt(attemptId, sessionId, operationId, true, beforeCommit);
         const original = failed.input;
         const staged = await store.stagedImages(operationId, sessionId);
         let images: ImageRef[] | undefined;
@@ -2146,33 +2158,34 @@ export async function createPartner(config: Config, credentials: Credentials, de
           const materialized = await materializeImages(paths.workspaceRoot, inputImages(attemptId, values));
           images = materialized.map(image => ({ attachmentId: image.id, name: image.name, mediaType: image.media_type, availability: 'available' }));
           await mutationGuard(sessionId, authorize);
-          await store.stageImages(attemptId, sessionId, createHash('sha256').update(JSON.stringify(images)).digest('hex'), { images: materialized.map(({ id, operation_id, name, media_type, path }) => ({ id, operation_id, name, media_type, path })), refs: images, variants: staged.variants });
+          await store.stageImages(attemptId, sessionId, createHash('sha256').update(JSON.stringify(images)).digest('hex'), { images: materialized.map(({ id, operation_id, name, media_type, path }) => ({ id, operation_id, name, media_type, path })), refs: images, variants: staged.variants }, beforeCommit);
         }
         const input = normalizeSubmission({ operationId: attemptId, text: original.text, ...(images ? { images } : {}), replacementSourceIds: [operationId] });
         await mutationGuard(sessionId, authorize);
-        await store.bindRetry(input);
+        await store.bindRetry(input, beforeCommit);
         return input;
       });
       const receipt = await this.chatReceipt(attemptId);
       if (!receipt) throw new Error('Retry has no durable result');
       return receipt;
     },
-    async deleteFailed(value: DeleteFailed, authorize: () => Promise<boolean> = async () => true) {
+    async deleteFailed(value: DeleteFailed, authorize: () => Promise<boolean> = async () => true, authorizeCommit?: () => boolean) {
       value = validate(DeleteFailedSchema, value);
       return serializeInput(async () => {
         await mutationGuard(value.sessionId, authorize);
-        const deleted = await store.deleteFailed(value.operationId, value.sessionId);
+        const deleted = await store.deleteFailed(value.operationId, value.sessionId, commitGuard(value.sessionId, authorizeCommit));
         notify();
         return { ...value, deleted };
       });
     },
-    async cancel(id: string) {
+    async cancel(id: string, authorize?: () => Promise<boolean>) {
+      if (authorize && !await authorize()) throw new Error('Unauthorized');
       const active = activeTurnId && (activeTurnId === id || activeSourceIds(activeTurnId).includes(id) || operationTurn(id)?.id === activeTurnId);
       // Stop must remain responsive while a start/steer RPC is awaiting its
       // acknowledgement. It is a turn-level control, not another admitted
       // message operation, so it deliberately bypasses the send serializer.
-      if (active) return interruptActiveTurn();
-      const task = admission.then(async () => { notify(); });
+      if (active) return interruptActiveTurn(authorize);
+      const task = admission.then(async () => { if (authorize && !await authorize()) throw new Error('Unauthorized'); notify(); });
       admission = task.catch(() => { if (!closing) notify(); });
       return task;
     },

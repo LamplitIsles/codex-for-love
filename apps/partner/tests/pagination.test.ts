@@ -5,7 +5,7 @@ import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { once } from 'node:events';
 import { Store } from '../runtime/store.ts';
-import { createWebServer } from '../runtime/server.ts';
+import { createWebServer } from './web-server.ts';
 import { fixture, eventually } from './fixture.ts';
 import { partnerPaths } from '../runtime/storage-paths.ts';
 import { visibleHistoryPage } from '../runtime/partner.ts';

@@ -2,7 +2,7 @@ import { once } from 'node:events';
 import { createServer } from 'node:http';
 import WebSocket, { WebSocketServer } from 'ws';
 import { fixture, eventually } from './fixture.ts';
-import { createWebServer } from '../runtime/server.ts';
+import { createWebServer } from './web-server.ts';
 import { parseVoiceServerEvent, type VoiceServerEvent } from '@lamplit/contracts/voice';
 import type { VoiceDependencies } from '../runtime/voice.ts';
 

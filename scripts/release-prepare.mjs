@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { cp, rm, writeFile, readFile } from 'node:fs/promises';
+import { cp, mkdir, rm, writeFile, readFile, readdir } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -36,6 +36,28 @@ await writeFile(join(vendor, 'package.json'), '{"type":"module"}\n');
 await cp(join(root, 'LICENSE'), join(mainPackage, 'LICENSE'));
 await cp(join(root, 'licenses'), join(vendor, 'licenses'), { recursive: true });
 await cp(join(prepared, 'licenses'), join(vendor, 'licenses'), { recursive: true });
+// The bundled WebAuthn verifier includes its dependencies; retain their notices.
+const visited = new Set();
+async function copyDependencyLicenses(name, parent) {
+  const entry = createRequire(parent).resolve(name);
+  let directory = dirname(entry), info;
+  for (;;) {
+    try { info = JSON.parse(await readFile(join(directory, 'package.json'), 'utf8')); if (info.name === name) break; } catch {}
+    const next = dirname(directory);
+    if (next === directory) throw new Error(`Cannot locate package metadata for ${name}`);
+    directory = next;
+  }
+  const key = `${info.name}@${info.version}`;
+  if (visited.has(key)) return;
+  visited.add(key);
+  const names = (await readdir(directory)).filter(file => /^(license|licence|copying|notice)(\.|$)/iu.test(file));
+  if (!names.length) throw new Error(`Missing license notice for ${key}`);
+  const destination = join(vendor, 'licenses', 'webauthn', key.replaceAll('/', '__'));
+  await mkdir(destination, { recursive: true });
+  await Promise.all(names.map(file => cp(join(directory, file), join(destination, file), { recursive: true })));
+  for (const dependency of Object.keys(info.dependencies ?? {})) await copyDependencyLicenses(dependency, join(directory, 'package.json'));
+}
+await copyDependencyLicenses('@simplewebauthn/server', join(root, 'apps/partner/package.json'));
 await writeFile(join(vendor, 'source.json'), JSON.stringify(manifest, null, 2) + '\n');
 const packed = Object.values(JSON.parse(execFileSync('npm', ['pack', '--json', '--pack-destination', output], { cwd: mainPackage, encoding: 'utf8' })))[0];
 console.log(JSON.stringify({ artifact: join(output, packed.filename), mainPackage, version: packed.version }, null, 2));

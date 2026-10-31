@@ -7,7 +7,7 @@ import WebSocket from 'ws';
 import { openChat } from '@lamplit/contracts/client';
 import type { ChatView, PostSource } from '@lamplit/contracts';
 import { fixture, eventually } from './fixture.ts';
-import { createWebServer } from '../runtime/server.ts';
+import { createWebServer } from './web-server.ts';
 import { createCodexChatBackend } from '../runtime/chat.ts';
 import { createAlarm } from '../runtime/alarms.ts';
 import { partnerPaths } from '../runtime/storage-paths.ts';

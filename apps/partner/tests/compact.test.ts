@@ -6,7 +6,7 @@ import { syncBuiltinESMExports } from 'node:module';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fixture, eventually } from './fixture.ts';
-import { createWebServer } from '../runtime/server.ts';
+import { createWebServer } from './web-server.ts';
 
 test('accepted compaction never reports failure while native completion is still pending', async (t) => {
   const f = await fixture();

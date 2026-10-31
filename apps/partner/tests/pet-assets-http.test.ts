@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { localPetClip } from '../runtime/pet-assets.ts';
 import type { Partner } from '../runtime/partner.ts';
-import { createWebServer } from '../runtime/server.ts';
+import { createWebServer } from './web-server.ts';
 
 const activities = ['idle', 'thinking', 'read', 'work', 'replying', 'success', 'concern'] as const;
 

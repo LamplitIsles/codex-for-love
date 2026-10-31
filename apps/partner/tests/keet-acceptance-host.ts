@@ -8,7 +8,7 @@ import sharp from 'sharp';
 import { openChat } from '@lamplit/contracts/client';
 import type { ChatView } from '@lamplit/contracts';
 import { fixture, eventually } from './fixture.ts';
-import { createWebServer } from '../runtime/server.ts';
+import { createWebServer } from './web-server.ts';
 import { createCodexChatBackend } from '../runtime/chat.ts';
 import { createAlarm } from '../runtime/alarms.ts';
 import { partnerPaths } from '../runtime/storage-paths.ts';
@@ -77,7 +77,7 @@ export async function keetAcceptanceHost(assets: string, evidence?: string) {
       messageId: { deviceId: 'fixture-peer', seq: sequence }, timestamp: clock, destination: { kind: 'group', groupName: input.destination },
       senderLabel: 'Context', text: 'native-only context sentinel', addressing: { mentionsIdentity: false } });
     const eventId = crypto.randomUUID();
-    const response = await fetch(origin + '/api/keet/events', { method: 'POST', headers: { 'content-type': 'application/json', cookie: 'keet-test-owner=1' }, body: JSON.stringify({
+    const response = await fetch(origin + '/api/keet/events', { method: 'POST', headers: { authorization: 'Bearer synthetic-keet-receiver', 'content-type': 'application/json', cookie: 'keet-test-owner=1' }, body: JSON.stringify({
       type: 'message', eventId, sequence: ++sequence, messageId: { deviceId: 'fixture-peer', seq: sequence }, timestamp: clock,
       destination: { kind: input.channel, groupName: input.destination }, senderLabel: input.senderLabel, text: input.text,
       addressing: { mentionsIdentity: input.channel === 'group' },

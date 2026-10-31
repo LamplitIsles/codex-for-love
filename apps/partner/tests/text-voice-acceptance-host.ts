@@ -6,7 +6,7 @@ import { appendFile, readFile, rename, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import WebSocket, { WebSocketServer } from 'ws';
 import { fixture, eventually } from './fixture.ts';
-import { createWebServer } from '../runtime/server.ts';
+import { createWebServer } from './web-server.ts';
 import type { Partner } from '../runtime/partner.ts';
 
 type Take = { ready: boolean; holdReady: boolean; frames: number[][]; events: string[]; upstreamFrames: number[][]; upstreamFinishes: number; id: string; bytes: number; controls: string[]; closed: boolean; finishedBytes: number; firstFrame: number[]; nonzero: boolean; upstream?: WebSocket; taskId?: string; text: string; hold: boolean };

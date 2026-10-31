@@ -9,7 +9,7 @@ import { openChat } from '@lamplit/contracts/client';
 import type { ChatMessage, ChatView } from '@lamplit/contracts';
 import { createCodexChatBackend } from '../runtime/chat.ts';
 import { createAlarm } from '../runtime/alarms.ts';
-import { createWebServer } from '../runtime/server.ts';
+import { createWebServer } from './web-server.ts';
 import { Store } from '../runtime/store.ts';
 import { partnerPaths } from '../runtime/storage-paths.ts';
 import { fixture, eventually } from './fixture.ts';
@@ -36,7 +36,7 @@ test('native Keet ingress retains display source, private context, images and re
   let view: ChatView | undefined;
   const connect = () => openChat(new WebSocket(origin.replace('http:', 'ws:') + '/api/chat/socket'), value => { view = value; }, () => {});
   let client = await connect();
-  const post = (event: unknown) => fetch(origin + '/api/keet/events', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(event) });
+  const post = (event: unknown) => fetch(origin + '/api/keet/events', { method: 'POST', headers: { authorization: 'Bearer synthetic-keet-receiver', 'content-type': 'application/json' }, body: JSON.stringify(event) });
   const event = (sequence: number, text: string, channel: 'dm' | 'group', trigger = true) => ({
     type: 'message', eventId: randomUUID(), sequence, timestamp: sequence,
     messageId: { deviceId: 'owned-peer', seq: sequence },

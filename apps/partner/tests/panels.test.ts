@@ -9,7 +9,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { openChat } from '@lamplit/contracts/client';
 import type { ChatView } from '@lamplit/contracts';
 import { createCodexChatBackend } from '../runtime/chat.ts';
-import { createWebServer } from '../runtime/server.ts';
+import { createWebServer } from './web-server.ts';
 import { completeAlarmOccurrence, createAlarm, editAlarm, deleteAlarm, listAlarms } from '../runtime/alarms.ts';
 import { partnerPaths } from '../runtime/storage-paths.ts';
 import { fixture, eventually } from './fixture.ts';

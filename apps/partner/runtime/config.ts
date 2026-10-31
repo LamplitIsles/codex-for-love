@@ -32,6 +32,13 @@ const schema = z.object({
     portrait: z.string().min(1),
   }).strict().optional(),
   port: z.number().int().min(1024).max(65535).default(3082),
+  origin: z.string().refine(value => {
+    try {
+      const url = new URL(value);
+      return value === url.origin && !url.username && !url.password && !isIP(url.hostname.replace(/^\[|\]$/gu, ''))
+        && (url.protocol === 'https:' || (url.protocol === 'http:' && url.hostname === 'localhost'));
+    } catch { return false; }
+  }, 'Origin must be a canonical HTTPS hostname origin or http://localhost:PORT').optional(),
   listen_host: z.string().refine((value) => isIP(value) === 4, 'Listen host must be an IPv4 address').default('127.0.0.1'),
   codex: z.object({
     command: z.string().min(1).default('codex-app-server'),
@@ -113,7 +120,7 @@ export function postEndpoint(value: string): string {
 }
 
 /** Alibaba STT/TTS reuses speech; ByteDance TTS keeps its separate secret. */
-export const credentialSchema = z.object({ speech: z.string().min(1).optional(), tts: z.string().min(1).optional(), keet: z.string().min(1).optional(), post: z.string().min(1).optional(), post_receiver: z.string().min(1).optional() }).strict();
+export const credentialSchema = z.object({ speech: z.string().min(1).optional(), tts: z.string().min(1).optional(), keet: z.string().min(1).optional(), keet_receiver: z.string().min(1).optional(), post: z.string().min(1).optional(), post_receiver: z.string().min(1).optional() }).strict();
 export type Credentials = z.infer<typeof credentialSchema>;
 
 export async function loadCredentials(state: string): Promise<Credentials> {

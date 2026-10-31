@@ -10,6 +10,7 @@ import { createWebServer } from './server.ts';
 import { createConversationSearch } from './conversation-search.ts';
 import { migrateRelationshipJournal } from './migrate-relationship-journal.ts';
 import { prepareFrontend } from './startup-frontend.ts';
+import { AuthStore } from './auth.ts';
 
 const cliArgs = process.argv.slice(2);
 if (cliArgs[0] === '--') cliArgs.shift();
@@ -21,14 +22,14 @@ if (nativeRootIndex !== -1) {
   cliArgs.splice(nativeRootIndex, 2);
 }
 if (cliArgs.includes('--help') || cliArgs.includes('-h')) {
-  console.log('Usage: codex-for-love <serve|credential|asset-fetch|asset-upload|import-session|migrate-relationship-journal> <config.toml>');
+  console.log('Usage: codex-for-love <serve|pair|credential|asset-fetch|asset-upload|import-session|migrate-relationship-journal> <config.toml>');
   process.exit(0);
 }
 const dryRun = cliArgs.includes('--dry-run');
 const stdin = cliArgs.includes('--stdin');
 const positionalArgs = cliArgs.filter((argument) => argument !== '--dry-run' && argument !== '--stdin');
 const [command, configPath, name, companionStatePath, attachmentRoot, destinationPath, dshSettingsPath] = positionalArgs;
-if (!configPath) throw new Error('Usage: cli.ts <serve|credential|asset-fetch|asset-upload|import-session|migrate-relationship-journal> <config.toml> [speech|tts|keet|post|post_receiver --stdin|log destination]');
+if (!configPath) throw new Error('Usage: cli.ts <serve|pair|credential|asset-fetch|asset-upload|import-session|migrate-relationship-journal> <config.toml>');
 let config = await loadConfig(resolve(configPath));
 if (nativePackageRoot) {
   const root = resolve(nativePackageRoot);
@@ -55,8 +56,12 @@ if (command === 'asset-fetch' || command === 'asset-upload') {
   } catch { throw new Error('Post asset transfer failed; use asset-upload <config> <file> <MIME> or asset-fetch <config> <asset-id> <MIME> <new-file>'); }
   process.exit(0);
 }
-if (command === 'credential') {
-  if (name !== 'speech' && name !== 'tts' && name !== 'keet' && name !== 'post' && name !== 'post_receiver') throw new Error('Credential name must be speech, tts, keet, post, or post_receiver');
+if (command === 'pair') {
+  const auth = new AuthStore(config.state, config.origin ?? `http://localhost:${config.port}`);
+  try { console.log(`Pairing code (valid for 10 minutes): ${auth.issuePairing()}`); }
+  finally { auth.close(); }
+} else if (command === 'credential') {
+  if (name !== 'speech' && name !== 'tts' && name !== 'keet' && name !== 'keet_receiver' && name !== 'post' && name !== 'post_receiver') throw new Error('Credential name must be speech, tts, keet, keet_receiver, post, or post_receiver');
   if (!stdin) throw new Error('Use --stdin to supply the credential without exposing it in command arguments');
   if (process.stdin.isTTY) throw new Error('Supply the credential through stdin, not command arguments');
   let value = '';
@@ -76,12 +81,16 @@ if (command === 'credential') {
   const assets = config.frontend ? await prepareFrontend(config.frontend, import.meta.url) : fileURLToPath(new URL('../build/', import.meta.url));
   await access(join(assets, 'index.html'));
   const credentials = await loadCredentials(config.state);
-  const partner = await createPartner(config, credentials);
+  if (credentials.keet_receiver && (credentials.keet_receiver === credentials.keet || credentials.keet_receiver === credentials.post || credentials.keet_receiver === credentials.post_receiver)) throw new Error('Keet receiver credential must differ from other integration credentials');
+  if (config.keet?.endpoint && credentials.keet && !credentials.keet_receiver) throw new Error('Keet requires a separate keet_receiver credential');
+  const auth = new AuthStore(config.state, config.origin ?? `http://localhost:${config.port}`);
+  let partner: Awaited<ReturnType<typeof createPartner>>;
+  try { partner = await createPartner(config, credentials); } catch (error) { auth.close(); throw error; }
   let app: ReturnType<typeof createWebServer>;
-  try { app = createWebServer(partner, assets, { conversationSearch: createConversationSearch({ workspace: config.workspace! }) }); }
-  catch (error) { await partner.close(); throw error; }
-  app.server.on('error', async (error) => { console.error(error.message); await partner.close(); process.exitCode = 1; });
-  app.server.listen(config.port, config.listen_host, () => console.log(`Companion: http://${config.listen_host}:${config.port}`));
+  try { app = createWebServer(partner, assets, { auth, keetReceiver: credentials.keet_receiver, conversationSearch: createConversationSearch({ workspace: config.workspace! }) }); }
+  catch (error) { auth.close(); await partner.close(); throw error; }
+  app.server.on('error', async (error) => { console.error(error.message); await app.close(); process.exitCode = 1; });
+  app.server.listen(config.port, config.listen_host, () => console.log(`Companion: ${auth.origin}`));
   let stopping = false;
   const stop = async () => { if (stopping) return; stopping = true; await app.close(); };
   process.once('SIGINT', stop); process.once('SIGTERM', stop);

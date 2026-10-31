@@ -11,7 +11,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { fixture, eventually } from './fixture.ts';
 import { event, examples, postService } from './post-fixture.ts';
-import { createWebServer } from '../runtime/server.ts';
+import { createWebServer } from './web-server.ts';
 import { postInput, postInputId, discoverPost, postConversationName } from '../runtime/post.ts';
 import { ToolInputs, ToolOutputs, PostEventV1 } from '../runtime/post-contract.ts';
 import { openChat } from '@lamplit/contracts/client';

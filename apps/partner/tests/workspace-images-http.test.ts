@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import sharp from 'sharp';
 import { WORKSPACE_IMAGE_PATH, workspaceImageUrl } from '@lamplit/contracts';
 import { createCodexChatBackend } from '../runtime/chat.ts';
-import { createWebServer } from '../runtime/server.ts';
+import { createWebServer } from './web-server.ts';
 import { MAX_WORKSPACE_IMAGE_BYTES } from '../runtime/workspace-images.ts';
 import { fixture } from './fixture.ts';
 

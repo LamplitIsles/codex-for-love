@@ -15,6 +15,16 @@ they do not add TOML fields, service configuration, workspace state, or
 operator recovery steps. If browser storage is unavailable, the selection still
 applies for the open page but is not retained after reload.
 
+## Browser authentication
+
+Every CFL host requires an owner Passkey and browser session. `state` is a private directory (mode 700) containing `auth.db` (mode 600); retain it across restarts. The database holds public credential material and hashes of opaque sessions and pairing codes. Losing it requires setting up a new Passkey.
+
+By default the canonical origin is `http://localhost:<port>`. Open that exact address on the host; `127.0.0.1` is a different origin. For remote access, configure an exact canonical origin such as `origin = "https://partner.example.com"`, use a trusted HTTPS certificate and configure the reverse proxy to pass HTTP and WebSocket requests through to the private listener. Do not rely on forwarded host, forwarded IP, or the proxy's loopback connection for authentication. A Passkey is bound to its origin's hostname, so changing hostname requires pairing again.
+
+On the CFL host run `codex-for-love pair /path/to/partner.toml` and enter its one-use code on the page within ten minutes. Treat the output as a secret and do not record it in logs, shell history, or URLs. Pairing also provides recovery: creating a code or failing enrollment leaves existing access intact; successful enrollment replaces the old Passkey and revokes all older sessions and their connections. Sessions expire after 30 days. Cookies are HttpOnly and SameSite=Strict, with Secure on HTTPS. State-changing browser requests and WebSocket upgrades require the configured Origin. Static app assets and authentication endpoints remain available while signed out; data and actions do not.
+
+Post and Keet authenticate their exact webhook POST routes with separate receiver Bearers; neither credential grants browser or human API access. The current ETOS/native client protocol has no Passkey session handoff and needs a future update. No unauthenticated local or proxy mode is available.
+
 ## Desktop installation and Capacitor mobile media
 
 Serve the existing static build and API at the same trusted origin. The root
@@ -48,8 +58,8 @@ plugin, ordinary browser focus handling applies. Keep the shell's existing
 system-bar colors and resize settings.
 
 There is no service worker, offline cache or Web Push. Documents revalidate on
-refresh; versioned UI assets retain their existing immutable caching. Chat,
-attachments and API caching contracts are unchanged. Notifications remain
+refresh; versioned UI assets retain their existing immutable caching. Authenticated
+image, audio and other private API responses use `no-store`. Notifications remain
 page-local: the page must stay connected and active enough to receive events,
 with browser permission. Installation does not guarantee background SSE or
 notifications after closing/suspension.
@@ -190,15 +200,12 @@ The endpoint and credential enable CFL's owned `keet` project MCP entry and
 message ingress and protected image fetch. Removing either disables the integration. `media_root` and the
 old `/cfl` WebSocket feed are no longer configuration options.
 
-For the direct cutover, stop the KFA–CFL pair, update both applications, set
+For the direct cutover, stop the KFA–CFL pair, update both applications, store a separate receiver secret with `codex-for-love credential /path/to/partner.toml keet_receiver --stdin`, set
 KFA's `KEET_WEBHOOK_URL` to
-`http://127.0.0.1:<CFL port>/api/keet/events`, leave
-`KEET_WEBHOOK_BEARER_TOKEN` unset, and start CFL before KFA. This cutover does
+`http://127.0.0.1:<CFL port>/api/keet/events`, configure its
+`KEET_WEBHOOK_BEARER_TOKEN` to that same receiver secret, and start CFL before KFA. This cutover does
 not provide uninterrupted ingress or backfill while KFA is stopped. The
-incoming route requires no webhook credential and accepts only a direct
-loopback peer. Do not publish `/api/keet/events` through a reverse proxy:
-a local proxy could make remote requests appear to come from loopback.
-The MCP endpoint remains separately bearer-protected.
+incoming route requires `Authorization: Bearer <receiver secret>`; it is independent of the outbound MCP credential and cannot access human APIs. The MCP endpoint remains separately bearer-protected.
 
 Optional `[keet]` lists `trusted_groups = ["Our little home"]` and
 `trigger_aliases = ["shio", "汐"]` accept up to 32 unique, nonempty names each,
@@ -764,18 +771,16 @@ is `CFL_MATRIX_TOKEN`; operator-owned Matrix entries remain untouched.
 
 Post sends authenticated JSON to `http://127.0.0.1:<port>/api/post/events` using
 the separate receiver Bearer on every request. Configure this exact URL in Post.
-Direct loopback ingress is the default. Nonlocal socket peers require an actual
-application authorization callback in addition to the receiver secret; forwarded
-headers do not establish local origin. Existing same-origin/browser authorization
-checks still apply. The stock CLI provides no remote authorization callback, so
-its Post endpoint remains loopback-only even when the browser listens on LAN.
+Every POST requires the receiver Bearer, including requests received through a
+proxy. Forwarded headers and loopback peer addresses do not authorize it. The
+receiver secret grants no browser session or human API access.
 
 Requests have a 2 MiB body bound and ten-second body deadline. Response meanings:
 
 | Status | Meaning |
 | --- | --- |
 | 202 | Receipt, immutable original source and pending input persisted, or exact durable duplicate recognized. Execution can remain pending. |
-| 401 / 403 | Receiver Bearer or application/peer authorization failed. |
+| 401 / 403 | Receiver Bearer or request authorization failed. |
 | 404 | Post disabled, or obsolete `/api/matrix/events` route. |
 | 400 / 413 / 415 / 422 | Invalid JSON, size, content type, or strict schema/semantic/binding rejection. |
 | 409 | Delivery identity reused with changed bytes or canonical message reused with changed content. |

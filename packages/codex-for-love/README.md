@@ -28,4 +28,15 @@ Configured selection needs network access to GitHub and dependency registries,
 CFL logs the resolved revision and stops on download, build, integrity, or
 compiled-contract mismatch; it never falls back to the bundled App. An exact
 verified cached revision can start offline. Reload browser pages after restarting.
+
+Browser access requires a Passkey. Start CFL, then run
+`codex-for-love pair /path/to/partner.toml` on the host and enter the one-use code at
+`http://localhost:3082` (or your configured origin). For remote use set the
+exact HTTPS `origin` in the TOML and terminate TLS at a trusted reverse proxy.
+Keep the private `state` directory, including `auth.db`, across restarts.
+Generate another code to recover access; existing Passkeys and sessions are
+revoked only after the replacement enrollment succeeds. Current native clients
+need a later authentication update. Post and Keet use their own separate
+receiver credentials and do not have browser access.
+
 The complete operator instructions are in the CFL repository's operator guide.

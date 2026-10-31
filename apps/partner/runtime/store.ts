@@ -156,12 +156,13 @@ export class Store {
     }
   }
 
-  private transaction<T>(callback: () => T | Promise<T>): Promise<T> {
+  private transaction<T>(callback: () => T | Promise<T>, beforeCommit?: () => void): Promise<T> {
     if (this.closed) return Promise.reject(new Error('Session store is closed'));
     const result = this.writes.then(async () => {
       this.db.exec('BEGIN IMMEDIATE');
       try {
         const value = await callback();
+        beforeCommit?.();
         this.db.exec('COMMIT');
         return value;
       } catch (error) {
@@ -184,8 +185,10 @@ export class Store {
     return this.transaction(() => Number((this.db.prepare('SELECT COALESCE(MAX(revision), 0) AS value FROM message_revisions').get() as { value: number }).value));
   }
 
-  async admit(id: string, input: string, images: readonly StoredImage[] = [], shared?: { sessionId: string; input: Submission }): Promise<MessageMeta> {
-    return this.transaction(() => {
+  async admit(id: string, input: string, images: readonly StoredImage[] = [], shared?: { sessionId: string; input: Submission }, authorize?: () => Promise<void>, beforeCommit?: () => void): Promise<MessageMeta> {
+    return this.transaction(async () => {
+      // The transaction may have waited behind other writes after admission began.
+      if (authorize) await authorize();
       if (this.db.prepare('SELECT 1 FROM failed_submissions WHERE operation_id=?').get(id)) throw identityConflict();
       const retry = this.db.prepare('SELECT session_id,payload FROM retry_attempts WHERE attempt_id=?').get(id) as { session_id: string; payload: string | null } | undefined;
       if (retry && (!shared || retry.session_id !== shared.sessionId || retry.payload !== JSON.stringify(shared.input))) throw identityConflict();
@@ -223,16 +226,16 @@ export class Store {
       }
       this.addRevision(id);
       return this.meta(this.db.prepare('SELECT sequence,id,created FROM message_meta WHERE id=?').get(id) as { sequence: number; id: string; created: number });
-    });
+    }, beforeCommit);
   }
 
-  async stageImages(operationId: string, sessionId: string, fingerprint: string, payload: StagedImages): Promise<void> {
+  async stageImages(operationId: string, sessionId: string, fingerprint: string, payload: StagedImages, beforeCommit?: () => void): Promise<void> {
     await this.transaction(() => {
       const old = this.db.prepare('SELECT session_id,fingerprint FROM staged_images WHERE operation_id=?').get(operationId) as { session_id: string; fingerprint: string } | undefined;
       if (old) { if (old.session_id !== sessionId || old.fingerprint !== fingerprint) throw identityConflict(); return; }
       if (this.db.prepare('SELECT 1 FROM message_meta WHERE id=?').get(operationId)) throw identityConflict();
       this.db.prepare('INSERT INTO staged_images(operation_id,session_id,fingerprint,payload) VALUES(?,?,?,?)').run(operationId, sessionId, fingerprint, JSON.stringify(payload));
-    });
+    }, beforeCommit);
   }
   async stagedImages(operationId: string, sessionId: string): Promise<StagedImages | undefined> {
     return this.transaction(() => {
@@ -268,7 +271,7 @@ export class Store {
     return this.transaction(() => (this.db.prepare('SELECT payload FROM failed_submissions WHERE session_id=? AND replaced_by IS NULL AND operation_id NOT IN (SELECT operation_id FROM deleted_failures) ORDER BY rowid DESC LIMIT 20').all(sessionId) as Array<{ payload: string }>).reverse().map(row => JSON.parse(row.payload)));
   }
   /** Record definite rolled-back admission, never an execution/transport outcome. */
-  async failSubmission(input: Submission, sessionId: string, error: string): Promise<void> {
+  async failSubmission(input: Submission, sessionId: string, error: string, beforeCommit?: () => void): Promise<void> {
     await this.transaction(() => {
       if (this.db.prepare('SELECT 1 FROM message_meta WHERE id=?').get(input.operationId)) throw new Error('Cannot fail a durably admitted input');
       const fingerprint = createHash('sha256').update(JSON.stringify(input)).digest('hex');
@@ -278,9 +281,9 @@ export class Store {
       if (old) { if (old.fingerprint !== fingerprint || old.session_id !== sessionId) throw identityConflict(); return; }
       this.db.prepare('INSERT INTO failed_submissions(operation_id,session_id,fingerprint,payload,error) VALUES(?,?,?,?,?)').run(input.operationId, sessionId, fingerprint, JSON.stringify(input), error);
       if (retry) this.db.prepare('UPDATE failed_submissions SET replaced_by=? WHERE operation_id=? AND session_id=? AND replaced_by IS NULL').run(input.operationId,retry.source_id,sessionId);
-    });
+    }, beforeCommit);
   }
-  async retryAttempt(attemptId: string, sessionId: string, sourceId: string, bind = false): Promise<Submission | null | undefined> {
+  async retryAttempt(attemptId: string, sessionId: string, sourceId: string, bind = false, beforeCommit?: () => void): Promise<Submission | null | undefined> {
     return this.transaction(() => {
       const row = this.db.prepare('SELECT session_id,source_id,payload FROM retry_attempts WHERE attempt_id=?').get(attemptId) as { session_id: string; source_id: string; payload: string | null } | undefined;
       if (row) {
@@ -292,23 +295,23 @@ export class Store {
         this.db.prepare('INSERT INTO retry_attempts(attempt_id,session_id,source_id) VALUES(?,?,?)').run(attemptId,sessionId,sourceId);
       }
       return undefined;
-    });
+    }, beforeCommit);
   }
-  async bindRetry(input: Submission): Promise<void> {
+  async bindRetry(input: Submission, beforeCommit?: () => void): Promise<void> {
     await this.transaction(() => {
       this.db.prepare('UPDATE retry_attempts SET payload=? WHERE attempt_id=? AND payload IS NULL').run(JSON.stringify(input),input.operationId);
-    });
+    }, beforeCommit);
   }
   async failureDeleted(id: string): Promise<boolean> {
     return this.transaction(() => !!this.db.prepare('SELECT 1 FROM deleted_failures WHERE operation_id=?').get(id));
   }
-  async deleteFailed(id: string, sessionId: string): Promise<boolean> {
+  async deleteFailed(id: string, sessionId: string, beforeCommit?: () => void): Promise<boolean> {
     return this.transaction(() => {
       if (this.db.prepare('SELECT 1 FROM message_meta WHERE id=?').get(id)) return false;
       if (!this.db.prepare('SELECT 1 FROM failed_submissions WHERE operation_id=? AND session_id=? AND replaced_by IS NULL').get(id,sessionId)) return false;
       this.db.prepare('INSERT OR IGNORE INTO deleted_failures(operation_id) VALUES(?)').run(id);
       return true;
-    });
+    }, beforeCommit);
   }
   async markRejected(ids: readonly string[], error: string): Promise<void> {
     await this.transaction(() => { for (const id of ids) this.db.prepare('INSERT OR REPLACE INTO rejected_inputs(message_id,error) VALUES(?,?)').run(id, error); });

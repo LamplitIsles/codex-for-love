@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { openChat } from '@lamplit/contracts/client';
 import type { ChatView } from '@lamplit/contracts';
 import { fixture, eventually } from './fixture.ts';
-import { createWebServer } from '../runtime/server.ts';
+import { createWebServer } from './web-server.ts';
 
 async function harness(summary = false, failAdmission = false) {
   const f = await fixture();

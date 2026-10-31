@@ -95,7 +95,7 @@ test('compiled App socket finalizes delayed originals and retries; deleted failu
   const { DatabaseSync } = await import('node:sqlite');
   const { Store } = await import('../runtime/store.ts');
   const { partnerPaths } = await import('../runtime/storage-paths.ts');
-  const { createWebServer } = await import('../runtime/server.ts');
+  const { createWebServer } = await import('./web-server.ts');
   const { openChat } = await import('@lamplit/contracts/client');
   const f = await fixture(); await f.holdProvider(true);
   const paths = partnerPaths(f.workspace); await mkdir(paths.managedRoot, { recursive: true });

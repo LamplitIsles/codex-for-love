@@ -5,7 +5,7 @@ import { once } from 'node:events';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { fixture, eventually } from './fixture.ts';
-import { createWebServer } from '../runtime/server.ts';
+import { createWebServer } from './web-server.ts';
 import { createCodexChatBackend } from '../runtime/chat.ts';
 import { imageLimits, imagePath, materializeGeneratedImage } from '../runtime/images.ts';
 import { fixtureImage } from './panels-seed.ts';

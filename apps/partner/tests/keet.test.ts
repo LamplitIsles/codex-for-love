@@ -6,7 +6,7 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import sharp from 'sharp';
-import { createWebServer, isLoopbackPeer } from '../runtime/server.ts';
+import { createWebServer } from './web-server.ts';
 import { classifyKeetTrigger, keetEvent } from '../runtime/keet.ts';
 import { partnerPaths } from '../runtime/storage-paths.ts';
 import { Store } from '../runtime/store.ts';
@@ -21,7 +21,7 @@ async function host(partner: Awaited<ReturnType<Awaited<ReturnType<typeof fixtur
   const app = createWebServer(partner, join(directory, 'assets'));
   app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening');
   const base = `http://127.0.0.1:${(app.server.address() as { port: number }).port}`;
-  return { app, base, post: (value: unknown) => fetch(`${base}/api/keet/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(value) }) };
+  return { app, base, post: (value: unknown) => fetch(`${base}/api/keet/events`, { method: 'POST', headers: { authorization: 'Bearer synthetic-keet-receiver', 'content-type': 'application/json' }, body: JSON.stringify(value) }) };
 }
 
 const starts = async (f: Awaited<ReturnType<typeof fixture>>) => (await f.requests()).filter(request => request.method === 'turn/start');
@@ -324,15 +324,11 @@ test('webhook accepts a near-max KFA Unicode body beyond the default reader limi
   } finally { await app?.app.close(); await f.close(); }
 });
 
-test('webhook is unavailable when Keet is disabled and peer guard uses socket address', async () => {
+test('webhook is unavailable when Keet is disabled', async () => {
   const f = await fixture(); let app: Awaited<ReturnType<typeof host>> | undefined;
   try {
     const partner = await f.createPartner(); app = await host(partner, f.directory);
     assert.equal((await app.post(message(1, 'x'))).status, 404);
-    assert.equal(isLoopbackPeer('203.0.113.5'), false);
-    assert.equal(isLoopbackPeer('::ffff:203.0.113.5'), false);
-    assert.equal(isLoopbackPeer('127.0.0.2'), false);
-    assert.equal(isLoopbackPeer('::1'), true);
     assert.equal(keetEvent.safeParse({ ...message(2, 'x'), images: [{ filename: 'image.png' }] }).success, false);
   } finally { await app?.app.close(); await f.close(); }
 });

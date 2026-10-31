@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { chmod, lstat, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import {
@@ -20,7 +20,7 @@ test('CFL always launches the direct app-server with one managed handshake', asy
     assert.equal(requests.filter((request) => request.method === 'initialized').length, 1);
     assert.deepEqual(JSON.parse(await readFile(f.appServer.env!.FAKE_SERVER_ARGS!, 'utf8')), ['--listen', `unix://${join(f.workspace, '.lamplit/run/codex.sock')}`]);
     const context = JSON.parse(await readFile(f.appServer.env!.FAKE_SERVER_CONTEXT!, 'utf8')) as { cwd: string; codexHome: string | null; sentinel: string | null };
-    assert.equal(context.cwd, f.workspace);
+    assert.equal(context.cwd, await realpath(f.workspace));
     assert.equal(context.codexHome, f.config.codex.home);
     assert.equal(context.sentinel, 'preserved-by-sdk');
     assert.match(await readFile(f.appServer.env!.FAKE_SERVER_LIFECYCLE!, 'utf8'), /^running:/);

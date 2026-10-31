@@ -9,7 +9,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { test } from 'node:test';
 import { prepareFrontend, runFrontendCommand } from '../runtime/startup-frontend.ts';
 import { loadConfig } from '../runtime/config.ts';
-import { createWebServer } from '../runtime/server.ts';
+import { createWebServer } from './web-server.ts';
 import { fixture } from './fixture.ts';
 
 const one = '1'.repeat(40); const two = '2'.repeat(40); const three = '3'.repeat(40);

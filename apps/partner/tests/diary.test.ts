@@ -4,7 +4,7 @@ import { mkdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { MAX_DIARY_ENTRY_BYTES } from '../runtime/partner.ts';
-import { createWebServer } from '../runtime/server.ts';
+import { createWebServer } from './web-server.ts';
 import { fixture } from './fixture.ts';
 
 test('diary API exposes only bounded dated workspace entries newest first', async () => {

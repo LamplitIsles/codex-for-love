@@ -16,7 +16,7 @@ function shellQuote(value: string): string {
 }
 
 export async function fixture(directoryRoot?: string) {
-  const directory = await realpath(directoryRoot ?? await mkdtemp(join(tmpdir(), 'lamplit-partner-test-')));
+  const directory = directoryRoot ? await realpath(directoryRoot) : await mkdtemp(join(tmpdir(), 'lamplit-partner-test-'));
   const workspace = join(directory, 'workspace');
   await mkdir(join(directory, 'assets'), { recursive: true });
   await mkdir(workspace, { recursive: true });

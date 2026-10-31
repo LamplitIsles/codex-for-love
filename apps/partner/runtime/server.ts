@@ -15,6 +15,8 @@ import { MAX_VOICE_DATA_URL_BYTES, normalizeVoiceMediaType } from './voice-contr
 import type { Partner } from './partner.ts';
 import { PET_ACTIVITIES } from './pet.ts';
 import type { ConversationSearch } from './conversation-search.ts';
+import { AuthFailure, type AuthStore, sessionCookie, sessionToken } from './auth.ts';
+import { receiverAuthorized } from './post.ts';
 
 const keetEventBodyLimit = 128 * 1024;
 
@@ -43,11 +45,7 @@ function json(response: ServerResponse, value: unknown, status = 200) {
   response.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
   response.end(JSON.stringify(value));
 }
-export function isLoopbackPeer(peer: string | undefined): boolean {
-  return peer === '127.0.0.1' || peer === '::1' || peer === '::ffff:127.0.0.1';
-}
-
-export function createWebServer(partner: Partner, assets: string, options: { authorize?: (request: IncomingMessage) => Promise<boolean>; voice?: VoiceDependencies; heartbeatMs?: number; conversationSearch?: ConversationSearch } = {}) {
+export function createWebServer(partner: Partner, assets: string, options: { auth: AuthStore; keetReceiver?: string; voice?: VoiceDependencies; heartbeatMs?: number; conversationSearch?: ConversationSearch }) {
   const serve = sirv(assets, {
     single: false,
     setHeaders(response, pathname) {
@@ -58,14 +56,29 @@ export function createWebServer(partner: Partner, assets: string, options: { aut
     },
   });
   const authorize = async (request: IncomingMessage) => {
-    try { return options.authorize ? await options.authorize(request) : true; } catch { return false; }
+    try { return await options.auth.authorize(request); } catch { return false; }
   };
-  const streams = new Set<ServerResponse>();
+  const streams = new Map<ServerResponse, IncomingMessage>();
+  const activeSockets = new Map<import('ws').WebSocket, IncomingMessage>();
+  const transcriptions = new Map<AbortController, IncomingMessage>();
+  const stillAuthorized = (request: IncomingMessage) => {
+    try { return options.auth.authorize(request); } catch { return false; }
+  };
+  const revokeConnections = () => {
+    for (const [socket, request] of activeSockets) if (!stillAuthorized(request)) socket.terminate();
+    for (const [response, request] of streams) if (!stillAuthorized(request)) response.end();
+    for (const [controller, request] of transcriptions) if (!stillAuthorized(request)) controller.abort();
+  };
+  const revocationTimer = setInterval(revokeConnections, 1000);
+  revocationTimer.unref();
   const voice = createVoiceHost(() => partner.voiceCredential(), options.voice);
   const server = createServer(async (request, response) => {
     response.setHeader('x-content-type-options', 'nosniff');
     response.setHeader('referrer-policy', 'no-referrer');
     response.setHeader('x-frame-options', 'DENY');
+    let human = false;
+    const unauthorized = () => json(response, { error: { code: 'unauthorized', message: 'Sign in to continue.' } }, 401);
+    const humanJson = (value: unknown, status = 200) => stillAuthorized(request) ? json(response, value, status) : unauthorized();
     try {
       const path = new URL(request.url ?? '/', 'http://localhost').pathname;
       if (path === '/api/post/events' && request.method === 'POST') response.once('close', () => processLog('post.receiver', { status: response.writableFinished ? response.statusCode : 0 }));
@@ -73,9 +86,58 @@ export function createWebServer(partner: Partner, assets: string, options: { aut
         if (path === '/chat') request.url = '/';
         return serve(request, response, () => json(response, { error: 'Not found' }, 404));
       }
-      if (!await authorize(request)) return json(response, { error: 'Unauthorized' }, 401);
-      if (request.headers.origin && ![`http://${request.headers.host}`, `https://${request.headers.host}`].includes(request.headers.origin)) return json(response, { error: 'Forbidden origin' }, 403);
-      if (request.headers['sec-fetch-site'] === 'cross-site') return json(response, { error: 'Forbidden origin' }, 403);
+      const serviceRoute = request.method === 'POST' && (path === '/api/post/events' || path === '/api/keet/events');
+      if (path.startsWith('/api/auth/')) {
+        const fail = (code: string, message: string, status: number) => json(response, { error: { code, message } }, status);
+        if (path === '/api/auth/status') {
+          if (request.method !== 'GET') return fail('method_not_allowed', 'Method not allowed', 405);
+          return json(response, { mode: 'passkey', state: options.auth.status(sessionToken(request.headers.cookie)) });
+        }
+        if (request.method !== 'POST') return fail('method_not_allowed', 'Method not allowed', 405);
+        if (!options.auth.sameOrigin(request)) return fail('forbidden_origin', 'Open the configured site origin and try again.', 403);
+        if (request.headers['content-type']?.split(';')[0].trim().toLowerCase() !== 'application/json') return fail('invalid_request', 'Expected a JSON request.', 400);
+        let input: unknown;
+        try { input = await body(request); } catch { return fail('invalid_request', 'Invalid JSON request.', 400); }
+        try {
+          if (path === '/api/auth/register/options') {
+            const parsed = z.object({ code: z.string().min(1).max(256) }).strict().safeParse(input);
+            if (!parsed.success) return fail('invalid_request', 'Enter a pairing code.', 400);
+            return json(response, await options.auth.registrationOptions(parsed.data.code));
+          }
+          if (path === '/api/auth/login/options') {
+            if (!z.object({}).strict().safeParse(input).success) return fail('invalid_request', 'Invalid request.', 400);
+            return json(response, await options.auth.loginOptions());
+          }
+          if (path === '/api/auth/register/verify' || path === '/api/auth/login/verify') {
+            const parsed = z.object({ ceremony: z.string().min(1).max(256), response: z.record(z.string(), z.unknown()) }).strict().safeParse(input);
+            if (!parsed.success) return fail('invalid_request', 'Invalid request.', 400);
+            const token = path === '/api/auth/register/verify'
+              ? await options.auth.register(parsed.data.ceremony, parsed.data.response as unknown as import('@simplewebauthn/server').RegistrationResponseJSON)
+              : await options.auth.login(parsed.data.ceremony, parsed.data.response as unknown as import('@simplewebauthn/server').AuthenticationResponseJSON);
+            response.setHeader('set-cookie', sessionCookie(options.auth.origin, token));
+            revokeConnections();
+            return json(response, { ok: true });
+          }
+          if (path === '/api/auth/logout') {
+            if (!z.object({}).strict().safeParse(input).success) return fail('invalid_request', 'Invalid request.', 400);
+            options.auth.logout(sessionToken(request.headers.cookie));
+            response.setHeader('set-cookie', sessionCookie(options.auth.origin));
+            revokeConnections();
+            return json(response, { ok: true });
+          }
+          return fail('invalid_request', 'Not found.', 404);
+        } catch (error) {
+          if (error instanceof AuthFailure) return fail(error.code, error.code === 'invalid_pairing' ? 'Pairing code is invalid or expired; generate a new code on the host.' : 'Authentication failed or expired; try again.', 401);
+          return fail('unavailable', 'Authentication is unavailable; try again.', 503);
+        }
+      }
+      if (!serviceRoute) {
+        human = true;
+        if (!await authorize(request)) return unauthorized();
+        if ((request.method !== 'GET' && request.method !== 'HEAD') || request.headers.origin || request.headers['sec-fetch-site'] === 'cross-site') {
+          if (!options.auth.sameOrigin(request)) return json(response, { error: { code: 'forbidden_origin', message: 'Open the configured site origin and try again.' } }, 403);
+        }
+      }
       if (path === APPEARANCE_PATH) {
         if (request.method !== 'GET') return json(response, { error: 'Method not allowed' }, 405);
         return json(response, partner.appearance());
@@ -84,31 +146,33 @@ export function createWebServer(partner: Partner, assets: string, options: { aut
         if (request.method !== 'GET') return json(response, { error: 'Method not allowed' }, 405);
         // searchParams has already decoded the query; preserve literal % paths.
         const image = await partner.workspaceImage(new URL(request.url!, 'http://localhost').searchParams.get('path'));
+        if (!stillAuthorized(request)) return unauthorized();
         if (!image) return json(response, { error: 'Workspace image unavailable' }, 404);
         response.writeHead(200, { 'content-type': image.mediaType, 'cache-control': 'no-store' });
         response.end(image.bytes); return;
       }
       if (path === '/api/chat/images' || path.startsWith('/api/chat/media/')) {
         // The same-host Origin above is validated before reconstructing the external POST URL.
-        const origin = request.method === 'POST' && request.headers.origin ? request.headers.origin : `http://${request.headers.host}`;
+        const origin = options.auth.origin;
         const webRequest = new Request(`${origin}${request.url}`, {
           method: request.method,
           headers: new Headers(Object.entries(request.headers).flatMap(([key, value]) => value === undefined ? [] : [[key, Array.isArray(value) ? value.join(',') : value] as [string,string]])),
           ...(request.method === 'POST' ? { body: requestBody(request), duplex: 'half' } : {}),
         } as RequestInit);
-        const result = await imageHttp(webRequest, { upload: value => partner.uploadImages(value, () => authorize(request)), media: (id, variant) => partner.sharedMedia(id, variant) }, async () => {
+        const result = await imageHttp(webRequest, { upload: value => partner.uploadImages(value, () => authorize(request), () => stillAuthorized(request)), media: (id, variant) => partner.sharedMedia(id, variant) }, async () => {
           if (!await authorize(request)) return null;
           return { sessionId: (await partner.snapshot()).sessionId, limits: await partner.sharedImageLimits() };
         });
+        const bytes = Buffer.from(await result!.arrayBuffer());
+        if (!stillAuthorized(request)) return unauthorized();
         response.writeHead(result!.status, Object.fromEntries(result!.headers));
-        response.end(Buffer.from(await result!.arrayBuffer())); return;
+        response.end(bytes); return;
       }
       if (path === VOICE_CAPABILITY_PATH) return json(response, request.method === 'GET' ? { available: voice.available() } : { code: 'method_not_allowed' }, request.method === 'GET' ? 200 : 405);
       if (path === VOICE_STREAM_PATH) return json(response, { code: 'upgrade_required' }, 426);
       if (path === '/api/post/events' && request.method === 'POST') {
         if (!partner.postEnabled) return json(response, { error: 'Post ingress unavailable' }, 404);
         if (!partner.authorizePost(request.headers.authorization)) return json(response, { error: 'Unauthorized' }, 401);
-        if (!isLoopbackPeer(request.socket.remoteAddress) && !options.authorize) return json(response, { error: 'Local delivery only' }, 403);
         let raw: string;
         const timer = setTimeout(() => request.destroy(), 10_000);
         try {
@@ -131,9 +195,7 @@ export function createWebServer(partner: Partner, assets: string, options: { aut
       }
       if (path === '/api/keet/events' && request.method === 'POST') {
         if (!partner.keetEnabled) return json(response, { error: 'Keet ingress unavailable' }, 404);
-        const peer = request.socket.remoteAddress;
-        if (!isLoopbackPeer(peer))
-          return json(response, { error: 'Local delivery only' }, 403);
+        if (!options.keetReceiver || !receiverAuthorized(request.headers.authorization, options.keetReceiver)) return json(response, { error: 'Unauthorized' }, 401);
         let raw: unknown;
         try { raw = await body(request, keetEventBodyLimit); }
         catch { return json(response, { error: 'Invalid Keet event' }, 400); }
@@ -160,15 +222,17 @@ export function createWebServer(partner: Partner, assets: string, options: { aut
             }
             chunks.push(chunk);
           }
+          if (!stillAuthorized(request)) return unauthorized();
+          transcriptions.set(abort, request);
           const result = await partner.transcribe(Buffer.concat(chunks), mediaType, signal);
-          json(response, result); return;
-        } finally { response.off('close', onClose); signal.removeEventListener('abort', onAbort); }
+          humanJson(result); return;
+        } finally { transcriptions.delete(abort); response.off('close', onClose); signal.removeEventListener('abort', onAbort); }
       }
       if (path === '/api/session' && request.method === 'GET') {
         const params = Object.fromEntries(new URL(request.url!, 'http://localhost').searchParams);
         const cursor = z.coerce.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
         const options = z.object({ before: cursor.optional(), after: cursor.optional() }).strict().refine(value => value.before === undefined || value.after === undefined).parse(params);
-        return json(response, await partner.snapshot(options));
+        return humanJson(await partner.snapshot(options));
       }
       if (path === '/api/conversation-search' && request.method === 'GET') {
         const params = Object.fromEntries(new URL(request.url!, 'http://localhost').searchParams);
@@ -176,51 +240,56 @@ export function createWebServer(partner: Partner, assets: string, options: { aut
         if (!parsed.success) return json(response, { error: 'Invalid search query' }, 400);
         try {
           if (!options.conversationSearch) throw new Error('Search unavailable');
-          return json(response, await options.conversationSearch.search(parsed.data.q));
-        } catch { return json(response, { error: 'Search unavailable' }, 503); }
+          return humanJson(await options.conversationSearch.search(parsed.data.q));
+        } catch { return humanJson({ error: 'Search unavailable' }, 503); }
       }
       if (path.startsWith('/api/conversation-search/') && request.method === 'GET') {
         const id = path.slice('/api/conversation-search/'.length);
         if (!z.uuid().safeParse(id).success) return json(response, { error: 'Invalid record id' }, 400);
         try {
           if (!options.conversationSearch) throw new Error('Search unavailable');
-          return json(response, await options.conversationSearch.read(id));
-        } catch { return json(response, { error: 'Record unavailable' }, 404); }
+          return humanJson(await options.conversationSearch.read(id));
+        } catch { return humanJson({ error: 'Record unavailable' }, 404); }
       }
       if (path === '/api/diary' && request.method === 'GET') {
-        try { return json(response, { entries: await partner.diary() }); }
-        catch { return json(response, { error: 'Diary unavailable' }, 500); }
+        try { return humanJson({ entries: await partner.diary() }); }
+        catch { return humanJson({ error: 'Diary unavailable' }, 500); }
       }
       if (path === '/api/alarms' && request.method === 'GET') return json(response, { alarms: partner.alarms() });
       if (path.startsWith('/api/diary/') && request.method === 'GET') {
         const name = path.slice('/api/diary/'.length);
         try {
           const text = await partner.diaryEntry(name);
+          if (!stillAuthorized(request)) return unauthorized();
           return text === 'too-large' ? json(response, { error: 'Diary entry too large' }, 413) : text === undefined ? json(response, { error: 'Diary entry not found' }, 404) : json(response, { name, text });
-        } catch { return json(response, { error: 'Diary unavailable' }, 500); }
+        } catch { return humanJson({ error: 'Diary unavailable' }, 500); }
       }
       if (path.startsWith('/api/images/') && request.method === 'GET') {
         const id = z.string().regex(/^[a-f0-9]{64}$/u).parse(path.slice('/api/images/'.length));
         const image = await partner.image(id);
+        if (!stillAuthorized(request)) return unauthorized();
         if (!image) return json(response, { error: 'Image not found' }, 404);
-        response.writeHead(200, { 'content-type': image.media_type, 'cache-control': 'private, max-age=31536000, immutable' });
+        response.writeHead(200, { 'content-type': image.media_type, 'cache-control': 'no-store' });
         response.end(image.data); return;
       }
       if (path === '/api/conversation-images' && request.method === 'GET') {
         const params = Object.fromEntries(new URL(request.url!, 'http://localhost').searchParams);
         const options = z.object({ limit: z.coerce.number().int().min(1).max(50).optional(), cursor: z.string().min(1).max(500).optional() }).strict().parse(params);
-        return json(response, await partner.conversationImages(options));
+        return humanJson(await partner.conversationImages(options));
       }
       if (path.startsWith('/api/conversation-images/') && request.method === 'GET') {
         const id = z.string().regex(/^[a-f0-9]{64}$/u).parse(path.slice('/api/conversation-images/'.length));
         const image = await partner.conversationImage(id);
+        if (!stillAuthorized(request)) return unauthorized();
         if (!image) return json(response, { error: 'Image not found' }, 404);
-        response.writeHead(200, { 'content-type': image.media_type, 'cache-control': 'private, max-age=31536000, immutable' }); response.end(image.data); return;
+        response.writeHead(200, { 'content-type': image.media_type, 'cache-control': 'no-store' }); response.end(image.data); return;
       }
       if (path.startsWith('/api/audio/') && request.method === 'GET') {
         const id = z.string().regex(/^[a-f0-9]{64}\.mp3$/u).parse(path.slice('/api/audio/'.length));
-        const audio = await partner.audio(id.slice(0, -4)); if (!audio) return json(response, { error: 'Audio not found' }, 404);
-        response.writeHead(200, { 'content-type': 'audio/mpeg', 'cache-control': 'private, max-age=31536000, immutable' }); response.end(audio); return;
+        const audio = await partner.audio(id.slice(0, -4));
+        if (!stillAuthorized(request)) return unauthorized();
+        if (!audio) return json(response, { error: 'Audio not found' }, 404);
+        response.writeHead(200, { 'content-type': 'audio/mpeg', 'cache-control': 'no-store' }); response.end(audio); return;
       }
       if (path.startsWith('/api/avatars/') && request.method === 'GET') {
         const kind = z.enum(['companion', 'user']).parse(path.slice('/api/avatars/'.length));
@@ -240,6 +309,7 @@ export function createWebServer(partner: Partner, assets: string, options: { aut
         const activity = path.slice('/api/pet-assets/'.length);
         if (!PET_ACTIVITIES.includes(activity as typeof PET_ACTIVITIES[number])) return json(response, { error: 'Pet asset not found' }, 404);
         const asset = await partner.petAsset(activity as typeof PET_ACTIVITIES[number]);
+        if (!stillAuthorized(request)) return unauthorized();
         if (!asset) return json(response, { error: 'Pet asset not found' }, 404);
         const metadata = asset.manifest.clips[activity as typeof PET_ACTIVITIES[number]];
         response.writeHead(200, { 'content-type': 'image/webp', 'cache-control': 'no-store', 'x-pet-frame-count': String(metadata.frameCount), 'x-pet-fps': String(metadata.fps), 'x-pet-loop': String(metadata.loop) });
@@ -248,23 +318,27 @@ export function createWebServer(partner: Partner, assets: string, options: { aut
       if (path === '/api/messages' && request.method === 'POST') {
         const parsed = z.object({ id: z.uuid(), input: z.string().trim().max(MAX_MESSAGE_LENGTH), images: z.array(imageInputSchema).max(5).default([]), replaces: z.array(z.uuid()).max(20).default([]) }).strict().refine(value => value.input.length > 0 || value.images.length > 0).safeParse(await body(request, messageBodyLimit));
         if (!parsed.success) return json(response, { error: '消息内容无效，请检查文字长度和图片后重新发送。', code: 'invalid_message' }, 422);
+        if (!stillAuthorized(request)) return unauthorized();
         const { id, input, images, replaces } = parsed.data;
-        await partner.submit(id, input, images, replaces);
-        return json(response, { id }, 202);
+        await partner.submit(id, input, images, replaces, () => stillAuthorized(request));
+        return humanJson({ id }, 202);
       }
       if (path === '/api/compact' && request.method === 'POST') {
         const { sessionId } = await partner.snapshot();
+        if (!stillAuthorized(request)) return unauthorized();
         const result = await partner.compact({ sessionId, authorize: () => authorize(request) });
         if (!result.accepted) throw new Error('Cannot compact while the conversation is working');
-        return json(response, { ok: true }, 202);
+        return humanJson({ ok: true }, 202);
       }
       if (path === '/api/cancel' && request.method === 'POST') {
         const { id } = z.object({ id: z.string().min(1).max(300) }).strict().parse(await body(request));
-        await partner.cancel(id); return json(response, { ok: true });
+        if (!stillAuthorized(request)) return unauthorized();
+        await partner.cancel(id, () => authorize(request)); return humanJson({ ok: true });
       }
       if (path === '/api/events' && request.method === 'GET') {
+        if (!stillAuthorized(request)) return unauthorized();
         response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
-        streams.add(response);
+        streams.set(response, request);
         // Notifications only invalidate the view. Reconnect always obtains an
         // authoritative snapshot; this stream is not a replayable execution log.
         const invalidate = () => {
@@ -280,28 +354,37 @@ export function createWebServer(partner: Partner, assets: string, options: { aut
       }
       json(response, { error: 'Not found' }, 404);
     } catch (error) {
+      if (!response.headersSent && human && !stillAuthorized(request)) return unauthorized();
       if (!response.headersSent && error instanceof InvalidImageInput) return json(response, { error: '消息内容无效，请检查文字长度和图片后重新发送。', code: 'invalid_message' }, 422);
       if (!response.headersSent) json(response, { error: '未能完成请求，请稍后重试' }, 400);
       else response.end();
     }
   });
-  const chat = createChatSocket(partner, authorize, options.conversationSearch);
+  const chat = createChatSocket(partner, authorize, options.conversationSearch, stillAuthorized);
   server.on('upgrade', async (request, socket, head) => {
     const path = new URL(request.url ?? '/', 'http://localhost').pathname;
-    const origin = request.headers.origin;
-    const authority = request.headers.host;
-    const sameOrigin = origin === `http://${authority}` || origin === `https://${authority}`;
-    const allowed = sameOrigin || (path === '/api/chat/socket' && !origin && isLoopbackPeer(request.socket.remoteAddress));
     const target = path === '/api/chat/socket' ? chat.sockets : path === VOICE_STREAM_PATH ? voice.sockets : undefined;
-    if (request.method !== 'GET' || !target || !allowed || (!await authorize(request))) { socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n'); return; }
-    target.handleUpgrade(request, socket, head, ws => target.emit('connection', ws, request));
+    if (request.method !== 'GET' || !target || !options.auth.sameOrigin(request) || (!await authorize(request))) { socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n'); return; }
+    target.handleUpgrade(request, socket, head, ws => {
+      if (!stillAuthorized(request)) { ws.terminate(); return; }
+      activeSockets.set(ws, request);
+      ws.once('close', () => activeSockets.delete(ws));
+      target.emit('connection', ws, request);
+    });
   });
-  return { server, chatSockets: chat.sockets, async close() {
-    voice.close();
-    await chat.close();
-    for (const response of streams) response.end();
-    server.closeAllConnections();
-    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
-    await partner.close();
+  let closePromise: Promise<void> | undefined;
+  return { server, chatSockets: chat.sockets, close() {
+    return closePromise ??= (async () => {
+      clearInterval(revocationTimer);
+      for (const controller of transcriptions.keys()) controller.abort();
+      try {
+        voice.close();
+        await chat.close();
+        for (const response of streams.keys()) response.end();
+        server.closeAllConnections();
+        if (server.listening) await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+        await partner.close();
+      } finally { options.auth.close(); }
+    })();
   } };
 }

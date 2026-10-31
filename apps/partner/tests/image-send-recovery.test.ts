@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { readFile, rm, writeFile, mkdir } from 'node:fs/promises';
 import { fixture, eventually } from './fixture.ts';
 import { fixtureImage } from './panels-seed.ts';
-import { createWebServer } from '../runtime/server.ts';
+import { createWebServer } from './web-server.ts';
 import { createCodexChatBackend } from '../runtime/chat.ts';
 import { imagePath, imageLimits } from '../runtime/images.ts';
 import { DatabaseSync } from 'node:sqlite';

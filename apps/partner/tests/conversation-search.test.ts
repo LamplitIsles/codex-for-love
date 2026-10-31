@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, realpath, writeFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import { seedConversationSearch } from './conversation-search-seed.ts';
 import { fixture } from './fixture.ts';
@@ -26,7 +26,8 @@ test('Rust top-level UUID/snake_case/null and structured snippet map to domain; 
     assert.equal(await readFile(s.log, 'utf8'), before);
     const calls = before.trim().split('\n').map(line => JSON.parse(line));
     assert.deepEqual(calls.map(c => c.args), [['search','灯塔','--limit','12'], ['get',s.recordIds.original], ['context',s.recordIds.original]]);
-    assert.ok(calls.every(c => c.cwd === f.workspace));
+    const workspace = await realpath(f.workspace);
+    assert.ok(calls.every(c => c.cwd === workspace));
   } finally { await f.close(); }
 });
 

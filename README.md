@@ -22,7 +22,7 @@ It began when Neil moved his own companion, Shio, from DeepSeek Harness to Codex
 | Diaries and memory | Read and write ordinary workspace files, including human-readable daily memories |
 | Tools, skills, and MCP | Give each companion the capabilities that belong in their own life and workspace |
 | Self-set alarms | Let the Partner schedule a future message to herself and continue in the same conversation when it is due |
-| Desktop and mobile | Use the complete companion experience in a browser or installed PWA, or through the released [Lamplit Mobile](https://github.com/LamplitIsles/lamplit-mobile) Android app |
+| Desktop and mobile | Use the companion experience in a browser or installed PWA |
 | Appearance and language | Use the header settings control to choose 中文 or English and light, dark, or system appearance; choices stay in that browser |
 | Browser notifications | After you opt in, an open background Companion page announces a successfully completed reply using only the Partner name and a generic new-message notice |
 | Connection recovery | A foreground Companion reconnects and re-synchronizes after a transient page connection loss while retaining its in-page draft; this is not offline sending, replay, or draft persistence after restart |
@@ -92,7 +92,15 @@ codex-for-love serve /path/to/partner.toml
 The config filename is arbitrary: `partner.toml` is just an example, and the CLI
 uses the path you pass.
 
-CFL binds to `127.0.0.1` and prints the local URL. Use a fresh workspace for a new conversation.
+CFL binds to `127.0.0.1`. Open `http://localhost:3082` on the same machine and generate a one-use pairing code on the host:
+
+```bash
+codex-for-love pair /path/to/partner.toml
+```
+
+Enter the code in the page and create a Passkey. The code expires after ten minutes. For recovery, generate another code and enroll a replacement; only a successful replacement revokes the old Passkey and sessions. Keep the configured `state` directory private and durable: it contains `auth.db`, including Passkey public keys and session hashes. Do not copy pairing codes into URLs or logs. Use a fresh workspace for a new conversation.
+
+For remote access, set `origin = "https://partner.example.com"` to the exact public HTTPS origin and terminate TLS at a trusted reverse proxy that forwards the original request. The Passkey is tied to this hostname. Browser HTTP, media and WebSocket requests require a session everywhere, including local development. Existing native clients, including ETOS, require a future authentication update before they can connect. See the [operator guide](docs/operator-guide.md#browser-authentication) for details.
 
 Required `[prompts] persona` selects the persona file. Optional `companion` and
 `compaction` paths select UTF-8 prompt files; omitted paths use source defaults.
@@ -344,15 +352,15 @@ from [`apps/partner/ecosystem-mcp.example.toml`](apps/partner/ecosystem-mcp.exam
 into `<workspace>/.codex/config.toml` after that first start. The template's
 comments give each service's installation and readiness steps.
 
-For Android, install the latest [Lamplit Mobile release](https://github.com/LamplitIsles/lamplit-mobile/releases/latest) and point it at the HTTP(S) address where CFL is available to the device.
+On Android, use a supported browser or install the site as a PWA at its HTTPS origin.
 
 ### Optional Keet ingress
 
 A Partner may receive KFA message events at `POST /api/keet/events`. Configure its
-loopback KFA MCP endpoint and the existing stdin-managed `keet` credential, then
+loopback KFA MCP endpoint and distinct stdin-managed `keet` and `keet_receiver` credentials, then
 point KFA's `KEET_WEBHOOK_URL` at `http://127.0.0.1:<CFL port>/api/keet/events`
-without a webhook Bearer token. The ingress accepts direct loopback peers only;
-do not publish this unauthenticated route through a reverse proxy. Ordinary
+and set its `KEET_WEBHOOK_BEARER_TOKEN` to the same separate receiver secret.
+The ingress requires this Bearer on every request, independently of browser sessions. Ordinary
 Group messages are bounded context until CFL classifies a trigger, each DM starts
 a turn, and Broadcast messages start none. KFA supplies required factual
 `addressing: { mentionsIdentity, replyToIdentity?, identityLabel? }`; the obsolete
@@ -570,9 +578,7 @@ reply completion, and official user items establish consumption. Reconnect
 lookup and same-operation retries recover the saved receipt without resubmitting
 ambiguous native input. Lookup returns `null` while no definitive result exists; it never authorizes recovery or replay. Failure and stop produce independent timeline
 notices; successful replies end quietly. Completed messages survive reconnect and restart.
-Browser origins must match the host; existing gateway authentication
-still applies. Use an independent development instance and do not publicly expose
-an unauthenticated host. See `lamplit-app/docs/integration.md` for build and
+Browser origins must match the configured canonical origin, and browser access requires a Passkey session. See `lamplit-app/docs/integration.md` for build and
 connection commands.
 
 The app owns the public TypeScript/TypeBox schemas. CFL implements six bounded
@@ -605,11 +611,7 @@ URLs, with no filesystem paths. Preview and original use the existing image byte
 route; missing files remain visible as unavailable. The catalogue is reconciled
 against official conversation membership; viewing an arbitrary local file with a
 native tool does not register it. There is no thumbnail pipeline or new media store.
-HTTP API reads reject foreign origins and cross-site browser requests. Embedders
-may supply `createWebServer(..., { authorize })`; it is checked on HTTP requests,
-WebSocket admission and every chat call/delivery, including after revocation.
-The standalone host retains its existing trusted gateway boundary; the callback
-is not a new login or multi-tenant system.
+HTTP API reads reject foreign origins and cross-site browser requests. Browser sessions are checked on HTTP requests, WebSocket admission and chat calls; recovery and logout terminate revoked connections.
 
 Reminder schedules retain native once/daily/weekly meanings, UTC epoch-ms
 `nextAt`, IANA zones and Sunday-zero weekdays. CFL's native interval minimum is

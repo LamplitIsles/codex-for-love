@@ -4,7 +4,7 @@ import { once } from 'node:events';
 import { join } from 'node:path';
 import { openChat } from '@lamplit/contracts/client';
 import type { ChatView } from '@lamplit/contracts';
-import { createWebServer } from '../runtime/server.ts';
+import { createWebServer } from './web-server.ts';
 import { createCodexChatBackend } from '../runtime/chat.ts';
 import { fixture, eventually } from './fixture.ts';
 

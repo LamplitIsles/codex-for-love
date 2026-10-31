@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
 import { join, resolve } from 'node:path';
 import { fixture, eventually } from '../apps/partner/tests/fixture.ts';
+import { authenticator } from '../apps/partner/tests/synthetic-auth.ts';
 
 const archive = resolve(process.argv[2]);
 const root = await realpath(await mkdtemp(join(tmpdir(), 'cfl-packaged-frontend-')));
@@ -25,7 +26,7 @@ try {
   const reserve = createServer(); reserve.listen(0, '127.0.0.1'); await once(reserve, 'listening');
   const port = reserve.address().port; await new Promise(done => reserve.close(done));
   const config = join(f.directory, 'partner.toml');
-  await writeFile(config, `name = "Mica"\nprompts = { persona = ${JSON.stringify(f.config.prompts.persona)} }\nstate = ${JSON.stringify(f.directory)}\nworkspace = ${JSON.stringify(f.workspace)}\nport = ${port}\n[codex]\ncommand = ${JSON.stringify(f.config.codex.command)}\nmodel = "gpt-5.6-luna"\nhome = ${JSON.stringify(f.config.codex.home)}\n`);
+  await writeFile(config, `name = "Mica"\nprompts = { persona = ${JSON.stringify(f.config.prompts.persona)} }\nstate = ${JSON.stringify(f.directory)}\nworkspace = ${JSON.stringify(f.workspace)}\nport = ${port}\n[codex]\ncommand = ${JSON.stringify(f.config.codex.command)}\nmodel = "gpt-5.6-luna"\nhome = ${JSON.stringify(f.config.codex.home)}\n${f.config.codex.socket_path ? `socket_path = ${JSON.stringify(f.config.codex.socket_path)}\n` : ''}`);
   const runtime = spawn(process.execPath, [join(packageRoot, 'vendor/runtime/cli.mjs'), 'serve', config], { cwd: root, env: { PATH: process.env.PATH, HOME: f.directory, ...f.appServer.env, FAKE_HOOK_COMMAND: `${quote(process.execPath)} ${quote(join(packageRoot, 'vendor/runtime/session-start-hook.mjs'))} ${quote(join(f.workspace, '.lamplit/context-bootstrap.json'))}` }, stdio: ['ignore', 'ignore', 'pipe'] });
   const closed = once(runtime, 'close'); let stderr = ''; runtime.stderr.on('data', chunk => { stderr += chunk; });
   try {
@@ -40,11 +41,22 @@ try {
       assert.equal(createHash('sha256').update(Buffer.from(await response.arrayBuffer())).digest('hex'), expected, path); verified++;
     }
     for (const path of ['/slice', '/slice/', '/management', '/assets/missing.js']) assert.equal((await fetch(origin + path)).status, 404);
-    const session = await (await fetch(origin + '/api/session')).json(); assert.equal(session.name, 'Mica'); assert.ok(session.sessionId);
+    assert.equal((await fetch(origin + '/api/session')).status, 401);
+    const canonical = `http://localhost:${port}`;
+    const pairOutput = execFileSync(process.execPath, [join(packageRoot, 'vendor/runtime/cli.mjs'), 'pair', config], { cwd: root, env: { PATH: process.env.PATH, HOME: f.directory }, encoding: 'utf8' });
+    const pairingCode = pairOutput.match(/Pairing code \(valid for 10 minutes\): ([A-Za-z0-9_-]+)/u)?.[1];
+    assert.ok(pairingCode);
+    const postAuth = (path, data) => fetch(origin + path, { method: 'POST', headers: { origin: canonical, 'content-type': 'application/json' }, body: JSON.stringify(data) });
+    const registration = await (await postAuth('/api/auth/register/options', { code: pairingCode })).json();
+    const device = authenticator(canonical);
+    const verifiedRegistration = await postAuth('/api/auth/register/verify', { ceremony: registration.ceremony, response: device.register(registration.options.challenge) });
+    assert.equal(verifiedRegistration.status, 200);
+    const cookie = verifiedRegistration.headers.get('set-cookie').split(';')[0];
+    const session = await (await fetch(origin + '/api/session', { headers: { cookie } })).json(); assert.equal(session.name, 'Mica'); assert.ok(session.sessionId);
     const sharp = createRequire(join(deps, 'package.json'))('sharp');
     const image = await sharp({ create: { width: 2, height: 2, channels: 3, background: '#cc8844' } }).png().toBuffer();
     await writeFile(join(f.workspace, 'package 图片%20.png'), image);
-    const imageResponse = await fetch(`${origin}/api/chat/workspace-image?${new URLSearchParams({ path: 'package 图片%20.png' })}`);
+    const imageResponse = await fetch(`${origin}/api/chat/workspace-image?${new URLSearchParams({ path: 'package 图片%20.png' })}`, { headers: { cookie } });
     assert.equal(imageResponse.status, 200);
     assert.equal(imageResponse.headers.get('content-type'), 'image/png');
     assert.equal(imageResponse.headers.get('cache-control'), 'no-store');
