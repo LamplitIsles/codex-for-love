@@ -2,7 +2,7 @@
 
 ## Browser Passkey verification
 
-CFL uses `@simplewebauthn/server` 14.0.3 (MIT), by Matthew Miller and contributors, for WebAuthn option generation and credential verification. The production bundle includes this package and its dependencies; release preparation retains their installed license and notice files under `vendor/licenses/webauthn/`. Browser integration belongs to the pinned App revision.
+CFL uses Better Auth 1.7.14 and its matching Passkey and OAuth Provider plugins (MIT). The Passkey plugin uses `@simplewebauthn/server` 13.3.3 (MIT), by Matthew Miller and contributors. The production bundle includes these packages and their dependencies; release preparation retains their installed license and notice files under `vendor/licenses/auth/`. Browser integration belongs to the pinned App revision.
 
 This repository is an implementation destination copied from the
 LamplitIsles Companion application. Imported or adapted source is identified
@@ -314,10 +314,10 @@ default and its attribution remain part of each complete CFL artifact.
 The default Framework7/Svelte frontend and `@lamplit/contracts` public exports
 are built together from Apache-2.0 `LamplitIsles/lamplit-app`, initially
 `26ab708799f8ef4d99d974e1ab60c4d14a38267a`. `lamplit-app.sha` is the authoritative
-current pin. The current source is merged App PR30 (App spec #4210)
+current pin. At the PR30 handoff, the source was merged App PR30 (App spec #4210)
 `a41762d2f5b4320e88adaec7f5c16dc102edf043`, tree
 `a547f65a53d6c1f8ab89cbd0edcedae31907ca35` (Apache-2.0). Browser resources and
-compiled public contracts come from that same revision; upstream licenses and
+compiled public contracts were built from that same revision; upstream licenses and
 source attribution remain in the retained App LICENSE and IMPORTS payload.
 App owns workspace-image reply rendering, capability and URI helpers plus its
 browser evidence. CFL spec #4212 owns authenticated native reads and containment.
@@ -555,4 +555,8 @@ manifests, Bun lock and public contracts are unchanged from the previous pin.
 
 ### Browser Passkey — App PR37 / CFL #5061
 
-`lamplit-app.sha` pins merged `2579ed327228631f75b31e6d250008faab835576`, tree `f1486d19876a08b6eac19798ca4ff695ed83f475`. It is tree-identical to independently reviewed `8b03ded0be700d6ddd6502dffdbea6a161ef97d9`. App owns the Passkey browser experience and uses `@simplewebauthn/browser` 14.0.0; CFL owns verification and session enforcement. App's check, build, lint, 102 Bun tests and synthetic Chromium Passkey coverage passed on the reviewed source; CFL builds its resources and contracts from the merged pin.
+The previous pin was merged `2579ed327228631f75b31e6d250008faab835576`, tree `f1486d19876a08b6eac19798ca4ff695ed83f475`. It is tree-identical to independently reviewed `8b03ded0be700d6ddd6502dffdbea6a161ef97d9`. App owned the Passkey browser experience and used `@simplewebauthn/browser` 14.0.0; CFL owned verification and session enforcement. App's check, build, lint, 102 Bun tests and synthetic Chromium Passkey coverage passed on the reviewed source.
+
+### Better Auth browser — App #5073 / CFL #5074
+
+`lamplit-app.sha` pins merged App PR #38 `dde912022c7d145dd90a092765d35f54a3310e8d`, tree `b93396dd768b91488a977c74834b535e6a58e132`. Its tree is identical to the independently reviewed App candidate `3061718fa3fe41089533c06731c9f78385078d8c`, which received Standards and Spec review passes. The owner and reviewer reported actual App+CFL virtual-authenticator integration on App candidate `3061718fa3fe41089533c06731c9f78385078d8c` and CFL `73cd2885cd7604d4e1da79284f2611ebd1c10124`, which includes the final backend fixes. That integration was run on the candidate, not directly on the merged App SHA. App owns the Better Auth Passkey and OAuth consent interface; CFL owns the authentication runtime. Browser resources and compiled public contracts must be prepared together from the merged pin before release.

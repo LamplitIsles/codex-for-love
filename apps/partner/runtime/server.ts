@@ -15,7 +15,7 @@ import { MAX_VOICE_DATA_URL_BYTES, normalizeVoiceMediaType } from './voice-contr
 import type { Partner } from './partner.ts';
 import { PET_ACTIVITIES } from './pet.ts';
 import type { ConversationSearch } from './conversation-search.ts';
-import { AuthFailure, type AuthStore, sessionCookie, sessionToken } from './auth.ts';
+import { AuthFailure, type AuthStore } from './auth.ts';
 import { receiverAuthorized } from './post.ts';
 
 const keetEventBodyLimit = 128 * 1024;
@@ -82,8 +82,12 @@ export function createWebServer(partner: Partner, assets: string, options: { aut
     try {
       const path = new URL(request.url ?? '/', 'http://localhost').pathname;
       if (path === '/api/post/events' && request.method === 'POST') response.once('close', () => processLog('post.receiver', { status: response.writableFinished ? response.statusCode : 0 }));
+      if (path === '/.well-known/oauth-authorization-server/api/auth') {
+        if (request.method !== 'GET') return json(response, { error: 'Method not allowed' }, 405);
+        await options.auth.handle(request, response, revokeConnections); return;
+      }
       if (!path.startsWith('/api/')) {
-        if (path === '/chat') request.url = '/';
+        if (path === '/chat' || path === '/consent') request.url = '/';
         return serve(request, response, () => json(response, { error: 'Not found' }, 404));
       }
       const serviceRoute = request.method === 'POST' && (path === '/api/post/events' || path === '/api/keet/events');
@@ -91,45 +95,42 @@ export function createWebServer(partner: Partner, assets: string, options: { aut
         const fail = (code: string, message: string, status: number) => json(response, { error: { code, message } }, status);
         if (path === '/api/auth/status') {
           if (request.method !== 'GET') return fail('method_not_allowed', 'Method not allowed', 405);
-          return json(response, { mode: 'passkey', state: options.auth.status(sessionToken(request.headers.cookie)) });
+          return json(response, { mode: 'passkey', state: options.auth.status(request) });
         }
-        if (request.method !== 'POST') return fail('method_not_allowed', 'Method not allowed', 405);
-        if (!options.auth.sameOrigin(request)) return fail('forbidden_origin', 'Open the configured site origin and try again.', 403);
-        if (request.headers['content-type']?.split(';')[0].trim().toLowerCase() !== 'application/json') return fail('invalid_request', 'Expected a JSON request.', 400);
-        let input: unknown;
-        try { input = await body(request); } catch { return fail('invalid_request', 'Invalid JSON request.', 400); }
-        try {
-          if (path === '/api/auth/register/options') {
+        if (path === '/api/auth/pairing' || path === '/api/auth/consent-details') {
+          if (request.method !== 'POST') return fail('method_not_allowed', 'Method not allowed', 405);
+          if (!options.auth.sameOrigin(request)) return fail('forbidden_origin', 'Open the configured site origin and try again.', 403);
+          if (request.headers['content-type']?.split(';')[0].trim().toLowerCase() !== 'application/json') return fail('invalid_request', 'Expected a JSON request.', 400);
+          if (path === '/api/auth/consent-details' && !options.auth.authorizeSession(request)) return fail('unauthorized', 'Sign in to continue.', 401);
+          let input: unknown;
+          try { input = await body(request); } catch { return fail('invalid_request', 'Invalid JSON request.', 400); }
+          if (path === '/api/auth/pairing') {
             const parsed = z.object({ code: z.string().min(1).max(256) }).strict().safeParse(input);
             if (!parsed.success) return fail('invalid_request', 'Enter a pairing code.', 400);
-            return json(response, await options.auth.registrationOptions(parsed.data.code));
+            try { response.setHeader('set-cookie', options.auth.pairingCookie(parsed.data.code)); return json(response, { ok: true }); }
+            catch (error) { if (error instanceof AuthFailure) return fail(error.code, 'Pairing code is invalid or expired; generate a new code on the host.', 401); throw error; }
           }
-          if (path === '/api/auth/login/options') {
-            if (!z.object({}).strict().safeParse(input).success) return fail('invalid_request', 'Invalid request.', 400);
-            return json(response, await options.auth.loginOptions());
-          }
-          if (path === '/api/auth/register/verify' || path === '/api/auth/login/verify') {
-            const parsed = z.object({ ceremony: z.string().min(1).max(256), response: z.record(z.string(), z.unknown()) }).strict().safeParse(input);
-            if (!parsed.success) return fail('invalid_request', 'Invalid request.', 400);
-            const token = path === '/api/auth/register/verify'
-              ? await options.auth.register(parsed.data.ceremony, parsed.data.response as unknown as import('@simplewebauthn/server').RegistrationResponseJSON)
-              : await options.auth.login(parsed.data.ceremony, parsed.data.response as unknown as import('@simplewebauthn/server').AuthenticationResponseJSON);
-            response.setHeader('set-cookie', sessionCookie(options.auth.origin, token));
-            revokeConnections();
-            return json(response, { ok: true });
-          }
-          if (path === '/api/auth/logout') {
-            if (!z.object({}).strict().safeParse(input).success) return fail('invalid_request', 'Invalid request.', 400);
-            options.auth.logout(sessionToken(request.headers.cookie));
-            response.setHeader('set-cookie', sessionCookie(options.auth.origin));
-            revokeConnections();
-            return json(response, { ok: true });
-          }
-          return fail('invalid_request', 'Not found.', 404);
-        } catch (error) {
-          if (error instanceof AuthFailure) return fail(error.code, error.code === 'invalid_pairing' ? 'Pairing code is invalid or expired; generate a new code on the host.' : 'Authentication failed or expired; try again.', 401);
-          return fail('unavailable', 'Authentication is unavailable; try again.', 503);
+          const parsed = z.object({ oauth_query: z.string().min(1).max(16384) }).strict().safeParse(input);
+          if (!parsed.success) return fail('invalid_oauth_request', 'Authorization request is invalid or expired.', 400);
+          try { return json(response, await options.auth.consentDetails(parsed.data.oauth_query)); }
+          catch { return fail('invalid_oauth_request', 'Authorization request is invalid or expired.', 400); }
         }
+        const allowed = new Set([
+          '/api/auth/passkey/generate-register-options', '/api/auth/passkey/verify-registration',
+          '/api/auth/passkey/generate-authenticate-options', '/api/auth/passkey/verify-authentication',
+          '/api/auth/get-session', '/api/auth/sign-out', '/api/auth/oauth2/authorize',
+          '/api/auth/oauth2/consent', '/api/auth/oauth2/continue', '/api/auth/oauth2/token',
+          '/api/auth/oauth2/revoke', '/api/auth/oauth2/introspect',
+        ]);
+        if (!allowed.has(path)) return fail('invalid_request', 'Not found.', 404);
+        const authorizationNavigation = path === '/api/auth/oauth2/authorize' && request.method === 'GET';
+        const nativeEndpoint = ['/api/auth/oauth2/token', '/api/auth/oauth2/revoke', '/api/auth/oauth2/introspect'].includes(path);
+        if (request.method !== 'GET' && !nativeEndpoint && !options.auth.sameOrigin(request)) return fail('forbidden_origin', 'Open the configured site origin and try again.', 403);
+        if (!authorizationNavigation && request.headers['sec-fetch-site'] === 'cross-site') return fail('forbidden_origin', 'Open the configured site origin and try again.', 403);
+        if (!authorizationNavigation && request.headers.origin && !options.auth.sameOrigin(request)) return fail('forbidden_origin', 'Open the configured site origin and try again.', 403);
+        response.setHeader('cache-control', 'no-store');
+        await options.auth.handle(request, response, revokeConnections);
+        return;
       }
       if (!serviceRoute) {
         human = true;

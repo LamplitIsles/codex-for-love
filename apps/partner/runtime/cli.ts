@@ -58,7 +58,7 @@ if (command === 'asset-fetch' || command === 'asset-upload') {
 }
 if (command === 'pair') {
   const auth = new AuthStore(config.state, config.origin ?? `http://localhost:${config.port}`);
-  try { console.log(`Pairing code (valid for 10 minutes): ${auth.issuePairing()}`); }
+  try { await auth.initialize(); console.log(`Pairing code (valid for 10 minutes): ${auth.issuePairing()}`); }
   finally { auth.close(); }
 } else if (command === 'credential') {
   if (name !== 'speech' && name !== 'tts' && name !== 'keet' && name !== 'keet_receiver' && name !== 'post' && name !== 'post_receiver') throw new Error('Credential name must be speech, tts, keet, keet_receiver, post, or post_receiver');
@@ -84,6 +84,7 @@ if (command === 'pair') {
   if (credentials.keet_receiver && (credentials.keet_receiver === credentials.keet || credentials.keet_receiver === credentials.post || credentials.keet_receiver === credentials.post_receiver)) throw new Error('Keet receiver credential must differ from other integration credentials');
   if (config.keet?.endpoint && credentials.keet && !credentials.keet_receiver) throw new Error('Keet requires a separate keet_receiver credential');
   const auth = new AuthStore(config.state, config.origin ?? `http://localhost:${config.port}`);
+  try { await auth.initialize(); } catch (error) { auth.close(); throw error; }
   let partner: Awaited<ReturnType<typeof createPartner>>;
   try { partner = await createPartner(config, credentials); } catch (error) { auth.close(); throw error; }
   let app: ReturnType<typeof createWebServer>;

@@ -98,9 +98,9 @@ CFL binds to `127.0.0.1`. Open `http://localhost:3082` on the same machine and g
 codex-for-love pair /path/to/partner.toml
 ```
 
-Enter the code in the page and create a Passkey. The code expires after ten minutes. For recovery, generate another code and enroll a replacement; only a successful replacement revokes the old Passkey and sessions. Keep the configured `state` directory private and durable: it contains `auth.db`, including Passkey public keys and session hashes. Do not copy pairing codes into URLs or logs. Use a fresh workspace for a new conversation.
+Enter the code in the page and create a Passkey. The code expires after ten minutes. For recovery, generate another code and enroll a replacement; only a successful replacement revokes the old Passkey and sessions. Keep the configured `state` directory private and durable: it contains `auth.db` and the `auth-secret` signing key. The database contains Passkey public keys, browser sessions, and hashed native tokens and pairing codes. Do not copy pairing codes into URLs or logs. Use a fresh workspace for a new conversation.
 
-For remote access, set `origin = "https://partner.example.com"` to the exact public HTTPS origin and terminate TLS at a trusted reverse proxy that forwards the original request. The Passkey is tied to this hostname. Browser HTTP, media and WebSocket requests require a session everywhere, including local development. Existing native clients, including ETOS, require a future authentication update before they can connect. See the [operator guide](docs/operator-guide.md#browser-authentication) for details.
+For remote access, set `origin = "https://partner.example.com"` to the exact public HTTPS origin and terminate TLS at a trusted reverse proxy that forwards the original request. The Passkey is tied to this hostname. Browser HTTP, media and WebSocket requests require an owner session. Native clients can use the ETOS OAuth public client with authorization code and S256 PKCE after owner consent; ETOS still needs its own client implementation before it can connect. See the [operator guide](docs/operator-guide.md#browser-authentication) for details.
 
 Required `[prompts] persona` selects the persona file. Optional `companion` and
 `compaction` paths select UTF-8 prompt files; omitted paths use source defaults.
@@ -611,7 +611,7 @@ URLs, with no filesystem paths. Preview and original use the existing image byte
 route; missing files remain visible as unavailable. The catalogue is reconciled
 against official conversation membership; viewing an arbitrary local file with a
 native tool does not register it. There is no thumbnail pipeline or new media store.
-HTTP API reads reject foreign origins and cross-site browser requests. Browser sessions are checked on HTTP requests, WebSocket admission and chat calls; recovery and logout terminate revoked connections.
+HTTP API reads reject foreign origins and cross-site browser requests. Browser sessions and native access tokens are checked on HTTP requests, WebSocket admission and chat calls; recovery and logout terminate revoked connections.
 
 Reminder schedules retain native once/daily/weekly meanings, UTC epoch-ms
 `nextAt`, IANA zones and Sunday-zero weekdays. CFL's native interval minimum is
