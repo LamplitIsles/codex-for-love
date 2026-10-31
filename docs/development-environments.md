@@ -111,12 +111,8 @@ while in use. The historical source command was:
 At the 2026-10-31 switch the retained checkout was clean at
 `6881b22d5eda6fdd6715867fdb6397666308adf4`; it must be revalidated before use.
 A restart of that checkout cannot restore the former `84ff` process's in-memory
-state. The exact prior unit was retained at
-`/home/neil/.local/share/codex-for-love/rollback-units/shio-before-npm-50ze4gzs.service`
-with mode `0600` and SHA-256
-`74bfc2b86f1e62d58bd872381295caba587eb21e82f61fdece2cff28f8def9eb`;
-verify it and the current unit metadata before considering rollback. An independent
-checkout or build cache also requires its own concrete approval before creation.
+state. An independent checkout or build cache also requires its own concrete
+approval before creation.
 
 The reviewed unit must expose curl on PATH and allow the documented GitHub
 network access for uncached App releases. An omitted `frontend` selects `latest`; an explicit
