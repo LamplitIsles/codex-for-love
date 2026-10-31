@@ -709,14 +709,19 @@ install or restart Shio. The repository's GitHub tag-driven public npm release
 process above remains separate.
 
 For a deliberate package update, select the exact snapshot tarball URL from the
-Forgejo npm package metadata. The candidate installation route is to install that
-URL with the default registry explicitly set to `https://registry.npmjs.org/`,
-without an `@lamplitisles` scope registry override, so the native optional
-packages can resolve from npmjs. This routing still requires an authorized
-isolated install verification before it is used operationally. The intended
-command is `npm install --global "$SNAPSHOT_TARBALL_URL" --registry=https://registry.npmjs.org/`
-with the selected exact URL and no scope override in npm configuration. Do not set the
-whole scope to Forgejo: it also contains the public native dependencies.
+Forgejo npm package metadata. Use the default registry
+`https://registry.npmjs.org/` without an `@lamplitisles` scope registry override,
+so native optional packages resolve from npmjs. For the exact Shio snapshot
+`0.1.0-beta.0.snapshot.g6881b22d5eda6fdd6715867fdb6397666308adf4`, the Forgejo
+tarball was first downloaded and its integrity verified; npm then installed the
+local tarball into the approved versioned prefix with that default registry and
+`--ignore-scripts`. npm resolved the Linux native package and sharp/koffi, the
+native executables passed help/version checks, and sharp/koffi native modules
+loaded. This does not establish native business, conversation or cross-platform
+behavior.
+For Shio installation, promotion and rollback, follow
+[canonical environments](development-environments.md). Do not set the whole
+scope to Forgejo: it also contains the public native dependencies.
 
 Woodpecker requires the `forgejo_packages_token` secret with package publication
 access for LamplitIsles. The publisher authenticates directly against the npm

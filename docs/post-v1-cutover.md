@@ -5,8 +5,8 @@ Authority: CFL FlickNote #4067, producer #4066; immutable initial contract
 generic Post v1 cutover and is not evidence of deployment or live QQ/Matrix
 acceptance. Its historical multi-instance assumptions are not N5 instructions.
 For current N5 Shio promotion and rollback, use
-[canonical environments](development-environments.md): preserve Post and keep
-Keet disabled as requested. Do not invent dev or staging targets.
+[canonical environments](development-environments.md): preserve Post and Keet.
+Do not invent dev or staging targets.
 
 ## Prepare immutable evidence
 
@@ -42,10 +42,10 @@ app-server; actual Post+CFL integration is a separate Orc-assigned probe using
 owned fixtures after both Workers finish. Do not copy live credentials or
 conversations for a probe. No native rebuild or npm publication is required.
 
-For current Shio source promotion, mutable-checkout protections and rollback,
-follow [canonical environments](development-environments.md). Packaging and
-publishing are optional. Preserve the prior runtime, dependency and native bytes
-needed for rollback. Native builds are not part of this cutover.
+For current Shio package promotion and rollback, including protections for a
+source-based fallback, follow [canonical environments](development-environments.md).
+Preserve the prior runtime, dependency and native bytes needed for rollback.
+Native builds are not part of this cutover.
 
 ## Historical cutover boundary
 

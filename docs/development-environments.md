@@ -15,13 +15,18 @@ Neil's user manager; preserve that gate. There are no N5 Mika dev or staging
 targets. The Mac is a native build and package-smoke host; it has no CFL service
 to install, restart or promote.
 
-At the 2026-10-26 inventory, Shio served complete candidate
-`5a566957cc94f626da933f87b0a3b045e73d3d41` with native package root
-`/home/neil/.local/lib/codex-for-love-linux-x64-0.6.0`. These identify historical
-artifacts, not necessarily the current rollback artifacts or the next installation
-destination. Reinspect the actual unit and
-drop-in metadata immediately before promotion; do not assume the current launcher
-or configuration location from an old example.
+As of the completed 2026-10-31 promotion, Shio runs the manually selected
+Forgejo npm snapshot
+`0.1.0-beta.0.snapshot.g6881b22d5eda6fdd6715867fdb6397666308adf4` from its
+versioned prefix under `/home/neil/.local/share/codex-for-love/npm-releases/`.
+Its Linux native package is `@lamplitisles/codex-for-love-linux-x64@0.7.0`
+from npmjs. The unit starts the package launcher with Node 24 and the existing
+TOML. App is selected independently as `latest`; at promotion it resolved to
+`2b6a6240536afa71f35734d27fc68810cf4a3e2a`, with all 265 served/cache resources
+matching its manifest. Local and public root, unauthenticated session rejection
+and auth status were checked. This did not test conversations or native business
+operations. Reinspect the actual unit and drop-in metadata immediately before
+promotion; do not assume an old inventory is still current.
 
 ```sh
 systemctl --user show codex-for-love-shio.service \
@@ -30,7 +35,8 @@ systemctl --user show codex-for-love-shio.service \
 
 Read only the required launcher metadata. Preserve environment-file references
 without displaying their contents. Keep the existing fixed TOML, state root,
-workspace, credentials and conversations in place.
+workspace, credentials and conversations in place; do not copy the full TOML,
+state or credentials.
 
 ## Source preparation and verification guidance
 
@@ -59,9 +65,9 @@ App checkout.
 
 Record the exact reviewed CFL main commit, App pin and prepared contract/license
 hashes. Use test-owned fixtures for automated verification of the source-built
-runtime, selected frontend and pinned Linux native artifact. npm packaging and
-publication are optional; neither is a prerequisite for deploying reviewed source
-to Shio. A fresh Mac smoke is not a blanket requirement for unchanged native packages.
+runtime, selected frontend and pinned Linux native artifact. Source deployment is
+a historical or fallback path for Shio; the current path uses a manually selected
+package. A fresh Mac smoke is not a blanket requirement for unchanged native packages.
 Mac-specific changes or a new Mac acceptance claim warrant Mac verification; an
 older version's smoke does not verify a new version.
 
@@ -75,36 +81,50 @@ details. No test uses installed service state or real login.
 
 ## Orc promotion of Shio
 
-After current-head review and merge, this deployment uses the existing CFL main
-checkout, its existing `node_modules` and generated App contracts. Record the
-exact CFL commit and clean working-tree status, App pin, and prepared
-contract/license hashes; verify that the generated contracts correspond to that
-pin and the runtime being promoted. Reuse the existing dependencies. For this
-deployment, do not install dependencies or run tests or synthetic services.
-
-The checkout, generated resources and dependencies are mutable: later edits,
-installs or preparation can change the deployed runtime without a new reviewed
-commit. Keep those paths stable and protect them from changes while Shio uses
-them; re-establish their source and artifact identities before every promotion or
-restart. If the existing artifacts do not match the reviewed source and pin,
-stop and resolve that mismatch before promotion. An independent checkout,
-dependency directory or build cache requires its own concrete approval before
-creation.
-
-Use the existing verified Linux native artifact in a stable native root, checking
-its package version against the candidate main manifest's exact platform pin and
-checking direct `bin/codex-app-server --version` and
-`bin/codex-code-mode-host --help`. Retain the prior launcher, candidate, native
-root and dependency bytes needed for rollback, whether the prior installation is
+After current-head review and merge, manually select the exact Forgejo snapshot;
+publication does not promote it automatically. Download its exact tarball and
+verify its SHA-512 integrity against Forgejo registry metadata before installation.
+Install the verified local tarball into an approved versioned npm prefix with
+npmjs as the default registry and no scope override, using `--ignore-scripts` to
+avoid building on the service host. A new dependency directory requires its own
+concrete approval before creation. Do not overwrite an existing version prefix.
+After installation, verify the package version and source identity, the manifest's
+exact platform-native pin and architecture, and sharp/koffi native module loading.
+Check the launcher,
+`codex-app-server --version` and `codex-code-mode-host --help` without using live
+conversations. Before changing the unit, verify that the candidate accepts the
+existing configuration with the same path meanings and that the selected App
+release's contracts match the package. Retain the exact prior unit, code, native
+and dependency bytes needed for rollback, whether the prior installation is
 source-based or packaged.
+
+The previous source launcher remains a fallback only after its mutable checkout,
+generated contracts, licenses, dependencies and native root have been checked
+against the intended source and pin. Record its exact commit, clean working-tree
+status, App pin and prepared contract/license hashes, and keep those paths stable
+while in use. The historical source command was:
+
+```text
+<node24> <checkout>/apps/partner/runtime/cli.ts --native-package-root <verified-native-root> serve <existing-fixed-partner.toml>
+```
+
+At the 2026-10-31 switch the retained checkout was clean at
+`6881b22d5eda6fdd6715867fdb6397666308adf4`; it must be revalidated before use.
+A restart of that checkout cannot restore the former `84ff` process's in-memory
+state. The exact prior unit was retained at
+`/home/neil/.local/share/codex-for-love/rollback-units/shio-before-npm-50ze4gzs.service`
+with mode `0600` and SHA-256
+`74bfc2b86f1e62d58bd872381295caba587eb21e82f61fdece2cff28f8def9eb`;
+verify it and the current unit metadata before considering rollback. An independent
+checkout or build cache also requires its own concrete approval before creation.
 
 The reviewed unit must expose curl on PATH and allow the documented GitHub
 network access for uncached App releases. An omitted `frontend` selects `latest`; an explicit
 full SHA pins the App. After restart, record
 the resolved SHA from startup output and compare every served resource with that
 revision’s cache manifest; `latest` may have advanced since review. Reload browser
-pages. Preserve Post and remove the requested Shio Keet configuration; retain
-credentials and all state. When the old and new runtime schemas differ, identify
+pages. Preserve Post, Keet, credentials and all state unless a separately authorized
+change requires otherwise. When the old and new runtime schemas differ, identify
 the minimum necessary field changes and their exact expected values before editing
 the existing TOML in place. Preserve the meaning of relative paths. Record only
 the specific non-secret fields needed for a reviewed inverse, not a full config
@@ -119,14 +139,14 @@ manifest. Preserve any reviewed drop-ins unchanged and retain their exact bytes
 if the change requires touching them.
 
 Coordinate a reviewed change to the managed Shio unit in `elec-debian-setup`:
-update its launcher and working directory as needed for the reviewed checkout
-and matching native root, preserving its existing configuration argument,
-environment-file references and other service behavior. The source runtime
-command has this form, with paths obtained from the actual unit and reviewed
-checkout:
+update its launcher and working directory for the reviewed versioned package
+prefix, preserving its existing configuration argument, pre-start gate,
+environment-file references and other service behavior. The package launcher
+selects its pinned native package. Its command has this form, with paths obtained
+from the reviewed unit and package:
 
 ```text
-<node24> <checkout>/apps/partner/runtime/cli.ts --native-package-root <verified-native-root> serve <existing-fixed-partner.toml>
+<node24> <versioned-prefix>/node_modules/@lamplitisles/codex-for-love/bin/codex-for-love.mjs serve <existing-fixed-partner.toml>
 ```
 
 After host-repository review and merge, install that exact reviewed unit as Neil
@@ -156,9 +176,10 @@ restart loops. Verify actual process/native executable identity and supported
 version and serving readiness. Compare every served browser resource against the
 selected resolved SHA's cache `manifest.json`, including when the selector is
 omitted.
-Fetch static resources only. Do not read conversations or send messages. This
-establishes installation and serving identity; it does not establish resolution
-of historical provider 429 incidents.
+Check authentication and public ingress protection, including unauthenticated
+session rejection, without reading conversations or sending messages. Fetch
+static resources only. This establishes installation and serving identity; it
+does not establish resolution of historical provider 429 incidents.
 
 If promotion fails, first inspect the fragment and drop-ins again; stop if their
 bytes or metadata are unknown. Restore the saved exact prior unit bytes, and any
@@ -166,7 +187,7 @@ deliberately changed drop-in bytes, only over the known promoted artifacts, usin
 the retained code/native dependencies. Before any restart, verify the exact
 expected current fields and reject conflicting concurrent changes. Apply only the
 reviewed minimum schema-specific inverse edits in the existing TOML, preserving
-relative-path meaning and Post and keeping Keet disabled. Do not copy or restore
+relative-path meaning and preserving Post and Keet. Do not copy or restore
 the full configuration, instance state, credentials or conversations as rollback.
 
 Validate that the retained runtime accepts the resulting configuration and existing
@@ -174,8 +195,10 @@ credentials without unauthorized edits. Verify that its authentication and publi
 ingress protection meet the required security boundary. If compatibility, safe
 field inversion or that boundary cannot be established, stop and report; do not
 restart the old runtime. Otherwise, as Neil, run `systemctl --user daemon-reload`
-and `systemctl --user restart codex-for-love-shio.service`, then verify original
-process identity, readiness and resource hashes with the same checks above.
+and `systemctl --user restart codex-for-love-shio.service`, then verify the
+retained runtime's actual process and native identities, readiness, selected App
+resources and authentication/ingress with the same checks above. Restoring a unit
+does not restore the old process's memory or necessarily its selected App.
 
 ## Historical WSL targets
 
