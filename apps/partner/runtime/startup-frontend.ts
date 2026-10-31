@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 import { access, cp, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { requireAuthMarker } from './frontend-contract.ts';
 
 type Hashes = Record<string, string>;
 type Manifest = { revision: string; browser: Hashes; contracts: Hashes; licenses: Hashes };
@@ -76,13 +77,14 @@ async function runtimeContracts(runtimeUrl: string): Promise<Hashes> {
   return compiled;
 }
 
-async function verify(directory: string, revision: string, expected: Hashes): Promise<void> {
+export async function verifyFrontend(directory: string, revision: string, expected: Hashes): Promise<void> {
   const manifest = JSON.parse(await readFile(join(directory, 'manifest.json'), 'utf8')) as Manifest;
   if (manifest.revision !== revision || !manifest.browser || !manifest.contracts || !manifest.licenses) throw new Error('Frontend cache manifest has invalid revision or resources');
   const browser = await hashes(join(directory, 'browser'));
   if (!browser['index.html'] || !same(browser, manifest.browser)) throw new Error('Frontend browser integrity mismatch');
   const contracts = await hashes(join(directory, 'contracts'));
   if (!same(contracts, manifest.contracts)) throw new Error('Frontend contracts integrity mismatch');
+  requireAuthMarker(contracts, 'Selected frontend contracts');
   if (!same(await hashes(join(directory, 'licenses')), manifest.licenses)) throw new Error('Frontend licenses integrity mismatch');
   if (!same(contracts, expected)) throw new Error('Frontend compiled public contracts differ from this CFL runtime');
 }
@@ -92,6 +94,7 @@ export async function prepareFrontend(selector: string, runtimeUrl: string, opti
   if (selector !== 'latest' && !sha.test(selector)) throw new Error('Frontend must be latest or a full lowercase commit SHA');
   const cache = options.cache ?? join(process.env.XDG_CACHE_HOME || join(homedir(), '.cache'), 'lamplitisles', 'codex-for-love', 'frontend');
   const expected = options.expectedContracts ?? await runtimeContracts(runtimeUrl);
+  requireAuthMarker(expected, 'CFL runtime contracts');
   console.log(`Preparing frontend App ${selector}`);
   await mkdir(cache, { recursive: true, mode: 0o700 });
   const stage = await mkdtemp(join(cache, '.stage-'));
@@ -137,12 +140,12 @@ export async function prepareFrontend(selector: string, runtimeUrl: string, opti
       await cp(join(dirname(appRequire.resolve('@fontsource/noto-sans-sc/package.json')), 'LICENSE'), join(built, 'licenses', 'NotoSansSC-OFL-1.1.txt'));
       const manifest: Manifest = { revision, browser: await hashes(join(built, 'browser')), contracts: await hashes(join(built, 'contracts')), licenses: await hashes(join(built, 'licenses')) };
       await writeFile(join(built, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
-      await verify(built, revision, expected);
+      await verifyFrontend(built, revision, expected);
       checkInterrupted();
       try { await rename(built, candidate); }
       catch (error) { if (!['EEXIST', 'ENOTEMPTY'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error; }
     }
-    await verify(candidate, revision, expected);
+    await verifyFrontend(candidate, revision, expected);
     checkInterrupted();
     console.log(`Frontend App ${revision} (${selector})`);
     return join(candidate, 'browser');

@@ -1,9 +1,10 @@
 import { execFileSync } from 'node:child_process';
 import { lstatSync, readFileSync, readlinkSync } from 'node:fs';
-import { readFile, readdir } from 'node:fs/promises';
+import { readFile, readdir, rm } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { join, resolve, sep } from 'node:path';
+import { authMarkerPath, requireAuthMarker } from '../apps/partner/runtime/frontend-contract.ts';
 
 export const root = fileURLToPath(new URL('../', import.meta.url));
 export const prepared = join(root, '.generated/shared-app');
@@ -48,6 +49,19 @@ export function cflIdentity() {
 export function requirePinned(actual, pin) {
   if (actual.sha !== pin || actual.dirty) throw new Error(`Formal source must be clean at ${pin}; found ${actual.sha}${actual.dirty ? ' with local changes' : ''}.`);
 }
+export async function buildWithFreshAuthMarker(directory, build) {
+  const path = join(directory, 'packages/contracts', authMarkerPath);
+  // TypeScript does not remove output from sources that no longer exist.
+  await rm(path, { force: true });
+  await build();
+  let marker;
+  try { marker = await readFile(path); }
+  catch (error) {
+    if (error.code === 'ENOENT') throw new Error('App build lacks the Better Auth browser-host protocol marker; select a compatible App revision');
+    throw error;
+  }
+  requireAuthMarker({ [authMarkerPath]: createHash('sha256').update(marker).digest('hex') }, 'App build');
+}
 export async function hashes(directory, relative = '') {
   const result = {};
   for (const item of (await readdir(join(directory, relative), { withFileTypes: true })).sort((a,b) => a.name.localeCompare(b.name))) {
@@ -65,10 +79,12 @@ export async function verifyPrepared({ strict = false } = {}) {
   let manifest;
   try { manifest = JSON.parse(await readFile(join(prepared, 'source.json'), 'utf8')); }
   catch { throw new Error('Prepared App resources are missing; run pnpm source:prepare before frozen installation.'); }
+  if ('browser' in manifest) throw new Error('Prepared App resources use the obsolete browser bundle; run pnpm source:prepare again.');
   if (manifest.pin !== pin) throw new Error('Prepared App pin differs; run pnpm source:prepare again.');
+  requireAuthMarker(manifest.contracts, 'Prepared App contracts');
   if (strict) requirePinned(manifest.app, pin);
   if (JSON.stringify(identity()) !== JSON.stringify(manifest.app)) throw new Error('App source changed since preparation; run pnpm source:prepare again.');
-  for (const [directory, expected] of [['browser', manifest.browser], ['contracts', manifest.contracts], ['licenses', manifest.licenses]]) {
+  for (const [directory, expected] of [['contracts', manifest.contracts], ['licenses', manifest.licenses]]) {
     if (JSON.stringify(await hashes(join(prepared, directory))) !== JSON.stringify(expected)) throw new Error(`Prepared ${directory} changed; run pnpm source:prepare again.`);
   }
   return manifest;

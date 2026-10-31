@@ -2,7 +2,6 @@ import { uploadPostAsset, savePostAsset } from './post-assets.ts';
 import { randomBytes } from 'node:crypto';
 import { mkdir, readFile, writeFile, rename, access, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { loadConfig, loadCredentials } from './config.ts';
 import { convertDshSession } from './dsh-session-import.ts';
 import { createPartner } from './partner.ts';
@@ -78,7 +77,7 @@ if (command === 'pair') {
   finally { await rm(temporary, { force: true }); }
   console.log('Credential saved. Restart the runtime to apply it.');
 } else if (command === 'serve') {
-  const assets = config.frontend ? await prepareFrontend(config.frontend, import.meta.url) : fileURLToPath(new URL('../build/', import.meta.url));
+  const assets = await prepareFrontend(config.frontend ?? 'latest', import.meta.url);
   await access(join(assets, 'index.html'));
   const credentials = await loadCredentials(config.state);
   if (credentials.keet_receiver && (credentials.keet_receiver === credentials.keet || credentials.keet_receiver === credentials.post || credentials.keet_receiver === credentials.post_receiver)) throw new Error('Keet receiver credential must differ from other integration credentials');

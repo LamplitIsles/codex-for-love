@@ -8,13 +8,14 @@ import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { test } from 'node:test';
 import { prepareFrontend, runFrontendCommand } from '../runtime/startup-frontend.ts';
+import { authMarkerHash, authMarkerPath } from '../runtime/frontend-contract.ts';
 import { loadConfig } from '../runtime/config.ts';
 import { createWebServer } from './web-server.ts';
 import { fixture } from './fixture.ts';
 
 const one = '1'.repeat(40); const two = '2'.repeat(40); const three = '3'.repeat(40);
 const digest = (value: string) => createHash('sha256').update(value).digest('hex');
-const contracts = { 'dist/index.js': digest('contract') };
+const contracts = { 'dist/index.js': digest('contract'), [authMarkerPath]: authMarkerHash };
 
 test('startup selects, serves, revalidates and rolls back exact App revisions; failures do not fall back', async () => {
   const root = await mkdtemp(join(tmpdir(), 'cfl-frontend-test-'));
@@ -44,6 +45,7 @@ test('startup selects, serves, revalidates and rolls back exact App revisions; f
       await writeFile(join(cwd, 'apps/web/build/index.html'), revision);
       await writeFile(join(cwd, 'apps/web/build/assets/app.js'), `asset ${revision}`);
       await writeFile(join(cwd, 'packages/contracts/dist/index.js'), fail === 'contracts' ? 'changed' : 'contract');
+      await writeFile(join(cwd, 'packages/contracts', authMarkerPath), 'export const CFL_BROWSER_HOST_AUTH_PROTOCOL = "better-auth";\n');
     }
     return '';
   };

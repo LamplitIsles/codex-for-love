@@ -43,7 +43,7 @@ jobs:
           corepack pnpm check
           corepack pnpm build
           corepack pnpm test
-      - name: Package and verify complete application with fake engine
+      - name: Verify optional package with fake engine and selected test frontend
         run: |
           mkdir -p "$RUNNER_TEMP/cfl-artifacts"
           corepack pnpm release:prepare "$RUNNER_TEMP/cfl-artifacts" --strict
@@ -51,6 +51,6 @@ jobs:
           node scripts/packaged-frontend-smoke.mjs "$RUNNER_TEMP/cfl-artifacts/lamplitisles-codex-for-love-0.1.0-beta.0.tgz"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: complete-cfl-application
+          name: cfl-runtime-package
           path: ${{ runner.temp }}/cfl-artifacts/*.tgz
           if-no-files-found: error

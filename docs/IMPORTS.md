@@ -2,7 +2,7 @@
 
 ## Browser Passkey verification
 
-CFL uses Better Auth 1.7.14 and its matching Passkey and OAuth Provider plugins (MIT). The Passkey plugin uses `@simplewebauthn/server` 13.3.3 (MIT), by Matthew Miller and contributors. The production bundle includes these packages and their dependencies; release preparation retains their installed license and notice files under `vendor/licenses/auth/`. Browser integration belongs to the pinned App revision.
+CFL uses Better Auth 1.7.14 and its matching Passkey and OAuth Provider plugins (MIT). The Passkey plugin uses `@simplewebauthn/server` 13.3.3 (MIT), by Matthew Miller and contributors. The production bundle includes these packages and their dependencies; release preparation retains their installed license and notice files under `vendor/licenses/auth/`. App owns the browser integration; the independently selected App revision must match CFL's compiled public contracts exactly.
 
 This repository is an implementation destination copied from the
 LamplitIsles Companion application. Imported or adapted source is identified
@@ -301,13 +301,13 @@ original integration work. FlickLog itself and prompt semantics are unchanged.
 
 ### Independently selected App at startup
 
-The optional startup selector builds source only from public canonical
+The startup selector builds source only from public canonical
 `https://github.com/LamplitIsles/lamplit-app` at the resolved exact commit.
 The cache records the commit and complete browser, compiled-contract and license
 hashes, and retains App's Apache-2.0 license, imports and Noto Sans SC OFL.
 The running CFL contracts remain those of its packaged or prepared source;
-only byte-identical compiled contracts permit the selected browser. The bundled
-default and its attribution remain part of each complete CFL artifact.
+only byte-identical compiled contracts permit the selected browser. CFL artifacts
+retain attribution for the public contracts and do not include browser resources.
 
 ### Shared frontend and compiled public contracts from source
 
@@ -347,8 +347,8 @@ archive entries above describe historical integration work; their runtime domain
 consumers continue using the current public contracts.
 
 Complete artifacts retain the App LICENSE and its `docs/IMPORTS.md` alongside
-CFL/SDK/font notices and record actual App/CFL source identities plus browser,
-contracts and prepared-license hashes in `vendor/source.json`. CFL’s explicitly
+CFL/SDK/font notices and record actual App/CFL source identities plus contracts
+and prepared-license hashes in `vendor/source.json`. CFL’s explicitly
 pinned Rolldown 1.2.8 (MIT) bundles the runtime and Companion MCP; browser building
 remains in App. Removing the unused CFL frontend does not change the pinned
 App presentation or its resource bytes.
@@ -559,4 +559,8 @@ The previous pin was merged `2579ed327228631f75b31e6d250008faab835576`, tree `f1
 
 ### Better Auth browser — App #5073 / CFL #5074
 
-`lamplit-app.sha` pins merged App PR #38 `dde912022c7d145dd90a092765d35f54a3310e8d`, tree `b93396dd768b91488a977c74834b535e6a58e132`. Its tree is identical to the independently reviewed App candidate `3061718fa3fe41089533c06731c9f78385078d8c`, which received Standards and Spec review passes. The owner and reviewer reported actual App+CFL virtual-authenticator integration on App candidate `3061718fa3fe41089533c06731c9f78385078d8c` and CFL `73cd2885cd7604d4e1da79284f2611ebd1c10124`, which includes the final backend fixes. That integration was run on the candidate, not directly on the merged App SHA. App owns the Better Auth Passkey and OAuth consent interface; CFL owns the authentication runtime. Browser resources and compiled public contracts must be prepared together from the merged pin before release.
+The previous pin was merged App PR #38 `dde912022c7d145dd90a092765d35f54a3310e8d`, tree `b93396dd768b91488a977c74834b535e6a58e132`. Its tree is identical to the independently reviewed App candidate `3061718fa3fe41089533c06731c9f78385078d8c`, which received Standards and Spec review passes. The owner and reviewer reported actual App+CFL virtual-authenticator integration on App candidate `3061718fa3fe41089533c06731c9f78385078d8c` and CFL `73cd2885cd7604d4e1da79284f2611ebd1c10124`, which includes the final backend fixes. That integration was run on the candidate, not directly on the merged App SHA. App owns the Better Auth Passkey and OAuth consent interface; CFL owns the authentication runtime. CFL prepares compiled public contracts from its pinned App revision; the independently selected browser must match those contracts exactly.
+
+### Browser-host authentication protocol marker — App PR #39 / CFL #5068
+
+`lamplit-app.sha` pins merged App PR #39 `01c9d257f124ef8006fcf96d2bc77f58e5d66f66`, tree `3136c20da07bd1226bb246c441086c3cca5a92ce`, based on merged App PR #38. Its tree is identical to the reviewed candidate `a503dd5039dca83278e124c6c0029b6c9c1a1c4b`. App owns the emitted public authentication protocol marker; CFL requires the Better Auth marker and exact compiled-contract hashes for every selected frontend. App's reported targeted TypeScript build test verified the emitted marker on the candidate, not directly on the merged SHA; prior App+CFL browser integration evidence above applies to the earlier candidate and CFL revision.

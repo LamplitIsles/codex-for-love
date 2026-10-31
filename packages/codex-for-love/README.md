@@ -15,18 +15,17 @@ example for adding FlickNote and Guion Web after CFL has created its minimal
 workspace configuration. The bundled Companion MCP is the only required
 integration.
 
-The main package includes the approved shared Framework7 App. `/` and `/chat`
-serve identical HTML with root-relative assets; no sibling App checkout or asset
-directory override is needed. Platform independently owns hosted authentication,
+The main package does not include browser resources. `/` and `/chat` serve
+identical HTML from the selected App with root-relative assets; no sibling App
+checkout or asset directory override is needed. Platform independently owns hosted authentication,
 manifest, service worker and management. The obsolete `/slice` entry is removed.
 
-Optional root TOML `frontend = "latest"` resolves canonical App main at each
-startup. Set `frontend` to a full lowercase commit SHA for a reproducible version
-or rollback. Without the field, the bundled App is used without network or Bun.
-Configured selection needs network access to GitHub and dependency registries,
+An omitted root TOML `frontend` defaults to `"latest"`, resolving canonical App
+main at each startup. Set `frontend` to a full lowercase commit SHA for a
+reproducible version or rollback. Initial preparation needs network access to GitHub and dependency registries,
 `curl`, `tar`, and Bun 1.3.14 on PATH; initial preparation can take minutes.
 CFL logs the resolved revision and stops on download, build, integrity, or
-compiled-contract mismatch; it never falls back to the bundled App. An exact
+compiled-contract mismatch; it never falls back to another App. An exact
 verified cached revision can start offline. Reload browser pages after restarting.
 
 Browser access requires a Passkey. Start CFL, then run

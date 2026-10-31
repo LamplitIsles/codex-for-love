@@ -4,10 +4,6 @@ Lamplit is a self-hosted, one-to-one AI partner that maintains continuity and ow
 
 ## Language
 
-**Bundled App（内置界面）**:
-The Companion interface distributed with a CFL release and used when no independent App is selected.
-_Avoid_: fallback after a failed selection
-
 **Selected App（选定界面）**:
 The Companion interface chosen by an operator for a Partner startup, identified by the resolved App revision and required to match the Partner's public contracts.
 _Avoid_: automatic compatibility, live update

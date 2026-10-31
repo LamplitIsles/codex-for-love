@@ -7,7 +7,8 @@ candidates, pin updates and isolated acceptance. For an approved isolated App so
 `CFL_APP_SOURCE` through preparation, build and packaging; strict checks still
 require the clean exact pin. Native acceptance consumes the separately approved
 frozen artifacts as described in [submission acceptance](docs/native-durable-submissions.md).
-The shared frontend and compiled public contracts come from one App revision.
+Compiled public contracts come from the pinned App revision; the selected
+frontend must match those contracts exactly.
 Task-specific implementation specs live under `.scratch/`. Work in
 this checkout, without worktrees.
 

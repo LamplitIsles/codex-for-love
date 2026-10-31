@@ -670,13 +670,13 @@ page/session and never changes native consumption. See
 
 ## Independent frontend selection
 
-The default, when `frontend` is absent from the root of Partner TOML, is the
-App bundled with the CFL package. It needs neither network access nor Bun.
-To select a different canonical LamplitIsles/lamplit-app revision, set one field:
+When `frontend` is absent from the root of Partner TOML, CFL selects canonical
+LamplitIsles/lamplit-app `latest`. To make the choice explicit or pin a revision,
+set one field:
 
 ```toml
 frontend = "latest"
-# Or: frontend = "410509a38ab70da430672dd6d0f25e3b457c66af"
+# Or set frontend to a compatible full 40-character lowercase commit SHA.
 ```
 
 `latest` resolves public GitHub `main` at every startup, so it trusts future
@@ -695,18 +695,21 @@ contract hashes and licenses live in `$XDG_CACHE_HOME/lamplitisles/codex-for-lov
 (or `~/.cache/lamplitisles/codex-for-love/frontend`). Protect this cache like the
 service account. A complete cache entry is rechecked before every use. Download,
 build, incomplete resources, integrity or contract mismatch stops startup with
-an error; no old or packaged frontend is substituted. Exact equality of compiled
-contracts is required, not a claim about semantic compatibility. Update CFL
-first when the selected App's contracts differ. If a cache entry is damaged,
+an error; no other frontend is substituted. Exact equality of compiled
+contracts and the Better Auth browser-host protocol marker are required. App
+revisions and cached entries without that marker cannot be used; select a
+compatible revision and prepare CFL from its reviewed pin. Update CFL first
+when the selected App's contracts differ. If a cache entry is damaged,
 stop the service and remove only that SHA directory from the frontend cache;
 the next startup prepares it again and requires network access.
 
 ## Shared frontend build and acceptance
 
 Run [source preparation](default-shared-frontend.md) before frozen CFL installation.
-`pnpm build` verifies the prepared App browser and matching public contracts,
-then copies resources into `apps/partner/build`; packaging retains them and the
-bundled runtime. The default needs no App checkout at runtime; configured selection prepares its own canonical source in the cache. `/` and `/chat` use identical HTML and root-relative assets.
+`pnpm build` verifies the prepared App public contracts. Packaging retains the
+runtime, contract metadata and licenses, but no browser resources. At startup
+every selector prepares canonical App source in the cache or verifies an existing
+entry. `/` and `/chat` use identical HTML and root-relative assets.
 The former `/slice` route and `LAMPLIT_APP_ASSETS` selection are removed. Platform
 keeps hosted auth/PWA/management ownership. Companion MCP configuration semantics
 remain unchanged. Follow [default shared frontend](default-shared-frontend.md)
@@ -717,9 +720,9 @@ Publication and deployment still require Owner review; merging does not deploy.
 
 Before building or promoting a checkout candidate, follow
 [source preparation](default-shared-frontend.md): App's recorded SHA supplies
-frontend and compiled public contracts together, with frozen App/CFL dependencies.
-Complete tarballs retain source/resource identities and bundled runtime; npm
-publication is optional. For host-local ordered dev/prod promotion and code/assets
+compiled public contracts with frozen App/CFL dependencies. The selected frontend
+is prepared independently at startup and must match those contracts. npm packaging
+and publication are optional. For host-local source promotion and code/assets
 rollback, follow [development environments](development-environments.md). Keep
 state/config/native package ownership with the existing instance.
 

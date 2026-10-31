@@ -1,34 +1,33 @@
 import { execFileSync, spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
+import { createServer } from 'node:net';
 import { mkdtemp, mkdir, readFile, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { SUPPORTED_CODEX_VERSION } from '../apps/partner/runtime/config.ts';
+import { seedSmokeFrontend, smokeHtml, smokeRevision } from './smoke-frontend.mjs';
 
 const root = resolve(import.meta.dirname, '..');
-const temporary = await realpath(await mkdtemp(join(tmpdir(), 'cfl-artifact-smoke-')));
 const mainPackageName = '@lamplitisles/codex-for-love';
 const mac = process.platform === 'darwin' && process.arch === 'arm64';
 if (!mac && (process.platform !== 'linux' || process.arch !== 'x64')) throw new Error('Artifact smoke supports Linux x64 and macOS ARM64 only.');
 const nativePackageName = mac ? '@lamplitisles/codex-for-love-darwin-arm64' : '@lamplitisles/codex-for-love-linux-x64';
+const temporary = await realpath(await mkdtemp(join(tmpdir(), 'cfl-artifact-smoke-')));
 
 function archiveManifest(archive) {
   return JSON.parse(execFileSync('tar', ['-xOzf', archive, 'package/package.json'], { encoding: 'utf8' }));
 }
 
-async function waitForServer(url, child, stderr) {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    if (child.exitCode !== null) throw new Error(`Packaged runtime exited before listening (${child.exitCode}): ${stderr()}`);
-    try {
-      const response = await fetch(url, { signal: AbortSignal.timeout(1000) });
-      await response.body?.cancel();
-      if (response.ok) return;
-    } catch {}
+async function waitForServer(child, observed, stderr) {
+  for (let attempt = 0; attempt < 600; attempt += 1) {
+    if (child.exitCode !== null || child.signalCode !== null) throw new Error(`Packaged runtime exited before listening (${child.exitCode}, ${child.signalCode}): ${stderr()}`);
+    if (observed()) return;
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
-  throw new Error('Packaged runtime did not serve its bundled web assets.');
+  throw new Error('Packaged runtime did not serve the selected test frontend.');
 }
 
 try {
@@ -86,22 +85,32 @@ try {
   await writeFile(fakeReplacement, `#!/usr/bin/env node\nimport ${JSON.stringify(pathToFileURL(fakeServer).href)};\n`, { mode: 0o755 });
   await rename(fakeReplacement, fakeExecutable);
   const fixture = join(temporary, 'fixture');
+  await seedSmokeFrontend(isolatedEnv.XDG_CACHE_HOME);
   await mkdir(fixture, { recursive: true });
   await writeFile(join(fixture, 'persona.md'), 'You are Mica.');
   await writeFile(join(fixture, 'control.json'), '{}');
-  const port = 31982;
-  await writeFile(join(fixture, 'partner.toml'), `name = "Mica"\nprompts = { persona = "./persona.md" }\nstate = "./state"\nworkspace = "./workspace"\nport = ${port}\n[codex]\nmodel = "gpt-5.6-luna"\ncommand = "./must-not-be-selected"\n`);
+  const reserve = createServer();
+  reserve.listen(0, '127.0.0.1'); await once(reserve, 'listening');
+  const port = reserve.address().port;
+  await new Promise((resolve, reject) => reserve.close(error => error ? reject(error) : resolve()));
+  const marker = `CFL_SMOKE_HTTP_OK_${randomUUID()}`;
+  await writeFile(join(fixture, 'partner.toml'), `name = "Mica"\nfrontend = "${smokeRevision}"\nprompts = { persona = "./persona.md" }\nstate = "./state"\nworkspace = "./workspace"\nport = ${port}\n[codex]\nmodel = "gpt-5.6-luna"\ncommand = "./must-not-be-selected"\n`);
   const workspace = join(fixture, 'workspace');
   const runtime = spawn(join(prefix, 'bin', 'codex-for-love'), ['serve', join(fixture, 'partner.toml')], {
     detached: true,
-    env: { ...isolatedEnv, FAKE_SERVER_ROOT: fixture, FAKE_SERVER_STATE: join(fixture, 'fake-state.json'), FAKE_SERVER_REQUESTS: join(fixture, 'requests.jsonl'), FAKE_SERVER_CONTROL: join(fixture, 'control.json'), FAKE_HOOK_COMMAND: `'${process.execPath}' '${join(mainRoot, 'vendor', 'runtime', 'session-start-hook.mjs')}' '${join(workspace, '.lamplit', 'context-bootstrap.json')}'`, FAKE_CONFIG_PATH: join(workspace, '.codex', 'config.toml') },
-    stdio: ['ignore', 'ignore', 'pipe'],
+    env: { ...isolatedEnv, NODE_OPTIONS: `--import=${pathToFileURL(join(root, 'scripts/artifact-smoke-probe.mjs')).href}`, CFL_SMOKE_PROBE_PORT: String(port), CFL_SMOKE_PROBE_MARKER: marker, CFL_SMOKE_PROBE_HTML: smokeHtml, FAKE_SERVER_ROOT: fixture, FAKE_SERVER_STATE: join(fixture, 'fake-state.json'), FAKE_SERVER_REQUESTS: join(fixture, 'requests.jsonl'), FAKE_SERVER_CONTROL: join(fixture, 'control.json'), FAKE_HOOK_COMMAND: `'${process.execPath}' '${join(mainRoot, 'vendor', 'runtime', 'session-start-hook.mjs')}' '${join(workspace, '.lamplit', 'context-bootstrap.json')}'`, FAKE_CONFIG_PATH: join(workspace, '.codex', 'config.toml') },
+    stdio: ['ignore', 'pipe', 'pipe'],
   });
   const closed = once(runtime, 'close');
-  let stderr = '';
+  let stderr = ''; let stdout = ''; let verified = false;
   runtime.stderr.on('data', (chunk) => { stderr = `${stderr}${chunk}`.slice(-4000); });
+  runtime.stdout.on('data', (chunk) => {
+    const output = `${stdout}${chunk}`;
+    if (output.split('\n').includes(marker)) verified = true;
+    stdout = output.slice(-4000);
+  });
   try {
-    await waitForServer(`http://127.0.0.1:${port}/`, runtime, () => stderr);
+    await waitForServer(runtime, () => verified, () => stderr);
   } finally {
     runtime.kill('SIGTERM');
     let timer;

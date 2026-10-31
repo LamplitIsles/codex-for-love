@@ -5,7 +5,7 @@ port = 3082
 # The browser-facing canonical origin, including port when non-default.
 # Local default: http://localhost:<port>. Remote use requires a trusted HTTPS hostname.
 # origin = "https://partner.example.com"
-# Optional: resolve canonical App main on each startup, or use a full lowercase commit SHA.
+# Omission resolves canonical App main on each startup; use a full lowercase commit SHA to pin.
 # frontend = "latest"
 
 # A one-time already-compacted physical v0 or logical v3 DSH log can be inspected or imported with:

@@ -61,8 +61,8 @@ A companion's life should not disappear into an opaque service. CFL keeps its ap
 
 The official Codex thread remains the conversation authority. CFL does not duplicate model transcripts, reasoning, or tool payloads into its own database. The workspace can be read, backed up, searched, corrected, and moved with ordinary local tools.
 
-The packaged frontend works without a separate App checkout. Operators may instead
-select canonical App `latest` or an exact commit at startup; see the
+Every installation selects canonical App `latest` by default or an exact commit
+at startup; browser resources are prepared independently. See the
 [frontend selection guide](docs/operator-guide.md#independent-frontend-selection).
 
 ## Quick start
@@ -157,7 +157,7 @@ for current availability and usage details.
 fast = true
 ```
 
-On N5, Shio is the only CFL instance: Neil’s user systemd unit `codex-for-love-shio.service`, serving port 3084. Orc promotes a verified complete application package and its exact pinned native dependency after review and publication. Mac is a build/smoke host with no CFL service. See [Host-local Partner environments](docs/development-environments.md) for preparation, promotion and launcher-only rollback.
+On N5, Shio is the only CFL instance: Neil’s user systemd unit `codex-for-love-shio.service`, serving port 3084. Orc promotes a verified reviewed main-source candidate and its exact pinned native dependency; npm publication is optional. Mac is a build/smoke host with no CFL service. See [Host-local Partner environments](docs/development-environments.md) for preparation, promotion and rollback.
 
 Optional chat backgrounds are configured in the Partner TOML, separately from browser appearance preferences:
 
@@ -508,8 +508,8 @@ CFL does not register a service worker or serve management routes.
 
 CFL records the App commit in `lamplit-app.sha`. Keep `lamplit-app` adjacent to
 this checkout, with Bun 1.3.14. `pnpm source:prepare` installs App's frozen lock,
-generates localization, checks/builds/tests App, then materializes its browser
-and compiled public contracts together, including App attribution and its Noto
+generates localization, checks/builds/tests App, then materializes its compiled
+public contracts, including App attribution and its Noto
 font license. Local preparation permits edits and
 records their identity; CI and formal candidates use `pnpm source:prepare --strict`
 with clean App source at the recorded SHA. Then run CFL's frozen install,
@@ -518,11 +518,11 @@ test fixtures with TypeScript; browser compilation and checks run in App during
 preparation. Updating the SHA requires reviewing the resulting
 joint checks; no npm publication or submodule is required.
 
-`pnpm build` verifies the prepared resources and copies the browser into
-`apps/partner/build`. Main packaging includes those resources, bundled runtime
-and contracts using its explicit Rolldown dependency, licenses and
-`vendor/source.json` (browser, contracts and prepared license hashes); the installed CLI needs no
-sibling checkout. Public GitHub source is retrieved at the exact recorded SHA.
+`pnpm build` verifies the prepared contracts. Optional main packaging includes
+the runtime and contracts using its explicit Rolldown dependency, licenses and
+`vendor/source.json` (contracts and prepared license hashes), but no browser
+resources. At startup CFL prepares the selected App separately and verifies its
+compiled contracts against the runtime. A complete pinned cache can be used offline.
 See [source preparation and isolated acceptance](docs/default-shared-frontend.md)
 for complete artifacts and the verification boundary.
 

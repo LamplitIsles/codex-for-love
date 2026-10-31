@@ -1,4 +1,4 @@
-# Default shared frontend: build and isolated acceptance
+# Shared App contracts and isolated acceptance
 
 CFL serves the shared Framework7 App at `/`. `/chat` serves identical HTML with
 root-relative assets. Missing assets, `/slice` and management routes return 404.
@@ -29,16 +29,17 @@ command: the contracts workspace does not exist until preparation completes.
 Use `--strict` for formal candidates.
 
 Preparation runs App frozen install, existing Paraglide generation, check, build
-and test. It materializes browser and compiled public package exports into
+and test. It materializes compiled public package exports into
 ignored `.generated/shared-app`. CFL has no local browser source, translation
 catalogs or browser compiler. `pnpm check` uses TypeScript for the remaining
 runtime and native test fixtures. That contracts package is a declared pnpm
 workspace dependency with its own domain dependencies; frozen CFL installation
 requires preparation first. No dependency version/lock rewriting is needed in CI.
-The normal build verifies prepared hashes and source identity before copying
-resources into `apps/partner/build`. Preparation also copies App’s LICENSE,
-IMPORTS and the upstream Noto Sans SC OFL from App’s frozen installed font
-dependency; their hashes are verified alongside browser and contracts resources.
+The normal build verifies prepared hashes and source identity, including the
+required Better Auth browser-host protocol marker. Older App revisions without
+that marker cannot be prepared for this runtime. Preparation also
+copies App’s LICENSE, IMPORTS and the upstream Noto Sans SC OFL from App’s frozen
+installed font dependency; their hashes are verified alongside the contracts.
 Set `CFL_APP_SOURCE=/absolute/test-owned/lamplit-app` to select an isolated real Git
 checkout at the approved commit. Preparation and verification use this same path;
 the default remains the adjacent checkout. Strict pin/clean-tree validation and
@@ -63,15 +64,20 @@ node scripts/packaged-frontend-smoke.mjs \
   .scratch/sha-pinned-shared-frontend/artifacts/lamplitisles-codex-for-love-0.1.0-beta.0.tgz
 ```
 
-Packaging verifies the current build rather than rebuilding it. It includes
-browser resources, runtime/MCP/public contracts bundled with CFL’s explicit
+Optional packaging verifies the current build rather than rebuilding it. It includes
+runtime/MCP/public contracts bundled with CFL’s explicit
 Rolldown dependency, helper, licenses and
-`vendor/source.json` (actual App/CFL identity, pin and browser/contracts/prepared-license hashes). Runtime
-requires its declared Sharp and Koffi dependencies and supported native package;
-it does not require either source checkout. The fake-engine smoke extracts to a
-test-owned location, installs Sharp and Koffi there with scripts disabled, and
-verifies every served browser file, root/chat identity, canonical 404s and native
-session construction.
+`vendor/source.json` (actual App/CFL identity, pin and contracts/prepared-license
+hashes), but no browser resources. Runtime requires its declared Sharp and Koffi
+dependencies and supported native package; it does not require either source
+checkout. At startup it prepares the selected App independently and checks the
+compiled contracts exactly, including the expected protocol marker. Old cached
+App entries without it fail startup and are not relabeled. The fake-engine package smoke extracts to a test-owned
+location, links the checkout's existing matching Sharp and Koffi dependencies,
+seeds a synthetic frontend cache with the prepared contracts, and verifies serving,
+root/chat identity, canonical 404s and native session construction. It does not
+verify a fresh installation. Creating the test-owned dependency link requires
+concrete authorization under the repository's resource rules.
 
 `check.yml` runs source preparation and the frozen CFL sequence, then complete
 artifact/package smoke without publication. The optional tag publication workflow
@@ -110,7 +116,7 @@ Historical acceptance used product source `09bf71009ff931cfdc75c675d9b16037bbb1d
 The historical 307 manifested archive files and separate corrected runner remain
 immutable evidence in test-owned scratch. They are not runtime dependencies.
 Do not edit or refreeze those artifacts. Current source builds record their own
-browser/contracts/license hashes through the existing prepared source manifest.
+contracts/license hashes; the selected runtime cache records browser hashes.
 
 ## Keet display and native acceptance
 
@@ -134,7 +140,7 @@ The isolated native host uses actual CFL webhook, Partner storage, fake official
 app-server transport, fake loopback KFA media, and the prepared browser from the pinned App source:
 
 ```sh
-node apps/partner/tests/keet-acceptance-host.ts apps/partner/build <owned-evidence>
+node apps/partner/tests/keet-acceptance-host.ts <approved-frozen-browser> <owned-evidence>
 ```
 
 The historical separately approved runner was from App HEAD

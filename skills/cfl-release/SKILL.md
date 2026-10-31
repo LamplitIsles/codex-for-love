@@ -53,22 +53,30 @@ semver/tag, npm registry availability, package `os`/`cpu`, and the exact
 optional-dependency pins. Use the existing `release:check`, `release:preflight`,
 and `release:smoke` paths rather than reconstructing checks in shell one-liners.
 
-Run an installed-artifact smoke on the matching host after every native or main
-package change. A native package may be manually published only after its exact
-tarball and host acceptance are verified; ask for fresh confirmation at that
-upload boundary unless the user explicitly requested that exact publication.
+For an unchanged-native main-package release, run the Linux
+installed-artifact smoke; a fresh Mac smoke is not a blanket requirement. Verify
+Mac-specific changes on Mac before claiming acceptance there; a smoke of an
+older main package does not verify the new version. For each changed native
+package, verify its exact tarball on its matching host before publication. Ask
+for fresh confirmation at a native upload boundary unless the user explicitly
+requested that exact publication.
+
+Shio source deployment does not require npm publication. Follow
+`docs/development-environments.md` for that separate workflow.
 
 Main-package publication is tag-driven and uses the repository's governed tag
 workflow and GitHub OIDC publisher. Do not substitute a token-based local
 `npm publish`, publish before native dependencies, or treat registry propagation
 delay as a reason to republish an immutable version.
 
-For acceptance before publication, set `CFL_ARTIFACT_DIR` to the prepared main
-artifact directory and `CFL_NATIVE_TARBALL` to the matching prepared native tgz,
-then run `pnpm release:smoke` on Linux x64 and Mac ARM64 in fresh test-owned
-prefixes. The smoke verifies exact package pin/platform and executable version
-before replacing only its temporary native executable with the fake engine.
-A local tarball cannot be used with `CFL_PUBLIC_SMOKE=1`.
+For native acceptance before publication, set `CFL_ARTIFACT_DIR` to the prepared
+main artifact directory and `CFL_NATIVE_TARBALL` to the matching prepared native
+tgz, then run `pnpm release:smoke` on each changed package's matching host in a
+fresh test-owned prefix. For an unchanged-native main release, the
+tag-driven workflow runs the Linux installed-artifact smoke. The smoke verifies
+the exact package pin/platform and executable version before replacing only its
+temporary native executable with the fake engine. A local tarball cannot be used
+with `CFL_PUBLIC_SMOKE=1`.
 
 Orc publishes the exact retained and host-accepted native tarballs with
 `npm publish <exact-native.tgz> --access public --tag latest --registry https://registry.npmjs.org`.

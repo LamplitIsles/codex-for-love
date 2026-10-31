@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { requireAuthMarker } from '../apps/partner/runtime/frontend-contract.ts';
 
 const root = resolve(import.meta.dirname, '..');
 const directory = 'packages/codex-for-love';
@@ -23,7 +24,12 @@ try {
     if (manifest.dependencies?.[dependency] !== version) throw new Error(`${name} must depend on the same installed ${dependency} version as the Partner build.`);
   }
   if ([...files].some((file) => file.includes('.git') || file.endsWith('.tgz'))) throw new Error(`${name} contains a source-control or nested archive file.`);
-  for (const file of ['bin/codex-for-love.mjs', 'vendor/runtime/cli.mjs', 'vendor/runtime/companion-mcp.mjs', 'vendor/runtime/session-start-hook.mjs', 'vendor/build/index.html', 'vendor/source.json', 'vendor/ecosystem-mcp.example.toml', 'vendor/licenses/NotoSansSC-OFL-1.1.txt', 'vendor/licenses/lamplit-app-Apache-2.0.txt', 'vendor/licenses/lamplit-app-IMPORTS.md', 'vendor/licenses/jaminzhou-codex-app-server-client-MIT.txt', 'vendor/licenses/openai-codex-generated-Apache-2.0.txt']) if (!files.has(file)) throw new Error(`${name} omits ${file}.`);
+  for (const file of ['bin/codex-for-love.mjs', 'vendor/runtime/cli.mjs', 'vendor/runtime/companion-mcp.mjs', 'vendor/runtime/session-start-hook.mjs', 'vendor/source.json', 'vendor/ecosystem-mcp.example.toml', 'vendor/licenses/NotoSansSC-OFL-1.1.txt', 'vendor/licenses/lamplit-app-Apache-2.0.txt', 'vendor/licenses/lamplit-app-IMPORTS.md', 'vendor/licenses/jaminzhou-codex-app-server-client-MIT.txt', 'vendor/licenses/openai-codex-generated-Apache-2.0.txt']) if (!files.has(file)) throw new Error(`${name} omits ${file}.`);
+  if ([...files].some(file => file.startsWith('vendor/build/'))) throw new Error(`${name} contains bundled browser resources.`);
+  const source = JSON.parse(await readFile(join(path, 'vendor/source.json'), 'utf8'));
+  requireAuthMarker(source.contracts, `${name} runtime contract metadata`);
+  const contracts = Object.entries(source.contracts ?? {}).filter(([key]) => key.startsWith('dist/'));
+  if ('browser' in source || !contracts.length || contracts.some(([, value]) => typeof value !== 'string' || !/^[a-f0-9]{64}$/u.test(value))) throw new Error(`${name} has invalid runtime contract metadata.`);
   for (const dependency of ['better-auth@1.7.14', '@better-auth__passkey@1.7.14', '@better-auth__oauth-provider@1.7.14', '@simplewebauthn__server@13.3.3']) {
     if (![...files].some(file => file.startsWith(`vendor/licenses/auth/${dependency}/`))) throw new Error(`${name} omits the ${dependency} license.`);
   }
