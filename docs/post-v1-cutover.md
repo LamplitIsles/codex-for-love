@@ -42,10 +42,10 @@ app-server; actual Post+CFL integration is a separate Orc-assigned probe using
 owned fixtures after both Workers finish. Do not copy live credentials or
 conversations for a probe. No native rebuild or npm publication is required.
 
-For current Shio source promotion follow the candidate and rollback procedure in
-[canonical environments](development-environments.md). Packaging and publishing
-are optional; never link a candidate to mutable checkout dependencies. Preserve old
-candidate/dependency/native bytes. Native builds are not part of this cutover.
+For current Shio source promotion, mutable-checkout protections and rollback,
+follow [canonical environments](development-environments.md). Packaging and
+publishing are optional. Preserve the prior runtime, dependency and native bytes
+needed for rollback. Native builds are not part of this cutover.
 
 ## Historical cutover boundary
 

@@ -32,17 +32,17 @@ Read only the required launcher metadata. Preserve environment-file references
 without displaying their contents. Keep the existing fixed TOML, state root,
 workspace, credentials and conversations in place.
 
-## Prepare an immutable candidate
+## Source preparation and verification guidance
 
 Workers prepare and verify artifacts. Orc owns independent review, governed
-merge and live promotion. Work only in test-owned paths until that handoff.
+merge and live promotion. Use test-owned paths for automated verification.
 Native builds belong to the Codex fork and follow
 [the release skill](../skills/cfl-release/SKILL.md); application preparation
 uses the pinned native artifact and never rebuilds native code.
 
-Use Node 24, pinned pnpm and the pinned Bun toolchain. Prepare a clean App checkout
-at `lamplit-app.sha` following [source preparation](default-shared-frontend.md),
-then run the root sequence:
+For a normal full verification, use Node 24, pinned pnpm and the pinned Bun
+toolchain. Prepare a clean App checkout at `lamplit-app.sha` following
+[source preparation](default-shared-frontend.md), then run the root sequence:
 
 ```sh
 pnpm --config.verify-deps-before-run=false source:prepare --strict
@@ -58,10 +58,10 @@ installation. Keep `CFL_APP_SOURCE` set throughout when using an approved isolat
 App checkout.
 
 Record the exact reviewed CFL main commit, App pin and prepared contract/license
-hashes. Verify the candidate's source-built runtime, selected frontend and pinned
-Linux native artifact with test-owned fixtures. npm packaging and publication are
-optional; neither is a prerequisite for deploying reviewed source to Shio. A
-fresh Mac smoke is not a blanket requirement for unchanged native packages.
+hashes. Use test-owned fixtures for automated verification of the source-built
+runtime, selected frontend and pinned Linux native artifact. npm packaging and
+publication are optional; neither is a prerequisite for deploying reviewed source
+to Shio. A fresh Mac smoke is not a blanket requirement for unchanged native packages.
 Mac-specific changes or a new Mac acceptance claim warrant Mac verification; an
 older version's smoke does not verify a new version.
 
@@ -75,16 +75,21 @@ details. No test uses installed service state or real login.
 
 ## Orc promotion of Shio
 
-Only after current-head review and merge, prepare an immutable source candidate
-from that exact reviewed main commit in a new stable versioned prefix. A source
-archive must be verified against that commit; use `CFL_SOURCE_SHA` with its full
-SHA when preparing an archive without Git metadata. Prepare the exact pinned App
-contracts and frozen CFL dependencies inside the candidate, verify source and
-prepared hashes, Sharp/Koffi loading and source-runtime fake-engine serving, and
-record the resulting identities. An independent source checkout, dependency
-directory or build cache requires its own concrete approval before creation.
-The service must not use mutable checkout files, generated resources or
-dependencies. Protect the finished candidate from edits and keep its paths stable.
+After current-head review and merge, this deployment uses the existing CFL main
+checkout, its existing `node_modules` and generated App contracts. Record the
+exact CFL commit and clean working-tree status, App pin, and prepared
+contract/license hashes; verify that the generated contracts correspond to that
+pin and the runtime being promoted. Reuse the existing dependencies. For this
+deployment, do not install dependencies or run tests or synthetic services.
+
+The checkout, generated resources and dependencies are mutable: later edits,
+installs or preparation can change the deployed runtime without a new reviewed
+commit. Keep those paths stable and protect them from changes while Shio uses
+them; re-establish their source and artifact identities before every promotion or
+restart. If the existing artifacts do not match the reviewed source and pin,
+stop and resolve that mismatch before promotion. An independent checkout,
+dependency directory or build cache requires its own concrete approval before
+creation.
 
 Use the existing verified Linux native artifact in a stable native root, checking
 its package version against the candidate main manifest's exact platform pin and
@@ -114,14 +119,14 @@ manifest. Preserve any reviewed drop-ins unchanged and retain their exact bytes
 if the change requires touching them.
 
 Coordinate a reviewed change to the managed Shio unit in `elec-debian-setup`:
-update its launcher and working directory as needed for the verified candidate
+update its launcher and working directory as needed for the reviewed checkout
 and matching native root, preserving its existing configuration argument,
-environment-file references and other service behavior. For an extracted runtime
-the command has this form, with paths obtained from the actual unit and verified
-candidate rather than assumed:
+environment-file references and other service behavior. The source runtime
+command has this form, with paths obtained from the actual unit and reviewed
+checkout:
 
 ```text
-<node24> <candidate>/apps/partner/runtime/cli.ts --native-package-root <verified-native-root> serve <existing-fixed-partner.toml>
+<node24> <checkout>/apps/partner/runtime/cli.ts --native-package-root <verified-native-root> serve <existing-fixed-partner.toml>
 ```
 
 After host-repository review and merge, install that exact reviewed unit as Neil

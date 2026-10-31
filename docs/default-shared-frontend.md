@@ -268,8 +268,9 @@ identities in IMPORTS remain separate from source-built resource hashes.
 Public GitHub exact-SHA reachability remains a hosted CI prerequisite. Local
 isolated source acceptance does not establish that reachability or hosted CI
 success. The 2026-10-13 Owner authorization in spec #3739 supersedes the
-historical deployment hold. Workers prepare immutable candidates; Orc owns
-current-head review, merge, dev readiness and production promotion.
+historical deployment hold. Workers prepare artifacts; Orc owns current-head
+review, merge, dev readiness and production promotion. Current host-local
+promotion follows [development environments](development-environments.md).
 
 ## Source-line replies and native answer previews — spec #4126
 
