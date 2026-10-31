@@ -23,7 +23,7 @@ section, and the relevant release scripts before choosing commands. Keep the
 checkout and exact package versions aligned. The main manifest's native pins
 are the installed-runtime selection contract.
 
-- For an unchanged-native main release, verify the exact public native package
+- For an unchanged-native public main release, verify the exact public native package
   metadata with `scripts/publish-preflight.mjs`, then follow the tag-driven
   main-package workflow. The tag is the main-package version source; the
   disposable staging step must not mutate the checkout or dependency pins.
@@ -64,10 +64,16 @@ requested that exact publication.
 Shio source deployment does not require npm publication. Follow
 `docs/development-environments.md` for that separate workflow.
 
-Main-package publication is tag-driven and uses the repository's governed tag
+Public npm main-package publication is tag-driven and uses the repository's governed tag
 workflow and GitHub OIDC publisher. Do not substitute a token-based local
 `npm publish`, publish before native dependencies, or treat registry propagation
 delay as a reason to republish an immutable version.
+
+The separate Woodpecker main-branch workflow publishes commit-identified CFL
+snapshots to Forgejo. For its package and the status of installing it with the
+public npm native dependencies, follow `docs/operator-guide.md`'s **Forgejo
+snapshots** section. Snapshot publication does not deploy Shio or replace the
+public npm release process.
 
 For native acceptance before publication, set `CFL_ARTIFACT_DIR` to the prepared
 main artifact directory and `CFL_NATIVE_TARBALL` to the matching prepared native

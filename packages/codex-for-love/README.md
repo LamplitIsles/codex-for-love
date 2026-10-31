@@ -22,9 +22,10 @@ manifest, service worker and management. The obsolete `/slice` entry is removed.
 
 An omitted root TOML `frontend` defaults to `"latest"`, resolving canonical App
 main at each startup. Set `frontend` to a full lowercase commit SHA for a
-reproducible version or rollback. Initial preparation needs network access to GitHub and dependency registries,
-`curl`, `tar`, and Bun 1.3.14 on PATH; initial preparation can take minutes.
-CFL logs the resolved revision and stops on download, build, integrity, or
+reproducible version or rollback. Initial preparation needs `curl` and network
+access to the matching prebuilt GitHub App release. A newly merged revision may
+need time for its release to be published.
+CFL logs the resolved revision and stops on download, integrity, or
 compiled-contract mismatch; it never falls back to another App. An exact
 verified cached revision can start offline. Reload browser pages after restarting.
 

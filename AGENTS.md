@@ -8,7 +8,8 @@ candidates, pin updates and isolated acceptance. For an approved isolated App so
 require the clean exact pin. Native acceptance consumes the separately approved
 frozen artifacts as described in [submission acceptance](docs/native-durable-submissions.md).
 Compiled public contracts come from the pinned App revision; the selected
-frontend must match those contracts exactly.
+frontend must match those contracts exactly. At runtime CFL downloads a
+prebuilt App release; a verified cached full-SHA selection can start offline.
 Task-specific implementation specs live under `.scratch/`. Work in
 this checkout, without worktrees.
 
@@ -48,6 +49,8 @@ Update README for operator contracts and docs/IMPORTS.md for imported source att
 
 Before updating CFL native artifacts or releasing a CFL npm package, read
 [`skills/cfl-release/SKILL.md`](skills/cfl-release/SKILL.md).
+The Woodpecker main-branch snapshot workflow publishes to Forgejo; it does not
+install or deploy Shio.
 
 ### Local Codex build contract
 

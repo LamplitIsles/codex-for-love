@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtemp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -10,58 +10,55 @@ import { test } from 'node:test';
 import { prepareFrontend, runFrontendCommand } from '../runtime/startup-frontend.ts';
 import { authMarkerHash, authMarkerPath } from '../runtime/frontend-contract.ts';
 import { loadConfig } from '../runtime/config.ts';
-import { createWebServer } from './web-server.ts';
-import { fixture } from './fixture.ts';
 
 const one = '1'.repeat(40); const two = '2'.repeat(40); const three = '3'.repeat(40);
 const digest = (value: string) => createHash('sha256').update(value).digest('hex');
 const contracts = { 'dist/index.js': digest('contract'), [authMarkerPath]: authMarkerHash };
+const notices = ['lamplit-app-Apache-2.0.txt', 'lamplit-app-IMPORTS.md', 'NotoSansSC-OFL-1.1.txt'];
 
-test('startup selects, serves, revalidates and rolls back exact App revisions; failures do not fall back', async () => {
+test('startup downloads and verifies the selected App, reuses cache offline, and rejects unsafe or incompatible archives', async () => {
   const root = await mkdtemp(join(tmpdir(), 'cfl-frontend-test-'));
-  const cache = join(root, 'cache'); let latest = one; let builds = 0; let fail = ''; let revision = '';
-  const execute = async (command: string, args: string[], cwd: string, _home: string) => {
-    if (command === 'curl' && args.at(-1)!.endsWith('/commits/main')) {
+  const cache = join(root, 'cache'); let latest = one; let downloads = 0; let fail = '';
+  const execute = async (command: string, args: string[], cwd: string) => {
+    assert.equal(command, 'curl');
+    if (args.at(-1)!.endsWith('/commits/main')) {
       if (fail === 'resolve') throw new Error('offline');
       return JSON.stringify({ sha: latest });
     }
-    if (command === 'curl') { if (fail === 'download') throw new Error('download failed'); revision = args.at(-1)!.split('/').at(-1)!; return ''; }
-    if (command === 'tar') {
-      const source = args.at(-1)!;
-      await writeFile(join(source, 'package.json'), JSON.stringify({ packageManager: 'bun@1.3.14' })); return '';
+    downloads++;
+    const revision = /app-([a-f0-9]{40})\/lamplit-app-\1\.tar\.gz$/u.exec(args.at(-1)!)?.[1];
+    assert.ok(revision, 'exact public GitHub release URL');
+    assert.equal(args.at(-1), `https://github.com/LamplitIsles/lamplit-app/releases/download/app-${revision}/lamplit-app-${revision}.tar.gz`);
+    if (fail === 'download') throw new Error('404');
+    const archive = args[args.indexOf('--output') + 1]!;
+    if (fail === 'corrupt') { await writeFile(archive, 'not gzip'); return ''; }
+    const source = join(cwd, 'fixture');
+    await mkdir(join(source, 'browser/assets'), { recursive: true });
+    await mkdir(join(source, 'contracts/dist'), { recursive: true });
+    await mkdir(join(source, 'licenses'), { recursive: true });
+    const contract = fail === 'contracts' ? 'changed' : 'contract';
+    const marker = fail === 'marker' ? 'wrong' : 'export const CFL_BROWSER_HOST_AUTH_PROTOCOL = "better-auth";\n';
+    await writeFile(join(source, 'browser/index.html'), revision);
+    await writeFile(join(source, 'browser/assets/app.js'), `asset ${revision}`);
+    await writeFile(join(source, 'contracts/dist/index.js'), contract);
+    await writeFile(join(source, 'contracts', authMarkerPath), marker);
+    const licenses: Record<string, string> = {};
+    for (const notice of notices) {
+      if (fail === `missing:${notice}` || fail === 'no-notices') continue;
+      await writeFile(join(source, 'licenses', notice), 'license'); licenses[notice] = digest('license');
     }
-    if (args[0] === '--version') return '1.3.14';
-    if (args[1] === 'build') {
-      builds++; if (fail === 'build') throw new Error('build failed');
-      await mkdir(join(cwd, 'apps/web/build/assets'), { recursive: true });
-      await mkdir(join(cwd, 'packages/contracts/dist'), { recursive: true });
-      await mkdir(join(cwd, 'apps/web/node_modules/@fontsource/noto-sans-sc'), { recursive: true });
-      await mkdir(join(cwd, 'docs'), { recursive: true });
-      await writeFile(join(cwd, 'LICENSE'), 'App license');
-      await writeFile(join(cwd, 'docs/IMPORTS.md'), 'App imports');
-      await writeFile(join(cwd, 'apps/web/package.json'), '{}');
-      await writeFile(join(cwd, 'apps/web/node_modules/@fontsource/noto-sans-sc/package.json'), '{}');
-      await writeFile(join(cwd, 'apps/web/node_modules/@fontsource/noto-sans-sc/LICENSE'), 'Font license');
-      await writeFile(join(cwd, 'apps/web/build/index.html'), revision);
-      await writeFile(join(cwd, 'apps/web/build/assets/app.js'), `asset ${revision}`);
-      await writeFile(join(cwd, 'packages/contracts/dist/index.js'), fail === 'contracts' ? 'changed' : 'contract');
-      await writeFile(join(cwd, 'packages/contracts', authMarkerPath), 'export const CFL_BROWSER_HOST_AUTH_PROTOCOL = "better-auth";\n');
-    }
+    await writeFile(join(source, 'manifest.json'), JSON.stringify({ revision: fail === 'revision' ? one : revision, browser: { 'index.html': digest(fail === 'integrity' ? 'wrong' : revision), 'assets/app.js': digest(`asset ${revision}`) }, contracts: { 'dist/index.js': digest(contract), [authMarkerPath]: digest(marker) }, licenses }));
+    if (fail === 'link') await symlink('../../escape', join(source, 'browser/link'));
+    const transform = fail === 'traversal' ? ['--transform=s,^browser/index.html$,../escape,'] : [];
+    execFileSync('tar', ['--format=ustar', ...transform, '-czf', archive, '-C', source, 'manifest.json', 'browser', 'contracts', 'licenses']);
     return '';
   };
   const opts = { cache, execute, expectedContracts: contracts };
   try {
     const first = await prepareFrontend('latest', import.meta.url, opts);
-    const f = await fixture(); const partner = await f.createPartner(); const app = createWebServer(partner, first);
-    app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening');
-    try {
-      const origin = `http://127.0.0.1:${(app.server.address() as { port: number }).port}`;
-      assert.equal(await (await fetch(origin + '/')).text(), one);
-      assert.equal(await (await fetch(origin + '/chat')).text(), one);
-      assert.equal(await (await fetch(origin + '/assets/app.js')).text(), `asset ${one}`);
-    } finally { await app.close(); await f.close(); }
+    assert.equal(await readFile(join(first, 'index.html'), 'utf8'), one);
     assert.equal(await prepareFrontend(one, import.meta.url, opts), first);
-    assert.equal(builds, 1);
+    assert.equal(downloads, 1);
     const vendor = join(root, 'package/vendor');
     await mkdir(join(vendor, 'runtime'), { recursive: true });
     await writeFile(join(vendor, 'source.json'), JSON.stringify({ contracts }));
@@ -73,19 +70,30 @@ test('startup selects, serves, revalidates and rolls back exact App revisions; f
     latest = two;
     const second = await prepareFrontend('latest', import.meta.url, opts);
     assert.equal(await readFile(join(second, 'index.html'), 'utf8'), two);
-    assert.equal(await prepareFrontend(one, import.meta.url, opts), first);
-    assert.equal(builds, 2);
     fail = 'resolve'; await assert.rejects(prepareFrontend('latest', import.meta.url, opts), /offline/);
-    fail = 'download'; await assert.rejects(prepareFrontend(three, import.meta.url, opts), /download failed/);
-    fail = 'build'; await assert.rejects(prepareFrontend(three, import.meta.url, opts), /build failed/);
-    fail = 'contracts'; await assert.rejects(prepareFrontend(three, import.meta.url, opts), /contracts differ/);
+    for (const [failure, pattern] of [['download', /release may still be publishing/], ['corrupt', /incorrect header|unknown compression/i], ['revision', /invalid revision/], ['integrity', /browser integrity mismatch/], ['contracts', /contracts differ/], ['marker', /protocol marker/i], ['link', /Unsupported frontend archive entry/], ['traversal', /Unsafe frontend archive path/]] as const) {
+      fail = failure; await assert.rejects(prepareFrontend(three, import.meta.url, opts), pattern);
+    }
+    for (const missing of ['no-notices', ...notices.map(notice => `missing:${notice}`)]) {
+      fail = missing; await assert.rejects(prepareFrontend(three, import.meta.url, opts), /required license notice missing/);
+      assert.equal((await readdir(cache)).includes(three), false);
+    }
     assert.equal((await readdir(cache)).some(name => name.startsWith('.stage-')), false);
-    fail = ''; await writeFile(join(first, 'index.html'), 'corrupt');
+    fail = '';
+    const cachedRoot = join(cache, one);
+    const cachedManifestPath = join(cachedRoot, 'manifest.json');
+    const cachedManifest = JSON.parse(await readFile(cachedManifestPath, 'utf8'));
+    await rm(join(cachedRoot, 'licenses', notices[0]!)); delete cachedManifest.licenses[notices[0]!];
+    await writeFile(cachedManifestPath, JSON.stringify(cachedManifest));
+    await assert.rejects(prepareFrontend(one, import.meta.url, opts), /required license notice missing/);
+    await writeFile(join(cachedRoot, 'licenses', notices[0]!), 'license'); cachedManifest.licenses[notices[0]!] = digest('license');
+    await writeFile(cachedManifestPath, JSON.stringify(cachedManifest));
+    await writeFile(join(first, 'index.html'), 'corrupt');
     await assert.rejects(prepareFrontend(one, import.meta.url, opts), /integrity mismatch/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test('build subprocess environment excludes service secrets and timeout reaps the child', async () => {
+test('download subprocess environment excludes service secrets and timeout reaps the child', async () => {
   const root = await mkdtemp(join(tmpdir(), 'cfl-frontend-process-'));
   process.env.CFL_TEST_SECRET = 'must-not-leak';
   try {
@@ -96,15 +104,13 @@ test('build subprocess environment excludes service secrets and timeout reaps th
 });
 
 test('a signal between preparation steps prevents every subsequent subprocess', async () => {
-  for (const stopAfter of [1, 2, 3, 4, 5, 6]) {
+  for (const stopAfter of [1, 2]) {
     const root = await mkdtemp(join(tmpdir(), 'cfl-frontend-cancel-'));
     const calls: string[] = [];
     const execute = async (command: string, args: string[]) => {
       calls.push(`${command} ${args.slice(0, 2).join(' ')}`);
-      if (command === 'tar') await writeFile(join(args.at(-1)!, 'package.json'), JSON.stringify({ packageManager: 'bun@1.3.14' }));
       if (calls.length === stopAfter) process.emit(stopAfter % 2 ? 'SIGTERM' : 'SIGINT');
       if (command === 'curl' && args.at(-1)!.endsWith('/commits/main')) return JSON.stringify({ sha: one });
-      if (command === 'bun' && args[0] === '--version') return '1.3.14';
       return '';
     };
     try {
@@ -115,7 +121,7 @@ test('a signal between preparation steps prevents every subsequent subprocess', 
   }
 });
 
-test('shutdown terminates and reaps an active build child', async () => {
+test('shutdown terminates and reaps an active download child', async () => {
   const root = await mkdtemp(join(tmpdir(), 'cfl-frontend-shutdown-'));
   const marker = join(root, 'pid');
   const module = fileURLToPath(new URL('../runtime/startup-frontend.ts', import.meta.url));

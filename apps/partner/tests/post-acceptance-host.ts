@@ -18,16 +18,29 @@ import { postInputId } from '../runtime/post.ts';
 
 type Incoming = { action: 'incoming'; id: string; source: PostSource; text: string; createdAt: number; history?: boolean; images?: unknown[] };
 export async function postAcceptanceHost(assets: string, evidence?: string) {
+  const cleanup: Array<() => void | Promise<void>> = [];
+  try { return await initializePostAcceptanceHost(assets, evidence, cleanup); }
+  catch (error) {
+    for (const close of cleanup.reverse()) try { await close(); } catch { /* preserve the setup error */ }
+    throw error;
+  }
+}
+
+async function initializePostAcceptanceHost(assets: string, evidence: string | undefined, cleanup: Array<() => void | Promise<void>>) {
   let evidenceIndex = 0;
   const post = await postService();
+  cleanup.push(() => post.close());
   let f = await fixture(), partner: Partner;
+  cleanup.push(() => f.close());
   let clock = Date.parse('2026-10-07T00:00:00Z'), sequence = 0;
   let off = () => {};
+  cleanup.push(() => off());
   const listeners = new Set<() => void>(), submissions: string[] = [];
   let first: Incoming | undefined;
   let historical: Incoming[] = [];
   let published: ChatView | undefined;
   let observer: Awaited<ReturnType<typeof openChat>> | undefined;
+  cleanup.push(() => observer?.close());
   let control = { hold: false, completedText: '普通回复' };
   async function writeControl() {
     const path = f.appServer.env.FAKE_SERVER_CONTROL!;
@@ -50,6 +63,7 @@ export async function postAcceptanceHost(assets: string, evidence?: string) {
     const value = partner[key as keyof Partner]; return typeof value === 'function' ? value.bind(partner) : value;
   } });
   const app = createWebServer(facade, assets, { authorize: async request => request.headers.cookie?.includes('post-test-owner=1') === true });
+  cleanup.push(() => app.close());
   app.server.prependListener('request', (request, response) => {
     if (request.url === '/' || request.url === '/chat') response.setHeader('Set-Cookie', 'post-test-owner=1; Path=/; SameSite=Strict');
   });
@@ -136,6 +150,7 @@ export async function postAcceptanceHost(assets: string, evidence?: string) {
       response.end(JSON.stringify(await action(JSON.parse(Buffer.concat(chunks).toString()))));
     } catch (error) { console.error(error); response.writeHead(500); response.end(JSON.stringify({ error: String(error) })); }
   });
+  cleanup.push(async () => { controls.closeAllConnections(); if (controls.listening) await new Promise<void>(done => controls.close(() => done())); });
   controls.listen(0, '127.0.0.1'); await once(controls, 'listening');
   return { origin, controlUrl: `http://127.0.0.1:${(controls.address() as { port: number }).port}/__test/post-source-ui`, action,
     async close() { observer?.close(); off(); await app.close(); await f.close(); await post.close(); controls.closeAllConnections(); await new Promise<void>(done => controls.close(() => done())); } };

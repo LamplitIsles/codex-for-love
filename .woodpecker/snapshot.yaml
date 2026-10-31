@@ -1,0 +1,49 @@
+clone:
+  git:
+    image: docker.io/woodpeckerci/plugin-git:2.9.2
+    settings:
+      partial: false
+      depth: 0
+
+when:
+  - event: push
+    branch: main
+
+concurrency: 1
+
+steps:
+  - name: verify-source
+    image: node:24.18.1-bookworm@sha256:19cd848a0e073d34bd8cd5545a1b6b4d28489b3e3b607366621ced442bd5f6b4
+    commands:
+      - node scripts/snapshot-publish.mjs verify-head
+      - test -z "$$(git status --porcelain --untracked-files=all)"
+  - name: prepare-dagger
+    image: ghcr.io/tta-lab/dagger-cli:0.21.7@sha256:ed228ba0add728881a81ba4a58914921d76e9ccdc00287a8214651f909edd784
+    commands:
+      - cp "$$(command -v dagger)" .git/cfl-dagger
+  - name: build-and-verify
+    image: node:24.18.1-bookworm@sha256:19cd848a0e073d34bd8cd5545a1b6b4d28489b3e3b607366621ced442bd5f6b4
+    environment:
+      _EXPERIMENTAL_DAGGER_RUNNER_HOST: tcp://10.42.0.1:18081
+    commands:
+      - |
+        set -eu
+        DAGGER_CLI="$${PWD}/.git/cfl-dagger" sh scripts/snapshot-build.sh
+  - name: publish
+    image: node:24.18.1-bookworm@sha256:19cd848a0e073d34bd8cd5545a1b6b4d28489b3e3b607366621ced442bd5f6b4
+    environment:
+      FORGEJO_PACKAGES_TOKEN:
+        from_secret: forgejo_packages_token
+    commands:
+      - |
+        set -eu
+        test -n "$${FORGEJO_PACKAGES_TOKEN}" || { echo 'Missing Forgejo packages token'; exit 1; }
+        auth_file="$$(mktemp)"
+        trap 'rm -f "$${auth_file}"' EXIT
+        chmod 600 "$${auth_file}"
+        printf '%s\n' '//forgejo.n5.guion.io/api/packages/LamplitIsles/npm/:_authToken=$${FORGEJO_PACKAGES_TOKEN}' > "$${auth_file}"
+        export NPM_CONFIG_USERCONFIG="$${auth_file}"
+        node scripts/snapshot-publish.mjs stage
+        cmp packages/codex-for-love/package.json .snapshot-artifacts/staged-package.json
+        (cd .snapshot-artifacts/package && sha256sum -c snapshot.sha256)
+        node scripts/snapshot-publish.mjs publish .snapshot-artifacts/package/snapshot.tgz

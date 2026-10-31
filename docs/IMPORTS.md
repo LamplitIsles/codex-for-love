@@ -301,7 +301,7 @@ original integration work. FlickLog itself and prompt semantics are unchanged.
 
 ### Independently selected App at startup
 
-The startup selector builds source only from public canonical
+The startup selector downloads prebuilt releases from public canonical
 `https://github.com/LamplitIsles/lamplit-app` at the resolved exact commit.
 The cache records the commit and complete browser, compiled-contract and license
 hashes, and retains App's Apache-2.0 license, imports and Noto Sans SC OFL.

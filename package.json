@@ -10,7 +10,7 @@
   "scripts": {
     "build": "pnpm --filter @lamplitisles/partner build",
     "check": "pnpm --filter @lamplitisles/partner check",
-    "test": "node --test scripts/launcher.test.mjs scripts/shared-source.test.mjs scripts/native-prepare.test.mjs scripts/artifact-smoke-probe.test.mjs scripts/packaged-frontend-probe.test.mjs scripts/frontend-contract.test.mjs && pnpm --filter @lamplitisles/partner test",
+    "test": "node --test scripts/snapshot-publish.test.mjs scripts/launcher.test.mjs scripts/shared-source.test.mjs scripts/native-prepare.test.mjs scripts/artifact-smoke-probe.test.mjs scripts/packaged-frontend-probe.test.mjs scripts/frontend-contract.test.mjs && pnpm --filter @lamplitisles/partner test",
     "start": "pnpm --filter @lamplitisles/partner start",
     "release:prepare": "node scripts/release-prepare.mjs",
     "release:check": "node scripts/pack-check.mjs",

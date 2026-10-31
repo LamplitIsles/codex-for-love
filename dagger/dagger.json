@@ -1,0 +1,7 @@
+{
+  "name": "cfl-snapshot",
+  "engineVersion": "v0.21.7",
+  "sdk": "go",
+  "include": [],
+  "exclude": [".git", ".scratch", ".snapshot-artifacts", ".generated", "**/node_modules", "**/.env", "**/.env.*", "**/.lamplit", "**/vendor"]
+}

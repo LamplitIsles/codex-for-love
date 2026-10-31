@@ -98,8 +98,8 @@ checking direct `bin/codex-app-server --version` and
 root and dependency bytes needed for rollback, whether the prior installation is
 source-based or packaged.
 
-The reviewed unit must expose Bun 1.3.14, curl and tar on PATH and allow the
-documented network access. An omitted `frontend` selects `latest`; an explicit
+The reviewed unit must expose curl on PATH and allow the documented GitHub
+network access for uncached App releases. An omitted `frontend` selects `latest`; an explicit
 full SHA pins the App. After restart, record
 the resolved SHA from startup output and compare every served resource with that
 revision’s cache manifest; `latest` may have advanced since review. Reload browser

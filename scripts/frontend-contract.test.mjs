@@ -63,9 +63,10 @@ test('frontend fixture rejects old or altered protocol and retains exact contrac
   try {
     await mkdir(join(root, 'browser')); await mkdir(join(root, 'contracts/dist'), { recursive: true }); await mkdir(join(root, 'licenses'));
     await writeFile(join(root, 'browser/index.html'), 'frontend');
-    await writeFile(join(root, 'licenses/license.txt'), 'license');
+    const licenses = Object.fromEntries(['lamplit-app-Apache-2.0.txt', 'lamplit-app-IMPORTS.md', 'NotoSansSC-OFL-1.1.txt'].map(name => [name, sha('license')]));
+    for (const name of Object.keys(licenses)) await writeFile(join(root, 'licenses', name), 'license');
     await writeFile(join(root, 'contracts/dist/index.js'), 'contract');
-    const manifest = { revision, browser: { 'index.html': sha('frontend') }, contracts: { 'dist/index.js': sha('contract') }, licenses: { 'license.txt': sha('license') } };
+    const manifest = { revision, browser: { 'index.html': sha('frontend') }, contracts: { 'dist/index.js': sha('contract') }, licenses };
     const save = () => writeFile(join(root, 'manifest.json'), JSON.stringify(manifest));
     await save();
     await assert.rejects(verifyFrontend(root, revision, expected), /Selected frontend contracts.*Better Auth browser-host protocol marker/);

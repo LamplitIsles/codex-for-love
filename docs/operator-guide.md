@@ -686,22 +686,60 @@ offline. Other values fail configuration validation. CFL logs the resolved SHA
 before listening. To roll back, select a previously known SHA and restart; reload
 old browser pages after restart so their HTML and assets are from the same version.
 
-First preparation needs Node 24, `curl`, `tar`, Bun 1.3.14 on the service PATH,
-and access to canonical GitHub and the App lockfile's dependency registries.
-The frozen install and build can take minutes and need disk space. Proxy and CA
-settings are passed to a build with a private temporary HOME; Partner secrets
-and state are not forwarded. Prepared resources, source revision, compiled
-contract hashes and licenses live in `$XDG_CACHE_HOME/lamplitisles/codex-for-love/frontend`
-(or `~/.cache/lamplitisles/codex-for-love/frontend`). Protect this cache like the
-service account. A complete cache entry is rechecked before every use. Download,
-build, incomplete resources, integrity or contract mismatch stops startup with
-an error; no other frontend is substituted. Exact equality of compiled
-contracts and the Better Auth browser-host protocol marker are required. App
-revisions and cached entries without that marker cannot be used; select a
-compatible revision and prepare CFL from its reviewed pin. Update CFL first
-when the selected App's contracts differ. If a cache entry is damaged,
-stop the service and remove only that SHA directory from the frontend cache;
-the next startup prepares it again and requires network access.
+First preparation needs Node 24, `curl`, and access to GitHub. CFL downloads
+`lamplit-app-<SHA>.tar.gz` from the public `app-<SHA>` GitHub Release; it never
+builds App on the service host. A freshly merged `main` may resolve before the
+release is published: wait for App CI and retry, or select a known compatible
+full SHA. Prepared resources, source revision, compiled contract hashes and
+licenses live in `$XDG_CACHE_HOME/lamplitisles/codex-for-love/frontend` (or
+`~/.cache/lamplitisles/codex-for-love/frontend`). Protect this cache like the
+service account. Each entry is rechecked before every use. Download failure,
+unsafe archive, incomplete resources, integrity or contract mismatch stops
+startup. Exact equality of compiled contracts and the Better Auth browser-host
+protocol marker are required. If a cache entry is damaged, stop the service
+and remove only that SHA directory; the next startup downloads it again.
+
+## Forgejo snapshots
+
+Woodpecker builds and verifies a CFL snapshot on pushes to `main` and publishes
+`<base>.snapshot.g<full-commit-SHA>` (or `<base>-snapshot.g<SHA>` for a stable
+base) to the LamplitIsles Forgejo npm registry. It retains public npm native
+package pins and does not bundle the App browser. Snapshot publication does not
+install or restart Shio. The repository's GitHub tag-driven public npm release
+process above remains separate.
+
+For a deliberate package update, select the exact snapshot tarball URL from the
+Forgejo npm package metadata. The candidate installation route is to install that
+URL with the default registry explicitly set to `https://registry.npmjs.org/`,
+without an `@lamplitisles` scope registry override, so the native optional
+packages can resolve from npmjs. This routing still requires an authorized
+isolated install verification before it is used operationally. The intended
+command is `npm install --global "$SNAPSHOT_TARBALL_URL" --registry=https://registry.npmjs.org/`
+with the selected exact URL and no scope override in npm configuration. Do not set the
+whole scope to Forgejo: it also contains the public native dependencies.
+
+Woodpecker requires the `forgejo_packages_token` secret with package publication
+access. Publication serializes its own main workflows, verifies the current
+`latest` snapshot is an ancestor, and refuses conflicting bytes or ambiguous
+retries. Do not run an independent concurrent publisher against the same tag.
+A failed or uncertain publication requires registry inspection before any retry.
+
+Snapshot builds use Dagger 0.21.7 and an existing persistent engine. CFL's App
+preparation has its own locked Bun 1.3.14 download cache; CFL also has a separate
+pnpm 11.22.0 store. These caches belong to the CFL module, not the App build's
+module. Source, installed dependencies, credentials and package output are not
+cached in these volumes.
+Both installs remain frozen and an empty cache must work. Local and CI reuse
+requires the same engine, a retained cache and the same module cache namespace.
+That reuse, the engine's available capacity and the CI agent's access remain to
+be verified before enabling the workflow.
+
+To run the same snapshot build locally, select that existing engine with
+`_EXPERIMENTAL_DAGGER_RUNNER_HOST`, use the 0.21.7 Dagger CLI, and set
+`CI_COMMIT_SHA` to the clean checkout's full HEAD before running
+`sh scripts/snapshot-build.sh`. It creates `.snapshot-artifacts` and refuses an
+existing directory; retain or remove only output from your own previous run.
+The result is checked and packed once, but the local command does not publish it.
 
 ## Shared frontend build and acceptance
 

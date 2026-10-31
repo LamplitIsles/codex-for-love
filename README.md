@@ -62,7 +62,7 @@ A companion's life should not disappear into an opaque service. CFL keeps its ap
 The official Codex thread remains the conversation authority. CFL does not duplicate model transcripts, reasoning, or tool payloads into its own database. The workspace can be read, backed up, searched, corrected, and moved with ordinary local tools.
 
 Every installation selects canonical App `latest` by default or an exact commit
-at startup; browser resources are prepared independently. See the
+at startup; prebuilt browser resources are downloaded independently. See the
 [frontend selection guide](docs/operator-guide.md#independent-frontend-selection).
 
 ## Quick start
