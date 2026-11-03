@@ -1,3 +1,4 @@
+import { ModelSelection, ModelPreferenceError, WRITABLE_MODELS, modelUnavailable, readModelPreference, saveModelPreference } from './model-preference.ts';
 import { startManagedAppServer } from './managed-app-server.ts';
 import { postInput, postConversationName, discoverPost, receiverAuthorized, validatePost } from './post.ts';
 import { postImage } from './post-assets.ts';
@@ -96,14 +97,22 @@ const HISTORY_PAGE_MESSAGES = 50;
 const HISTORICAL_FALLBACK_START = new Date(2026, 8, 1).getTime();
 const ALARM_INPUT_PREFIX = '[Partner self-set reminder; not from the Human or Keet]\n';
 
-/** Match DSH's 50-message history window against CFL's rendered projection. */
+/** Target 50 visible messages without splitting native turn/source spans. */
 export function visibleHistoryPage(messages: readonly MessageMeta[], results: readonly TurnResult[], before?: number) {
   const candidates = messages.filter((message) => before === undefined || message.sequence < before);
   const resultBySource = new Map(results.map((result) => [result.sourceIds.at(-1), result]));
+  const sourceIndex = new Map(candidates.map((message, index) => [message.id, index]));
+  const firstSourceIndexById = new Map<string, number>();
+  for (const result of results) {
+    const indices = result.sourceIds.flatMap(id => sourceIndex.has(id) ? [sourceIndex.get(id)!] : []);
+    if (!indices.length) continue;
+    const first = Math.min(...indices);
+    for (const id of result.sourceIds) firstSourceIndexById.set(id, first);
+  }
   const selected: MessageMeta[] = [];
+  let requiredStart = candidates.length;
   let visible = 0;
   let index = candidates.length - 1;
-  let requiredIndex = Number.POSITIVE_INFINITY;
   for (; index >= 0; index -= 1) {
     const message = candidates[index]!;
     const result = resultBySource.get(message.id);
@@ -113,18 +122,26 @@ export function visibleHistoryPage(messages: readonly MessageMeta[], results: re
     const units = 1 + resultUnits;
     // Keep one whole input/result group when it alone is larger than the page,
     // so a Partner response is never detached from the input it answers.
-    if (selected.length && visible + units > HISTORY_PAGE_MESSAGES && index < requiredIndex) break;
+    if (selected.length && index < requiredStart && visible + units > HISTORY_PAGE_MESSAGES) break;
+    // chat projects a whole native timeline for any selected source. Include
+    // its earliest source and intervening admissions, closing overlapping spans
+    // as we walk back. Shared chat anchors still bound each wire page to 30.
+    requiredStart = Math.min(requiredStart, firstSourceIndexById.get(message.id) ?? index);
     selected.push(message);
     visible += units;
-    for (const group of results) {
-      if (!group.sourceIds.includes(message.id)) continue;
-      const earliest = candidates.findIndex(candidate => group.sourceIds.includes(candidate.id));
-      if (earliest >= 0) requiredIndex = Math.min(requiredIndex, earliest);
-    }
   }
   selected.reverse();
+  const selectedIds = new Set(selected.map(message => message.id));
+  for (const result of results) {
+    if (result.sourceIds.some(id => selectedIds.has(id))) {
+      // A retained cursor bounds the seed window, not later sources of a turn
+      // already in it. Its full current timeline must include those inputs too;
+      // shared anchors still clip the projection at the original native item.
+      for (const id of result.sourceIds) selectedIds.add(id);
+    }
+  }
   return {
-    messages: selected,
+    messages: messages.filter(message => selectedIds.has(message.id)),
     cursor: messages.at(-1)?.revision ?? 0,
     hasChangesMore: false,
     hasMore: index >= 0,
@@ -495,6 +512,10 @@ export async function createPartner(config: Config, credentials: Credentials, de
   const persona = await readFile(config.prompts.persona, 'utf8');
   if (!persona.trim()) throw new Error('Persona must not be empty');
   const paths = partnerPaths(config.workspace!);
+  const preferencePath = join(paths.managedRoot, 'model-preference.json');
+  const initialPreference = await readModelPreference(preferencePath);
+  let currentModel = initialPreference.model;
+  let currentFast = initialPreference.fast;
   const profileMediaType = (path: string) => ({ '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif' })[extname(path).toLowerCase()];
   const loadProfileImage = async (path: string | undefined, label: string, maxBytes: number) => {
     if (!path) return undefined;
@@ -579,6 +600,9 @@ export async function createPartner(config: Config, credentials: Credentials, de
   let compacting = false;
   let compactAdmissionPending = false;
   let pendingHumanAdmissions = 0;
+  let pendingKeetIngress = 0;
+  let externalIngressRevision = 0;
+  let pendingExternalAdmissions = 0;
   let eventChain: Promise<void> = Promise.resolve();
   let admission: Promise<void> = Promise.resolve();
   let inputAdmission: Promise<void> = Promise.resolve();
@@ -1095,6 +1119,8 @@ export async function createPartner(config: Config, credentials: Credentials, de
       const native = await nativeInput(postContext && intent.ids.length === 1 ? postInput(postContext.event, postContext.media, { conversationName }) : intent.source === 'alarm' ? `${ALARM_INPUT_PREFIX}${intent.input}` : intent.input, intent.images, store, threadId, paths.attachments);
       const response = await appServer.call('turn/start', {
         threadId,
+        model: currentModel,
+        serviceTierForTurn: currentFast ? 'priority' : 'default',
         input: native.values,
         clientUserMessageId: intent.transportId,
         ...(intent.source !== 'none'
@@ -1272,10 +1298,13 @@ export async function createPartner(config: Config, credentials: Credentials, de
   }
 
   function drainExternal(): void {
+    if (!keetEnabled && !postEnabled) return;
+    let working = false;
     const task = admission.then(async () => {
       if (closing || compacting || activeTurnId || recoveryPromise || (!keetEnabled && !postEnabled) || storageError) return;
       const pending = (await store.pendingMessages()).filter((item) => ((keetEnabled && item.id.startsWith('keet:webhook:')) || (postEnabled && item.id.startsWith('post:v1:'))) && !observedInputIds.has(item.id));
       if (!pending.length || activeTurnId || closing) return;
+      working = true; pendingExternalAdmissions += 1;
       let first: typeof pending[number] | undefined;
       let postBlocked = false;
       for (const candidate of pending) {
@@ -1305,13 +1334,17 @@ export async function createPartner(config: Config, credentials: Credentials, de
         }
       }
     });
-    admission = task.catch(() => { if (!closing) notify(); });
+    admission = task.catch(() => { if (!closing) notify(); }).finally(() => { if (working) pendingExternalAdmissions -= 1; });
   }
 
   function checkAlarms(): Promise<void> {
+    let working = false;
     const task = admission.then(async () => {
       if (closing || compacting || activeTurnId || recoveryPromise || storageError) return;
-      for (const alarm of dueAlarms(paths.alarms, now())) {
+      const due = dueAlarms(paths.alarms, now());
+      if (!due.length) return;
+      working = true; pendingExternalAdmissions += 1;
+      for (const alarm of due) {
         if (closing || compacting || activeTurnId || recoveryPromise) break;
         // Missed occurrences expire; admitted inputs retain their existing receipts.
         if (now() - alarm.nextAt > 60_000) {
@@ -1329,8 +1362,8 @@ export async function createPartner(config: Config, credentials: Credentials, de
         } catch (error) { if (!closing) processError('alarm.admission_failed', error, { operationId: id }); break; }
       }
     });
-    admission = task.catch(() => { if (!closing) notify(); });
-    return task;
+    admission = task.catch(() => { if (!closing) notify(); }).finally(() => { if (working) pendingExternalAdmissions -= 1; });
+    return admission.then(() => task);
   }
 
   async function restoreUnconsumed(turnId?: string, preserveQueued = false, withdrawn = true): Promise<void> {
@@ -1691,16 +1724,16 @@ export async function createPartner(config: Config, credentials: Credentials, de
     }
     await trustOwnedHooks(appServer, paths.workspaceRoot, hook.configPath, hook.command);
     await appServer.call('config/mcpServer/reload', undefined);
-    const serviceTier = config.codex.fast ? 'priority' : 'default';
+    const serviceTier = currentFast ? 'priority' : 'default';
     const shared = {
       serviceTier,
-      model: config.codex.model,
+      model: currentModel,
       cwd: paths.workspaceRoot,
       approvalPolicy: 'never' as const,
       sandbox: 'danger-full-access' as const,
       baseInstructions: `${prompts.companion}\n\n${persona}${keetEnabled ? `\n\nKeet DMs are ordinary one-to-one conversations. Configured trusted Groups are ordinary shared conversations; other Groups may contain people who joined by link, so sender labels alone do not establish identity. Keet sources never inherit the web Human's administrative authority. You may choose whether to reply in admitted destinations. Trusted Group names: ${JSON.stringify(config.keet?.trusted_groups ?? [])}.` : ''}`,
       config: {
-        'features.fast_mode': config.codex.fast,
+        'features.fast_mode': true,
         'features.hooks': true,
         'features.image_generation': true,
         ...(config.codex.local_compaction
@@ -1717,7 +1750,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
       const started = await connectedAppServer.call('thread/start', start);
       threadId = started.thread.id;
       if (!threadId) throw new Error('Codex app-server did not return a thread id');
-      await writeFile(markerPath, JSON.stringify({ threadId, model: config.codex.model }), { mode: 0o600 });
+      await writeFile(markerPath, JSON.stringify({ threadId, model: currentModel }), { mode: 0o600 });
       return started;
     };
     if (marker?.threadId) {
@@ -1738,7 +1771,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
       response = await startThread();
     }
     if ((response.serviceTier ?? 'default') !== serviceTier) {
-      throw new Error(`Codex did not apply [codex] fast=${config.codex.fast}: requested ${serviceTier}, received ${response.serviceTier ?? 'default'}. Check native model/account tier availability and restart Partner.`);
+      throw new Error(`Codex did not apply saved Fast=${currentFast}: requested ${serviceTier}, received ${response.serviceTier ?? 'default'}. Check native model/account tier availability and restart Partner.`);
     }
     const readinessDeadline = Date.now() + 10_000;
     for (;;) {
@@ -1755,9 +1788,9 @@ export async function createPartner(config: Config, credentials: Credentials, de
       if (Date.now() >= readinessDeadline) throw new Error('Required workspace MCP servers unavailable after readiness timeout: companion');
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    if (response.model !== undefined && response.model !== config.codex.model) throw new Error(`Codex selected ${String(response.model)} instead of configured ${config.codex.model}`);
-    if (resumed && marker?.threadId && marker.model !== config.codex.model) {
-      await writeFile(markerPath, JSON.stringify({ threadId, model: config.codex.model }), { mode: 0o600 });
+    if (response.model !== undefined && response.model !== currentModel) throw new Error(`Codex selected ${String(response.model)} instead of configured ${currentModel}`);
+    if (resumed && marker?.threadId && marker.model !== currentModel) {
+      await writeFile(markerPath, JSON.stringify({ threadId, model: currentModel }), { mode: 0o600 });
     }
     await hydrateHistory();
     startupPending = false;
@@ -1780,6 +1813,20 @@ export async function createPartner(config: Config, credentials: Credentials, de
     const input = validateSubmission(value);
     return { operationId: input.operationId, text: input.text, ...(input.images?.length ? { images: input.images.map(({ attachmentId, name, mediaType, availability, sticker }) => ({ attachmentId, name, mediaType, availability, ...(sticker ? { sticker: { id: sticker.id, version: sticker.version } } : {}) })) } : {}), ...(input.replacementSourceIds?.length ? { replacementSourceIds: input.replacementSourceIds } : {}) };
   }
+  function modelBusy() {
+    return Boolean(pendingHumanAdmissions || pendingKeetIngress || postIngress.size || pendingExternalAdmissions || compactAdmissionPending
+      || startupPending || activeTurnId || submittingOperationId || pendingStarts.size || pendingSteers.length
+      || rejectedSteers.length || recoveryPromise || compacting || lifecycle?.status === 'running');
+  }
+  async function hasPendingNativeInputs() {
+    // Observed/replaced inputs are retired; rejected inputs remain editable drafts.
+    // A durable input without a conclusive rejection can still be native-owned.
+    for (const input of await unresolvedMessages()) {
+      if (await store.rejected(input.id) === undefined) return true;
+    }
+    return false;
+  }
+  function modelReady() { if (closing || storageError || appServer?.state !== 'connected' || !threadId) throw modelUnavailable(); }
   function serializeInput<T>(action: () => Promise<T>): Promise<T> {
     const result = inputAdmission.then(action);
     inputAdmission = result.then(() => undefined, () => undefined);
@@ -1923,29 +1970,34 @@ export async function createPartner(config: Config, credentials: Credentials, de
         processLog('post.ingress', { stage: 'retained', platform: event.message.platform, kind: event.message.conversation.type });
         messageIds.add(id); drainExternal(); notify();
       })();
+      externalIngressRevision += 1;
       postIngress.add(task);
       try { await task; } finally { postIngress.delete(task); }
     },
     async ingestKeet(message: KeetEventBody) {
-      if (!keetEnabled || closing) throw new Error('Keet ingress unavailable');
-      const inputId = `keet:webhook:${message.eventId}`;
-      if (await store.hasKeetEvent(message.eventId)) return;
-      const trigger = classifyKeetTrigger(message, config.keet?.trigger_aliases);
-      const isDm = message.destination.kind === 'dm';
-      const fetched = isDm && message.images?.length
-        ? await materializeKeetImages(paths.workspaceRoot, config.keet!.endpoint!, credentials.keet!, inputId, message.images)
-        : { images: [], unavailable: 0 };
-      const imageNote = message.images?.length
-        ? isDm
-          ? `\n[Keet images: ${fetched.images.length} attached; ${fetched.unavailable} unavailable.]`
-          : `\n[Keet images: ${message.images.length} present; ${message.images.filter(image => image.status === 'unavailable').length} unavailable. Image bytes are not included in Group context.]`
-        : '';
-      const localTime = new Date(now()).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-      const accepted = await store.recordKeetEvent({ eventId: message.eventId, sequence: message.sequence, destination: message.destination, senderLabel: message.senderLabel, text: `${message.text}${imageNote}`, originalText: message.text, ...(imageNote ? { imageNote } : {}), messageId: message.messageId, timestamp: message.timestamp, localTime, ...(trigger ? { trigger } : {}), ...(message.replyTo ? { replyTo: message.replyTo } : {}), ...(message.reactionContext ? { reactionContext: message.reactionContext } : {}), input: message.destination.kind === 'broadcast' || (message.destination.kind === 'group' && !trigger) ? undefined : { id: inputId, text: `${message.text}${imageNote}`, ...(isDm && fetched.images.length ? { images: fetched.images } : {}) } });
-      if (accepted) {
-        if (message.destination.kind !== 'broadcast' && (message.destination.kind !== 'group' || trigger)) messageIds.add(inputId);
-        drainExternal(); notify();
-      }
+      externalIngressRevision += 1;
+      pendingKeetIngress += 1;
+      try {
+        if (!keetEnabled || closing) throw new Error('Keet ingress unavailable');
+        const inputId = `keet:webhook:${message.eventId}`;
+        if (await store.hasKeetEvent(message.eventId)) return;
+        const trigger = classifyKeetTrigger(message, config.keet?.trigger_aliases);
+        const isDm = message.destination.kind === 'dm';
+        const fetched = isDm && message.images?.length
+          ? await materializeKeetImages(paths.workspaceRoot, config.keet!.endpoint!, credentials.keet!, inputId, message.images)
+          : { images: [], unavailable: 0 };
+        const imageNote = message.images?.length
+          ? isDm
+            ? `\n[Keet images: ${fetched.images.length} attached; ${fetched.unavailable} unavailable.]`
+            : `\n[Keet images: ${message.images.length} present; ${message.images.filter(image => image.status === 'unavailable').length} unavailable. Image bytes are not included in Group context.]`
+          : '';
+        const localTime = new Date(now()).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+        const accepted = await store.recordKeetEvent({ eventId: message.eventId, sequence: message.sequence, destination: message.destination, senderLabel: message.senderLabel, text: `${message.text}${imageNote}`, originalText: message.text, ...(imageNote ? { imageNote } : {}), messageId: message.messageId, timestamp: message.timestamp, localTime, ...(trigger ? { trigger } : {}), ...(message.replyTo ? { replyTo: message.replyTo } : {}), ...(message.reactionContext ? { reactionContext: message.reactionContext } : {}), input: message.destination.kind === 'broadcast' || (message.destination.kind === 'group' && !trigger) ? undefined : { id: inputId, text: `${message.text}${imageNote}`, ...(isDm && fetched.images.length ? { images: fetched.images } : {}) } });
+        if (accepted) {
+          if (message.destination.kind !== 'broadcast' && (message.destination.kind !== 'group' || trigger)) messageIds.add(inputId);
+          drainExternal(); notify();
+        }
+      } finally { pendingKeetIngress -= 1; }
     },
     diary() { return listDiary(paths.workspaceRoot); },
     readDiary(name: string) { return readDiary(paths.workspaceRoot, name); },
@@ -2019,6 +2071,43 @@ export async function createPartner(config: Config, credentials: Credentials, de
         }); },
         async media(version, variant) { await guard(); return stickers.media(version, variant); },
       };
+    },
+    async models() {
+      modelReady();
+      const pending = await hasPendingNativeInputs();
+      modelReady();
+      return { sessionId: threadId, currentModel, fast: currentFast, busy: modelBusy() || pending };
+    },
+    selectModel(value: unknown, authorize: () => Promise<boolean>, authorizeCommit: () => boolean) {
+      const parsed = ModelSelection.safeParse(value);
+      if (!parsed.success) return Promise.reject(new ModelPreferenceError('invalid_request', 400, 'Invalid model selection.'));
+      const input = parsed.data;
+      if (!(WRITABLE_MODELS as readonly string[]).includes(input.model)) return Promise.reject(new ModelPreferenceError('invalid_model', 400, 'Choose a supported model.'));
+      const ingressRevision = externalIngressRevision;
+      const guard = () => {
+        if (!authorizeCommit()) throw new ModelPreferenceError('unauthorized', 401, 'Sign in to continue.');
+        modelReady();
+        if (input.sessionId !== threadId || input.expectedModel !== currentModel || input.expectedFast !== currentFast) throw new ModelPreferenceError('stale_model', 409, 'Refresh the model preference before choosing again.');
+        if (modelBusy() || externalIngressRevision !== ingressRevision) throw new ModelPreferenceError('model_busy', 409, 'Wait for the conversation to finish.');
+      };
+      try { guard(); } catch (error) { return Promise.reject(error); }
+      // Acquire the durable-input lane before native admission, matching input execution order.
+      return serializeInput(() => {
+        const task = admission.then(async () => {
+          if (!await authorize()) throw new ModelPreferenceError('unauthorized', 401, 'Sign in to continue.');
+          guard();
+          await eventChain; guard();
+          const pending = await hasPendingNativeInputs(); guard();
+          if (pending) throw new ModelPreferenceError('model_busy', 409, 'Wait for pending conversation input.');
+          if (input.model !== currentModel || input.fast !== currentFast) {
+            try { await saveModelPreference(preferencePath, { model: input.model, fast: input.fast }, guard, () => { currentModel = input.model; currentFast = input.fast; }); }
+            catch (error) { if (error instanceof ModelPreferenceError) throw error; throw modelUnavailable(); }
+          }
+          return { sessionId: threadId, currentModel, fast: currentFast, busy: modelBusy() };
+        });
+        admission = task.then(() => undefined, () => undefined);
+        return task;
+      });
     },
     async sharedImageLimits() { return storageError || closing ? false as const : { ...imageLimits, mediaTypes: [...imageLimits.mediaTypes] }; },
     async uploadImages(value: ImageUpload, authorize: () => Promise<boolean> = async () => true, authorizeCommit?: () => boolean) {

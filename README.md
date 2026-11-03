@@ -67,7 +67,7 @@ at startup; prebuilt browser resources are downloaded independently. See the
 
 ## Quick start
 
-The CLI supports **Linux x64 and macOS Apple Silicon** and includes the matching standalone Codex app-server and code-mode host. It requires Node 24 and an existing official Codex login. This checkout's launcher checks that the installed native package matches the main package's exact pin before starting. CFL owns the app-server version contract; TOML configures the model and runtime options. This checkout pins Codex 0.164.0 native packages for both platforms.
+The CLI supports **Linux x64 and macOS Apple Silicon** and includes the matching standalone Codex app-server and code-mode host. It requires Node 24 and an existing official Codex login. This checkout's launcher checks that the installed native package matches the main package's exact pin before starting. CFL owns the app-server version contract; Settings select model and Fast; TOML configures other runtime options. This checkout pins Codex 0.164.0 native packages for both platforms.
 
 ### 1. Check the Codex login
 
@@ -146,20 +146,33 @@ after CFL's startup check, so the dedicated directory must not be concurrently
 written by other services. The listener's readiness log is not peer authentication
 against replacement by another process under the same user.
 
-Set `[codex] fast = true` in Partner TOML to request native Fast (`priority`)
-for both new and resumed threads. `false` or omission explicitly selects the
-ordinary (`default`) tier, including after Fast was previously enabled. Restart
-Partner after changing it; the same stored thread, model and reasoning effort
-are preserved. Partner checks the returned tier before becoming ready and reports
-an error if the requested tier was not applied. Native model/account availability
-still governs Fast; it is a requested tier, not a latency guarantee. See the
-[official Codex speed documentation](https://learn.chatgpt.com/docs/agent-configuration/speed#fast-mode)
-for current availability and usage details.
+Model selection in Settings saves immediately when a radio option is chosen:
+`gpt-6.1-sol`, `gpt-5.6-sol`, or `gpt-6.1-terra`. With no saved workspace
+preference, the default is `gpt-6.1-sol` with Fast on. Both values live in
+`.lamplit/model-preference.json`; model and Fast are no longer Partner TOML
+options. Every future native turn and startup resume uses the saved preference;
+the conversation keeps the same native thread and history. Switching is blocked
+while inputs, external work, recovery, or compaction are pending. Malformed saved
+preferences stop startup visibly; restore a known-good backup while Partner is
+stopped. See the [model and Fast API contract](docs/operator-guide.md#model-preference-api).
 
-```toml
-[codex]
-fast = true
-```
+Fast is controlled in Settings and defaults **on**. Saving either control
+atomically saves both model and Fast for future turns, without a restart or new
+thread. Fast requests native `priority`; off explicitly requests `default`.
+Partner keeps the native Fast capability enabled and applies a start-only tier
+override on every future human, Post, Keet and alarm turn; active turns and
+reasoning are unchanged. Startup checks the tier returned by native start/resume
+and fails if it differs. Provider/model support and account entitlement still
+govern actual priority service; a confirmed preference is not proof of delivery
+or a latency guarantee. After an idle model switch, native may omit unsupported
+priority without rejecting the turn; no effective-tier acknowledgement is exposed
+by turn/start. Native execution errors retain their existing reporting.
+
+Existing Partner TOML `[codex] model` and `fast` entries are accepted and
+ignored. They cannot change defaults or saved preferences and are absent from
+the runtime Config. Other unknown keys remain rejected. Existing configs need
+no manual edit, automatic rewrite, or migration.
+
 
 On N5, Shio is the only CFL instance: Neil’s user systemd unit `codex-for-love-shio.service`, serving port 3084. Orc manually promotes a verified Forgejo npm snapshot and its exact pinned native dependency from npmjs. Mac is a build/smoke host with no CFL service. See [Host-local Partner environments](docs/development-environments.md) for preparation, promotion and rollback.
 
@@ -708,7 +721,8 @@ the common 160,000/320,000-byte JPEG bounds. Native execution receives the origi
 bytes, including image-only messages and active-turn steering.
 
 Authenticated `POST /api/chat/images` stages an immutable ordered upload under
-this Partner session and operation UUID. Upload does not admit a message or add
+this Partner session and operation UUID, returning each draft's `id` and `order`
+with its operation-owned `ref`. Upload does not admit a message or add
 album membership. `/api/chat/socket` submit binds text, ordered references and
 replacement IDs atomically to native admission. Exact retries reconcile without
 execution; changed identity, incomplete references and foreign operations fail.

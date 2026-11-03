@@ -22,6 +22,34 @@ test('history windows count visible user and Partner contributions like DSH', ()
   assert.equal(page.before, page.messages[0]?.sequence);
 });
 
+test('native history windows close overlapping multi-steer spans before advancing the cursor', () => {
+  const messages = Array.from({ length: 100 }, (_, index) => ({ id: `input-${index + 1}`, sequence: index + 1, revision: index + 1, created: index + 1 }));
+  const results = [[10, 25, 40], [35, 50, 65], [20, 60]].map((sources, index) => ({
+    turnId: `turn-${index}`, sourceIds: sources.map(sequence => `input-${sequence}`), sequence: sources.at(-1)!, revision: 1,
+    answers: ['reply'], error: null, status: 'completed', generatedIds: [], voiceDispatches: [],
+  }));
+  const page = visibleHistoryPage(messages, results);
+  assert.equal(page.before, 10, 'overlap closure reaches the earliest selected-turn source');
+  assert.deepEqual(page.messages, messages.slice(9));
+  const older = visibleHistoryPage(messages, results, page.before!);
+  assert.deepEqual(older.messages, messages.slice(0, 9));
+  for (const result of results) {
+    for (const window of [page, older]) {
+      const count = result.sourceIds.filter(id => window.messages.some(message => message.id === id)).length;
+      assert.ok(count === 0 || count === result.sourceIds.length, 'a turn belongs to exactly one native window');
+    }
+  }
+});
+
+test('retained native window hydrates later steers but excludes unrelated newer admissions', () => {
+  const messages = Array.from({ length: 100 }, (_, index) => ({ id: `input-${index + 1}`, sequence: index + 1, revision: index + 1, created: index + 1 }));
+  const results = [{ turnId: 'grown-turn', sourceIds: ['input-1', 'input-90'], sequence: 90, revision: 1, answers: ['reply'], error: null, status: 'completed', generatedIds: [], voiceDispatches: [] }];
+  const page = visibleHistoryPage(messages, results, 20);
+  assert.deepEqual(page.messages, [...messages.slice(0, 19), messages[89]]);
+  assert.equal(page.before, 1);
+  assert.equal(page.hasMore, false);
+});
+
 test('history pages and bounded change batches retain stable ordering and restart cursors', async () => {
   const f = await fixture();
   const paths = partnerPaths(join(f.directory, 'workspace'));

@@ -78,17 +78,20 @@ codex-for-love serve /path/to/partner.toml
 
 CFL 会监听 `127.0.0.1`，并打印本地访问地址。开始一段新对话时，请使用新的工作区。
 
-在 Partner TOML 中设置 `[codex] fast = true` 可为新建和恢复的线程请求原生
-Fast（`priority`）档。`false` 或省略时显式使用普通（`default`）档，包括此前
-启用过 Fast 的同一线程。修改后需重启 Partner；原有线程、模型和推理强度保持
-不变。Partner 会在就绪前核对返回档位，未应用时报告错误。可用性由原生服务的
-模型和账号决定；Fast 不保证具体延迟。当前可用性和用量说明见
-[官方速度文档](https://learn.chatgpt.com/docs/agent-configuration/speed#fast-mode)。
+模型和 Fast 直接在设置中保存，无需重启；默认型号为 `gpt-6.1-sol`，
+Fast 默认开启。三个固定型号为 `gpt-6.1-sol`、`gpt-5.6-sol`、
+`gpt-6.1-terra`。工作区 `.lamplit/model-preference.json` 原子保存型号和
+Fast，后续各来源的新回合及重启恢复沿用选择，保留同一线程和历史。
+Fast 开启请求原生 `priority`，关闭请求 `default`；不改变当前回合或思考强度。
+实际优先服务取决于模型支持和账号权限，保存成功不代表已获服务或延迟保证。
+启动时原生返回的服务等级不符会明确报错。空闲时切换型号后，原生可能省略
+不受支持的优先档位而不报错；turn/start 不返回实际生效档位。
+对话忙碌、输入接纳或压缩期间不能切换。
 
-```toml
-[codex]
-fast = true
-```
+已有 Partner TOML 的 `[codex] model` 和 `fast` 两项会被接受并忽略，
+不会影响默认值或保存的偏好，也不会进入运行时 Config。其他未知键仍被拒绝。
+现有配置无需手动修改，不会自动改写配置或迁移偏好文件。
+
 
 首次发送消息时，Companion 会直接请求浏览器通知权限。这需要 HTTPS、`http://localhost` 或 `http://*.localhost` 地址，例如 `http://prod-lamplit.localhost:17480`；普通 HTTP 局域网地址无法显示浏览器权限请求。Chrome 可能在地址栏显示权限标记，而不是弹出对话框。授权后，已打开但不可见的页面会为每个新完成的 Partner turn 提醒一次。通知只显示 Partner 名字和通用的新消息提示，不包含回复正文。这是页面本地通知，不是 Web Push：关闭或挂起页面、连接中断或拒绝浏览器权限时都无法保证送达，各设备之间也不会同步通知或已读状态。
 

@@ -28,7 +28,9 @@ paginated thread APIs on startup, refresh and resume.
 
 CFL owns the app-server version contract, currently `0.164.0`; the published
 main package pins its matching native packages. TOML does not support
-`codex.version`. The configured model defaults to `gpt-5.6-luna`.
+`codex.version`. Legacy `codex.model` and `codex.fast` are accepted and ignored,
+without entering runtime Config. Settings persist model and Fast in one workspace
+preference, defaulting to `gpt-6.1-sol` and Fast on.
 A project-local Codex config overlay declares the bundled
 Companion MCP and relationship-context hook. FlickNote and Web are optional
 operator-provided MCPs described by a static template; CFL neither injects them

@@ -36,6 +36,7 @@ function userItem(input, clientId) {
 }
 function nowSeconds() { return Math.floor(Date.now() / 1000); }
 function selectTier(p) {
+  if (p.config?.['features.fast_mode'] !== undefined) state.fastModeEnabled = p.config['features.fast_mode'];
   if (process.env.FAKE_TIER_ERROR === 'true') rpcError(-32603, 'fixture tier unavailable');
   state.serviceTier = process.env.FAKE_SELECTED_TIER !== undefined
     ? JSON.parse(process.env.FAKE_SELECTED_TIER)
@@ -438,7 +439,8 @@ async function handle(request) {
       if (process.env.FAKE_IMAGES_FIXTURE === 'true' && control().mode === 'uncertain') rpcError(-32603, 'fixture ambiguous delivery');
       if (control().rejectStart) rpcError(-32603, 'fixture turn start temporarily unavailable');
       if (state.active) rpcError(-32600, 'cannot start a turn while another turn is active');
-      state.turnTiers = [...(state.turnTiers ?? []), { threadId: p.threadId, serviceTier: p.serviceTier ?? state.serviceTier ?? 'default' }];
+      if (p.serviceTierForTurn === 'priority' && state.fastModeEnabled === false) rpcError(-32600, 'fixture FastMode gate disabled');
+      state.turnTiers = [...(state.turnTiers ?? []), { threadId: p.threadId, serviceTier: p.serviceTierForTurn ?? p.serviceTier ?? state.serviceTier ?? 'default' }];
       const turn = startTurn(p.input, p.clientUserMessageId);
       return { turn: process.env.FAKE_SUMMARY_START === 'true' ? turnView(turn, 'summary') : turn };
     }

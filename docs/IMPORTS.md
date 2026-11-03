@@ -594,3 +594,29 @@ and Noto Sans SC OFL notices in `licenses/app/` are copied from the same commit'
 frontend archive (SHA-256 `e368aaf4fde9c3b5c6bf814ece4c17e3590a2423e8b9a4efa06d759a38c51fbe`).
 Runtime verifies all selected frontend resources and exact compiled contract bytes;
 matching bytes alone do not establish business behavior.
+
+## Dashboard model/Fast and ordered-media App pin (FlickNote #20)
+
+CFL now selects App squash/main `9f5821acbd0c3e0adb6d40620e7ba21bb60a302d`
+(PR #44), whose parent `a6aa95feb8d108c5a050af95b1cab3bb1d32eb3c`
+includes PR #45 ordered media timelines. This is the merged source identity,
+not the unsquashed PR branch head. Both intervening changes were inspected for
+host compatibility. The published contracts archive SHA-256 is
+`95a9e4c057fa9311d8a8524943e35f19aa2c9aef61308fe4c0af5ca72948b226`;
+the published frontend archive SHA-256 is
+`340f84024ee1c204d7e078e630a2de910170c33824861221c5740d761a8a6c8e`.
+Downloaded bytes independently match GitHub release asset digests. Both archives
+identify the merged revision; all 265 browser, 32 compiled-contract and 189
+frontend-license manifest entries were verified, with matching compiled contract
+bytes in the separate contracts archive. Its package metadata/exports/dependencies
+and retained App IMPORTS/OFL notices are unchanged from the previous pin;
+frozen installation leaves the lockfile unchanged. Apache-2.0, Chord MIT and
+TypeBox license attribution above remains applicable.
+
+The already-merged CFL PR #119 provides upload identity/order bindings, validated
+durable retry image mappings, observed-start timeline slots and stable text/image/
+voice dispatch identities. This pin refresh retains that implementation and adds
+model/Fast preferences plus source-span and retained-cursor pagination protection.
+The same native execution owner and PR #119 persistence remain authoritative.
+Acceptance uses the exact published frontend with test-owned native/auth fixtures;
+no production/provider/device acceptance is implied.

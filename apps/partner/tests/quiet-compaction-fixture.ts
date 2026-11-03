@@ -23,7 +23,7 @@ export async function quietCompactionFixture(assets: string, port = 0) {
   async function start(sessionId: string) {
     f.appServer.env.FAKE_QUIET_COMPACT = 'true';
     await mkdir(partnerPaths(f.workspace).managedRoot, { recursive: true });
-    await writeFile(join(partnerPaths(f.workspace).managedRoot, 'thread.json'), JSON.stringify({ threadId: sessionId, model: f.config.codex.model }));
+    await writeFile(join(partnerPaths(f.workspace).managedRoot, 'thread.json'), JSON.stringify({ threadId: sessionId, model: 'gpt-6.1-sol' }));
     await writeFile(f.appServer.env.FAKE_SERVER_STATE!, JSON.stringify({ threadId: sessionId, next: 1, turns: [] }));
     await writeControl(); partner = await f.createPartner();
     subscriptions.add(partner.subscribe(() => { for (const listener of listeners) listener(); }));

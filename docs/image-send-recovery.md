@@ -13,7 +13,7 @@ Rust build, native release, external provider or production state is involved.
   strict encoding, unique IDs and a 36,000,000-byte streamed body ceiling.
   CFL additionally enforces five originals, 5 MiB each, 20 MiB total and native
   160-character filenames. Names cannot contain path separators/control characters.
-- Result `{ sessionId, operationId, images: ImageRef[] }`; references have
+- Result `{ sessionId, operationId, images: Array<{ id, order, ref: ImageRef }> }`; references have
   `attachmentId`, `name`, `mediaType`, `availability: available|missing`.
   Uploads are bound to this authenticated Partner's selected session/operation.
   Authentication is checked again inside serialized staging. Reusing an operation
@@ -132,3 +132,19 @@ verification use the approved #3162 full artifact and
 [default shared frontend](default-shared-frontend.md), including all six native
 suites and route lifecycle. The native fixture serves the extracted browser at
 `/`; product builds/package preparation include that same approved App by default.
+
+
+## Merged ordered-media contract
+
+Upload responses echo each draft image's exact `id` and `order` alongside its
+operation-owned `ref`; order and identity are validated by the shared contract.
+Bound image retries expose the same `retryImages` source-to-attempt mapping from
+`retryFailed`, lookup and finalization, reconstructed from existing durable retry
+bindings across restart. Unbound attempts remain unknown and are never replayed.
+
+The merged CFL #119 projection uses durable observed-start slots for separate
+text, image and voice dispatch entries, including steering inputs. Historical
+items without recorded starts retain available native order; absent image starts
+are not fabricated. Streaming text and final-body evidence retain #119 semantics.
+Live views and history use the same projection; structural timeline invalidations
+refresh observed older pages without creating another transcript or execution lane.

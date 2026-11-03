@@ -402,11 +402,12 @@ the path passed to it:
   validates the same configured files.
 - Published installs select the standalone app-server through the main
   package's exact native dependency pin. Their configuration needs only
-  `codex.model`, optional `codex.home`, and optional `local_compaction`; the
-  default model is `gpt-5.6-luna`. Checkout development may explicitly select
+  optional `codex.home` and optional `local_compaction`; the initial
+  preferences are `gpt-6.1-sol` and Fast on. Checkout development may explicitly select
   an app-server executable for its developer config.
-  Changing `codex.model` resumes the same official thread and preserves its
-  history; a new workspace is not required. Set `model_reasoning_effort` in
+  Settings save model and Fast together in the workspace. Legacy Partner
+  `codex.model` and `codex.fast` are accepted and ignored. Model changes preserve
+  the same official thread and its history; a new workspace is not required. Set `model_reasoning_effort` in
   the workspace's `.codex/config.toml` to choose the reasoning effort without
   changing the shared Codex-home configuration.
 - `workspace` contains the ordinary working files and the application-owned
@@ -485,20 +486,23 @@ app-owned wrappers. A missing bundled Companion MCP is an operator-facing
 startup failure; optional integration discovery and authentication failures are
 reported by Codex without stopping the Partner.
 
-Set `[codex] fast = true` in Partner TOML to request native Fast (`priority`)
-for both new and resumed threads. `false` or omission explicitly selects the
-ordinary (`default`) tier, including after Fast was previously enabled. Restart
-Partner after changing it; the same stored thread, model and reasoning effort
-are preserved. Partner checks the returned tier before becoming ready and reports
-an error if the requested tier was not applied. Native model/account availability
-still governs Fast; it is a requested tier, not a latency guarantee. See the
-[official Codex speed documentation](https://learn.chatgpt.com/docs/agent-configuration/speed#fast-mode)
-for current availability and usage details.
+Fast is controlled in Settings and defaults **on**. Saving either control
+atomically saves both model and Fast for future turns, without a restart or new
+thread. Fast requests native `priority`; off explicitly requests `default`.
+Partner keeps the native Fast capability enabled and applies a start-only tier
+override on every future human, Post, Keet and alarm turn; active turns and
+reasoning are unchanged. Startup checks the tier returned by native start/resume
+and fails if it differs. Provider/model support and account entitlement still
+govern actual priority service; a confirmed preference is not proof of delivery
+or a latency guarantee. After an idle model switch, native may omit unsupported
+priority without rejecting the turn; no effective-tier acknowledgement is exposed
+by turn/start. Native execution errors retain their existing reporting.
 
-```toml
-[codex]
-fast = true
-```
+Existing Partner TOML `[codex] model` and `fast` entries are accepted and
+ignored. They cannot change defaults or saved preferences and are absent from
+the runtime Config. Other unknown keys remain rejected. Existing configs need
+no manual edit, automatic rewrite, or migration.
+
 
 ## Conversation behavior
 
@@ -909,3 +913,36 @@ without a separate human instruction; Post enforces send authorization. CFL does
 not automatically forward the final assistant response to Post. See
 [deployment cutover](post-v1-cutover.md) for artifact preparation, activation,
 marker checks and rollback.
+
+## Model preference API
+
+The additive optional same-origin endpoint `GET /api/chat/models` returns
+`{sessionId,currentModel,fast,busy}`. It reads confirmed future-turn preference,
+not proof that a provider has executed that model, and starts no turn or catalog
+lookup. Existing authenticated owner access applies. Responses use `no-store`.
+
+`POST /api/chat/models` accepts only JSON `{sessionId,expectedModel,expectedFast,model,fast}` with
+no extra keys; all fields are required, and both Fast fields must be booleans.
+Session, expected model and expected Fast guard against stale writes. Use the last GET snapshot and one of exactly `gpt-6.1-sol`,
+`gpt-5.6-sol`, `gpt-6.1-terra`. IDs must be trimmed single-line strings of
+1–200 characters (session IDs 1–300). Success returns the same snapshot shape.
+Selection is committed atomically under the native/input admission lanes; future
+turns of every source and startup thread resume use it explicitly. Settings
+radio selection saves directly, with no save button or reasoning controls.
+
+Failures use `{error:{code,message}}`: 400 `invalid_request` / `invalid_model`,
+401 `unauthorized`, 403 `forbidden_origin`, 409 `stale_model` / `model_busy`,
+503 `model_unavailable`; other methods return 405 `method_not_allowed`.
+A stale session or preference requires a fresh GET. Busy, storage failures, and
+uncertain network results must not be automatically replayed. Refresh to confirm
+state before another explicit selection. Errors expose no paths or secrets.
+
+The private workspace `.lamplit/model-preference.json` stores `{model,fast}`
+atomically. Without the file, defaults are `gpt-6.1-sol` and `true`. Both
+`codex.model` and `codex.fast` are accepted and ignored in Partner TOML; they
+never seed or override preferences. Other unknown keys remain rejected. Existing
+configs require no manual edit, rewrite or migration.
+Back up the preference with the workspace. Malformed saved JSON fails startup
+rather than silently falling back. Stop Partner before restoring a known-good
+preference file; removing the file restores the initial sol/Fast-on defaults.
+The feature is additive HTTP; compiled shared App contracts remain unchanged.

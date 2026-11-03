@@ -41,7 +41,7 @@ test('historical media with no recoverable turn time uses the ordered September 
     const historical = join(f.workspace, '.lamplit', 'historical-media', 'imported.png');
     await mkdir(join(f.workspace, '.lamplit', 'historical-media'), { recursive: true });
     await writeFile(historical, Buffer.from(png, 'base64'));
-    await writeFile(join(f.workspace, '.lamplit', 'thread.json'), JSON.stringify({ threadId: 'thread-fake', model: f.config.codex.model }));
+    await writeFile(join(f.workspace, '.lamplit', 'thread.json'), JSON.stringify({ threadId: 'thread-fake', model: 'gpt-6.1-sol' }));
     await writeFile(f.appServer.env.FAKE_SERVER_STATE!, JSON.stringify({
       threadId: 'thread-fake',
       turns: [{

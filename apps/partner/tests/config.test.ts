@@ -176,17 +176,26 @@ test('background configuration is optional and requires both relative compositio
 });
 
 
-test('codex.fast is strictly boolean and defaults false at both nesting levels', async () => {
+test('Partner config discards only legacy model and Fast without relaxing unknown keys', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'lamplit-fast-config-'));
   try {
     const path = join(directory, 'partner.toml'); const base = 'name = "Mica"\nprompts = { persona = "persona.md" }\n';
-    for (const [entry, expected] of [['', false], ['[codex]\n', false], ['[codex]\nfast = true\n', true], ['[codex]\nfast = false\n', false]] as const) {
+    for (const entry of ['', '[codex]\n']) {
       await writeFile(path, base + entry);
-      assert.equal((await loadConfig(path)).codex.fast, expected);
+      const config = await loadConfig(path);
+      assert.equal('model' in config.codex, false); assert.equal('fast' in config.codex, false);
     }
-    for (const value of ['"true"', '1', '[]']) {
-      await writeFile(path, `${base}[codex]\nfast = ${value}\n`);
-      await assert.rejects(loadConfig(path), /fast/);
+    for (const entry of ['model = "gpt-5.6-luna"', 'fast = true', 'fast = false', 'model = "legacy-model"\nfast = false', 'model = 123\nfast = "ignored"']) {
+      await writeFile(path, base + '[codex]\n' + entry + '\n');
+      const config = await loadConfig(path);
+      assert.equal('model' in config.codex, false); assert.equal('fast' in config.codex, false);
+      assert.equal(config.codex.command, 'codex-app-server');
     }
+    for (const entry of ['model = "legacy"\nfast = true\nfats = false', 'modle = "typo"', 'unknown = true']) {
+      await writeFile(path, base + '[codex]\n' + entry + '\n');
+      await assert.rejects(loadConfig(path), /fats|modle|unknown/);
+    }
+    await writeFile(path, base + 'model = "top-level typo"\n');
+    await assert.rejects(loadConfig(path), /model/);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });

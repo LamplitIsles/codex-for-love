@@ -8,7 +8,7 @@ import {
   type CodexAppServerClientOptions,
 } from '@jaminzhou/codex-app-server-client';
 import type { v2 } from '@jaminzhou/codex-app-server-client/protocol';
-import { SUPPORTED_CODEX_VERSION, type Config } from './config.ts';
+import { DEFAULT_CODEX_MODEL, SUPPORTED_CODEX_VERSION, type Config } from './config.ts';
 import {
   bootstrapPath,
   ensureHookDeclaration,
@@ -991,7 +991,7 @@ export async function convertDshSession(
     }
     await trustOwnedHooks(client, destination, hook.configPath, hook.command);
     const shared = {
-      model: config.codex.model,
+      model: DEFAULT_CODEX_MODEL,
       cwd: destination,
       approvalPolicy: 'never' as const,
       sandbox: 'danger-full-access' as const,
@@ -1012,8 +1012,8 @@ export async function convertDshSession(
     } satisfies v2.ThreadResumeParams);
     const resumedThreadId = response.thread.id;
     if (!resumedThreadId) throw new Error('Codex app-server did not return an imported thread id');
-    if (response.model !== undefined && response.model !== config.codex.model) throw new Error(`Codex selected ${String(response.model)} instead of configured ${config.codex.model}`);
-    await writeFile(markerPath, JSON.stringify({ threadId: resumedThreadId, model: config.codex.model }), { mode: 0o600, flag: 'wx' });
+    if (response.model !== undefined && response.model !== DEFAULT_CODEX_MODEL) throw new Error(`Codex selected ${String(response.model)} instead of ${DEFAULT_CODEX_MODEL}`);
+    await writeFile(markerPath, JSON.stringify({ threadId: resumedThreadId, model: DEFAULT_CODEX_MODEL }), { mode: 0o600, flag: 'wx' });
     return {
       dryRun: false,
       report: extraction.report,

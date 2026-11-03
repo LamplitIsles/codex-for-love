@@ -1,3 +1,4 @@
+import { ModelPreferenceError } from './model-preference.ts';
 import { APPEARANCE_PATH, WORKSPACE_IMAGE_PATH } from '@lamplit/contracts';
 import { imageHttp, stickerHttp } from '@lamplit/contracts/server';
 import { createChatSocket } from './chat.ts';
@@ -137,6 +138,20 @@ export function createWebServer(partner: Partner, assets: string, options: { aut
         if (!await authorize(request)) return unauthorized();
         if ((request.method !== 'GET' && request.method !== 'HEAD') || request.headers.origin || request.headers['sec-fetch-site'] === 'cross-site') {
           if (!options.auth.sameOrigin(request)) return json(response, { error: { code: 'forbidden_origin', message: 'Open the configured site origin and try again.' } }, 403);
+        }
+      }
+      if (path === '/api/chat/models') {
+        const fail = (code: string, message: string, status: number) => json(response, { error: { code, message } }, status);
+        if (request.method !== 'GET' && request.method !== 'POST') return fail('method_not_allowed', 'Method not allowed.', 405);
+        try {
+          if (request.method === 'GET') return humanJson(await partner.models());
+          if (request.headers['content-type']?.split(';')[0].trim().toLowerCase() !== 'application/json') return fail('invalid_request', 'Expected a JSON request.', 400);
+          let input: unknown;
+          try { input = await body(request, 4096); } catch { return fail('invalid_request', 'Invalid JSON request.', 400); }
+          return humanJson(await partner.selectModel(input, () => authorize(request), () => stillAuthorized(request)));
+        } catch (error) {
+          if (error instanceof ModelPreferenceError) return fail(error.code, error.message, error.status);
+          return fail('model_unavailable', 'Model preference is unavailable.', 503);
         }
       }
       if (path === APPEARANCE_PATH) {

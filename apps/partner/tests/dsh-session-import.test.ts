@@ -255,6 +255,8 @@ test('dry-run is side-effect free and conversion creates one native candidate', 
     assert.doesNotMatch(JSON.stringify(rollout), /discard me|source framing/);
     const resume = (await f.requests()).find((request) => request.method === 'thread/resume')!;
     assert.equal((resume.params as Row).path, rolloutPath);
+    assert.equal((resume.params as Row).model, 'gpt-6.1-sol');
+    assert.equal(JSON.parse(await readFile(join(f.workspace, '.lamplit', 'thread.json'), 'utf8')).model, 'gpt-6.1-sol');
     assert.equal((resume.params as Row).baseInstructions, expectedBase);
     assert.equal(((resume.params as Row).config as Row).compact_prompt, 'Custom continuity instructions');
     assert.equal(((resume.params as Row).config as Row).experimental_local_compaction, true);

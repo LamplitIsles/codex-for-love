@@ -94,7 +94,7 @@ try {
   const port = reserve.address().port;
   await new Promise((resolve, reject) => reserve.close(error => error ? reject(error) : resolve()));
   const marker = `CFL_SMOKE_HTTP_OK_${randomUUID()}`;
-  await writeFile(join(fixture, 'partner.toml'), `name = "Mica"\nfrontend = "${smokeRevision}"\nprompts = { persona = "./persona.md" }\nstate = "./state"\nworkspace = "./workspace"\nport = ${port}\n[codex]\nmodel = "gpt-5.6-luna"\ncommand = "./must-not-be-selected"\n`);
+  await writeFile(join(fixture, 'partner.toml'), `name = "Mica"\nfrontend = "${smokeRevision}"\nprompts = { persona = "./persona.md" }\nstate = "./state"\nworkspace = "./workspace"\nport = ${port}\n[codex]\ncommand = "./must-not-be-selected"\n`);
   const workspace = join(fixture, 'workspace');
   const runtime = spawn(join(prefix, 'bin', 'codex-for-love'), ['serve', join(fixture, 'partner.toml')], {
     detached: true,
