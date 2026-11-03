@@ -349,6 +349,13 @@ The browser receives only one of seven coarse activity labels, never model text,
 
 ### Optional ecosystem MCPs
 
+For deliberate ElevenLabs Voice messages, select the `elevenlabs` provider and
+an ElevenLabs voice ID in `speech.tts`. The fixed model is `eleven_v4` and
+speed is unavailable. Register and authorize the hosted MCP separately in the
+same Codex home as Partner; plugin installation alone is insufficient. See the
+[operator guide](docs/operator-guide.md) for the verified CIMD login, scopes,
+credit and failure behavior.
+
 On its first start, CFL creates the minimal workspace configuration: its bundled
 Companion MCP and the relationship-context hook. No external MCP is needed to
 start or use a Partner. To opt into FlickNote or Guion Web, copy the two tables

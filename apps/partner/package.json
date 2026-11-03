@@ -6,7 +6,7 @@
     "build": "node ../../scripts/verify-shared-contracts.mjs",
     "check": "tsc --project ./tsconfig.json",
     "test": "node --test tests/*.test.ts tests/frontend-cli.test.mjs",
-    "test:real-sdk": "node tests/real-sdk-check.mjs",
+    "test:real-sdk": "node tests/real-sdk-check.mjs && node tests/real-elevenlabs-check.mjs",
     "test:real-import": "node tests/real-import-check.mjs",
     "start": "node runtime/cli.ts serve",
     "cli": "node runtime/cli.ts"

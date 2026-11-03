@@ -8,6 +8,15 @@ import { join } from 'node:path';
 const MAX_AUDIO_BYTES = 10 * 1024 * 1024;
 const MAX_RESPONSE_BYTES = Math.ceil(MAX_AUDIO_BYTES / 3) * 4 + 64 * 1024;
 const pending = new Map<string, Promise<string>>();
+async function awaitPending(task: Promise<string>, signal?: AbortSignal): Promise<string> {
+  if (!signal) return task;
+  signal.throwIfAborted();
+  return new Promise((resolve, reject) => {
+    const abort = () => { signal.removeEventListener('abort', abort); reject(signal.reason); };
+    signal.addEventListener('abort', abort, { once: true });
+    task.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort));
+  });
+}
 const BTD_ENDPOINT = 'https://openspeech.bytedance.com/api/v3/tts/unidirectional/sse';
 const execFileAsync = promisify(execFile);
 type RemoteTts = { provider: 'alibaba' | 'bytedance'; model: string; endpoint: string; credential: string; speed?: number };
@@ -24,10 +33,41 @@ async function minimax(options: { text: string; voice: string; speed: number; ou
   const bytes = await readFile(options.output);
   if (!bytes.byteLength || bytes.byteLength > MAX_AUDIO_BYTES) throw new Error('Invalid MiniMax audio');
 }
-export type SpeechOptions = { provider: 'minimax' | 'alibaba' | 'bytedance'; voice: string; speed?: number; endpoint?: string; model?: string; credential?: string; text: string; audioDir: string; signal?: AbortSignal; fetchImpl?: typeof fetch; execFileImpl?: typeof execFileAsync };
+export type SpeechOptions = { provider: 'minimax' | 'alibaba' | 'bytedance' | 'elevenlabs'; voice: string; speed?: number; endpoint?: string; model?: string; credential?: string; text: string; audioDir: string; signal?: AbortSignal; fetchImpl?: typeof fetch; execFileImpl?: typeof execFileAsync; elevenLabs?: (text: string, signal: AbortSignal) => Promise<Uint8Array> };
 export async function synthesizeSpeech(options: SpeechOptions): Promise<string> {
-  const text=options.text.replace(/[\s\u00a0]+/gu,' ').trim(); const speed=options.speed ?? 1; if (!text || Array.from(text).length>240 || !Number.isFinite(speed) || speed < 0.5 || speed > 2) throw new Error('Invalid speech passage'); const profile=options.provider === 'minimax' ? 'speech-2.8-hd' : options.model; if (options.provider !== 'minimax' && (!options.endpoint || !options.model || !options.credential)) throw new Error('Speech synthesis is unavailable'); const key=createHash('sha256').update(JSON.stringify([2,options.provider,profile,options.voice,speed,text])).digest('hex'); const path=join(options.audioDir,`${key}.mp3`); try { const bytes=await readFile(path); if (bytes.byteLength) return key; } catch {} if (pending.has(path)) return pending.get(path)!;
-  const task=(async()=>{ const signal=AbortSignal.any([options.signal ?? new AbortController().signal,AbortSignal.timeout(60000)]); await mkdir(options.audioDir,{recursive:true}); const temp=join(options.audioDir,`.${randomUUID()}.tmp`); try { if (options.provider === 'minimax') await minimax({ text, voice: options.voice, speed, output: temp, signal, execFileImpl: options.execFileImpl ?? execFileAsync }); else { const bytes=await provider({ provider: options.provider, endpoint: options.endpoint!, model: options.model!, credential: options.credential!, voice: options.voice, speed: options.speed, text, signal, fetchImpl: options.fetchImpl??fetch }); await writeFile(temp,bytes,{mode:0o600,flag:'wx'}); } await rename(temp,path); } finally { await unlink(temp).catch(()=>undefined); } return key; })(); pending.set(path,task); try{return await task;} finally { if(pending.get(path)===task) pending.delete(path); }
+  const text = options.text.replace(/[\s\u00a0]+/gu, ' ').trim();
+  const speed = options.speed ?? 1;
+  if (!text || Array.from(text).length > 240 || !Number.isFinite(speed) || speed < 0.5 || speed > 2 || (options.provider === 'elevenlabs' && options.speed !== undefined)) throw new Error('Invalid speech passage');
+  const profile = options.provider === 'minimax' ? 'speech-2.8-hd' : options.provider === 'elevenlabs' ? 'eleven_v4' : options.model;
+  if (options.provider === 'elevenlabs' ? !options.elevenLabs : options.provider !== 'minimax' && (!options.endpoint || !options.model || !options.credential)) throw new Error('Speech synthesis is unavailable');
+  const key = createHash('sha256').update(JSON.stringify([2, options.provider, profile, options.voice, speed, text])).digest('hex');
+  const path = join(options.audioDir, `${key}.mp3`);
+  if (options.provider === 'elevenlabs') options.signal?.throwIfAborted();
+  try {
+    const bytes = await readFile(path);
+    if (options.provider === 'elevenlabs') options.signal?.throwIfAborted();
+    if (bytes.byteLength) return key;
+  } catch { if (options.provider === 'elevenlabs') options.signal?.throwIfAborted(); }
+  if (pending.has(path)) return awaitPending(pending.get(path)!, options.signal);
+
+  const task = (async () => {
+    const signal = AbortSignal.any([options.signal ?? new AbortController().signal, AbortSignal.timeout(60000)]);
+    await mkdir(options.audioDir, { recursive: true });
+    const temp = join(options.audioDir, `.${randomUUID()}.tmp`);
+    try {
+      if (options.provider === 'minimax') await minimax({ text, voice: options.voice, speed, output: temp, signal, execFileImpl: options.execFileImpl ?? execFileAsync });
+      else {
+        const bytes = options.provider === 'elevenlabs' ? await options.elevenLabs!(text, signal) : await provider({ provider: options.provider, endpoint: options.endpoint!, model: options.model!, credential: options.credential!, voice: options.voice, speed: options.speed, text, signal, fetchImpl: options.fetchImpl ?? fetch });
+        signal.throwIfAborted();
+        await writeFile(temp, bytes, { mode: 0o600, flag: 'wx' });
+      }
+      signal.throwIfAborted();
+      await rename(temp, path);
+    } finally { await unlink(temp).catch(() => undefined); }
+    return key;
+  })();
+  pending.set(path, task);
+  try { return await task; } finally { if (pending.get(path) === task) pending.delete(path); }
 }
 
 /** Qwen short-audio STT protocol adapted from dsh-speech; no synthesis path. */

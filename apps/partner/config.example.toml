@@ -73,7 +73,9 @@ context_round_limit = 10
 # Optional DashScope STT and tool-delivered Voice messages.
 [speech]
 [speech.tts]
-provider = "minimax" # or "alibaba" (speech credential), "bytedance" (tts credential)
+provider = "minimax" # or "alibaba", "bytedance", "elevenlabs"
 voice = "Chinese (Mandarin)_Soft_Girl"
 speed = 1.15 # Optional 0.5–2.0 multiplier; MiniMax and ByteDance support it.
 # MiniMax requires the operator-installed, authenticated `mmx` CLI. Alibaba's non-realtime API does not support speed. No MiniMax secret belongs in this file.
+# ElevenLabs uses a voice ID and fixed eleven_v4 model; remove speed and register
+# and authorize its hosted Codex MCP separately as described in the operator guide.

@@ -8,8 +8,9 @@ import { z } from 'zod';
 export const SUPPORTED_CODEX_VERSION = '0.164.0';
 export const DEFAULT_CODEX_MODEL = 'gpt-5.6-luna';
 export const DEFAULT_CONTEXT_ROUND_LIMIT = 10;
-const ttsSchema = z.object({ provider: z.enum(['minimax', 'alibaba', 'bytedance']), voice: z.string().min(1), speed: z.number().finite().min(0.5).max(2).optional() }).strict().superRefine((tts, context) => {
+const ttsSchema = z.object({ provider: z.enum(['minimax', 'alibaba', 'bytedance', 'elevenlabs']), voice: z.string().min(1), speed: z.number().finite().min(0.5).max(2).optional() }).strict().superRefine((tts, context) => {
   if (tts.provider === 'alibaba' && tts.speed !== undefined) context.addIssue({ code: 'custom', path: ['speed'], message: 'Alibaba TTS speed is unavailable on the configured non-realtime API' });
+  if (tts.provider === 'elevenlabs' && tts.speed !== undefined) context.addIssue({ code: 'custom', path: ['speed'], message: 'ElevenLabs v4 TTS speed is unavailable' });
 });
 const keetNames = z.array(z.string().min(1).refine(value => Array.from(value).length <= 512 && value.trim() === value && !/[\r\n\u2028\u2029]/u.test(value), 'Name must be nonempty, trimmed, at most 512 characters and on one line')).max(32).refine(values => new Set(values).size === values.length, 'Names must be unique');
 

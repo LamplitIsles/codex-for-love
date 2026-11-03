@@ -10,6 +10,7 @@ import { readRelationshipJournal, updateRelationshipJournal } from './relationsh
 import { partnerPaths } from './storage-paths.ts';
 import { loadConfig, loadCredentials } from './config.ts';
 import { synthesizeSpeech } from './speech.ts';
+import { elevenLabsSpeech } from './elevenlabs-voice.ts';
 import { pageConversationImages, readConversationImages, withAvailability } from './conversation-images.ts';
 import { StickerCatalog } from './sticker-catalog.ts';
 import { stickerToolDescriptions } from './sticker-tool-descriptions.ts';
@@ -73,16 +74,17 @@ server.registerTool('edit_alarm', { description: 'Change the message of an exist
   return alarm ? { content: [{ type: 'text' as const, text: JSON.stringify(alarm) }] } : { content: [{ type: 'text' as const, text: 'Alarm not found' }], isError: true };
 });
 server.registerTool('delete_alarm', { description: 'Cancel one of your alarms by ID.', inputSchema: { id: z.uuid() } }, async ({ id }) => ({ content: [{ type: 'text', text: JSON.stringify({ deleted: deleteAlarm(alarms, id) }) }] }));
-server.registerTool('send_voice', { description: 'Send one standalone Voice message. Use only for a short deliberate spoken message; it never adds a transcript.', inputSchema: { text: z.string().trim().min(1).max(240) } }, async ({ text }) => {
+server.registerTool('send_voice', { description: 'Send one standalone Voice message. Use only for a short deliberate spoken message; it never adds a transcript.', inputSchema: { text: z.string().trim().min(1).max(240) } }, async ({ text }, extra) => {
   try {
     if (!configPath) throw new Error('Voice dispatch is unavailable');
     const config = await loadConfig(configPath); const tts = config.speech?.tts;
     if (!tts) throw new Error('Voice dispatch is unavailable');
-    const credentials = await loadCredentials(config.state);
     const audioDir = partnerPaths(workspace).audio;
     const id = tts.provider === 'minimax'
-      ? await synthesizeSpeech({ ...tts, text, audioDir })
-      : await synthesizeSpeech({ ...tts, endpoint: 'https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation', model: tts.provider === 'alibaba' ? 'qwen3-tts-flash' : 'seed-tts-2.0', credential: tts.provider === 'alibaba' ? credentials.speech ?? '' : credentials.tts ?? '', text, audioDir });
+      ? await synthesizeSpeech({ ...tts, text, audioDir, signal: extra.signal })
+      : tts.provider === 'elevenlabs'
+        ? await synthesizeSpeech({ ...tts, text, audioDir, signal: extra.signal, elevenLabs: (normalized, signal) => elevenLabsSpeech({ workspace, socketPath: config.codex.socket_path, text: normalized, voice: tts.voice, signal }) })
+        : await (async () => { const credentials = await loadCredentials(config.state); return synthesizeSpeech({ ...tts, endpoint: 'https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation', model: tts.provider === 'alibaba' ? 'qwen3-tts-flash' : 'seed-tts-2.0', credential: tts.provider === 'alibaba' ? credentials.speech ?? '' : credentials.tts ?? '', text, audioDir, signal: extra.signal }); })();
     return { content: [{ type: 'text' as const, text: JSON.stringify({ kind: 'voice', audioId: id }) }] };
   } catch (error) { return { content: [{ type: 'text' as const, text: 'Voice synthesis failed' }], isError: true }; }
 });

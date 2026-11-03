@@ -61,6 +61,24 @@ test('Companion MCP serves bounded journal tools over stdio', async () => {
   } finally { await client.close(); await rm(workspace, { recursive: true, force: true }); }
 });
 
+test('Companion returns the existing Voice projection for cached ElevenLabs audio', async () => {
+  const workspace = await mkdtemp(join(tmpdir(), 'companion-voice-'));
+  const script = fileURLToPath(new URL('../runtime/companion-mcp.ts', import.meta.url));
+  const config = join(workspace, 'partner.toml');
+  const id = createHash('sha256').update(JSON.stringify([2, 'elevenlabs', 'eleven_v4', 'fake-voice', 1, 'hello'])).digest('hex');
+  const bytes = Buffer.alloc(417); bytes.set([0xff, 0xfb, 0x90, 0]);
+  await mkdir(join(workspace, '.lamplit/audio'), { recursive: true });
+  await writeFile(join(workspace, '.lamplit/audio', `${id}.mp3`), bytes);
+  await writeFile(config, 'name = "test"\nprompts = { persona = "persona.md" }\nstate = "state"\n[speech.tts]\nprovider = "elevenlabs"\nvoice = "fake-voice"\n');
+  const client = new Client({ name: 'test', version: '1' });
+  await client.connect(new StdioClientTransport({ command: process.execPath, args: [script, workspace, config], stderr: 'ignore' }));
+  try {
+    const result = await client.callTool({ name: 'send_voice', arguments: { text: 'hello' } });
+    assert.equal(result.isError, undefined);
+    assert.deepEqual(JSON.parse((result.content as Array<{ text: string }>)[0].text), { kind: 'voice', audioId: id });
+  } finally { await client.close(); await rm(workspace, { recursive: true, force: true }); }
+});
+
 test('separate Companion MCP processes serialize concurrent journal updates', async () => {
   const workspace = await mkdtemp(join(tmpdir(), 'companion-mcp-concurrent-'));
   const script = fileURLToPath(new URL('../runtime/companion-mcp.ts', import.meta.url));

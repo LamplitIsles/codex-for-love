@@ -427,16 +427,36 @@ the path passed to it:
   /path/to/partner.toml speech --stdin`, supplying the value on stdin; do not put the
   key in TOML or command arguments.
 - `speech.tts` enables deliberate Companion MCP `send_voice` messages. Its
-  choices are `provider` (`minimax`, `alibaba`, or `bytedance`), `voice`, and
+  choices are `provider` (`minimax`, `alibaba`, `bytedance`, or `elevenlabs`), `voice`, and
   optional `speed` (a 0.5–2.0 multiplier). A successful tool call produces one
   standalone playable Voice message with no text transcript; ordinary final
   text remains separate. MiniMax uses the operator-installed,
   already-authenticated `mmx` CLI and ByteDance maps the multiplier to its
   native speech-rate value. Alibaba's configured non-realtime API has no speed
   control and rejects that setting. Alibaba reuses `speech`; ByteDance uses
-  `tts`.
+  `tts`. ElevenLabs uses its voice ID with fixed `eleven_v4` and rejects speed.
   Cached MP3s live under `<workspace>/.lamplit/audio/` and are served through
   same-origin URLs.
+
+  For ElevenLabs, separately register the hosted MCP as `elevenlabs` and log
+  in using the same OS user and `CODEX_HOME` as the CFL app-server. First check
+  for an existing server with that name and avoid overwriting it:
+
+  ```sh
+  codex mcp add elevenlabs --url https://api.us.elevenlabs.io/v1/mcp
+  codex mcp login elevenlabs --oauth-client-registration cimd --scopes text_to_speech,flows,speech_history_read
+  ```
+
+  The three scopes together were verified; their individual necessity was not.
+  This is a separate ElevenLabs account authorization and generation may consume
+  credits. Plugin 0.4.0's MCP configuration fails to parse in the pinned
+  app-server 0.164.0; installing the plugin alone does not connect the service.
+  Do not copy a plugin client ID into this standalone configuration. Remote
+  `--no-browser` manual pasting encountered duplicate parameters; a local
+  browser callback or secure SSH forwarding may be needed and remains unverified.
+  Failed or uncertain generation is not automatically repeated. Only completed
+  MP3 from the fixed official distribution host is accepted; failures do not
+  publish a Voice message. Cached audio remains until removed by the operator.
 - The Companion MCP tools are `update_relationship`, `set_signature`,
   `read_relationship_history`, `list_photos`, `roll_dice`, and `send_voice`; Codex supplies
   the `mcp__companion__` namespace.
