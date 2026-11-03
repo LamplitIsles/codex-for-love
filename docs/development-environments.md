@@ -199,6 +199,14 @@ session rejection, without reading conversations or sending messages. Fetch
 static resources only. This establishes installation and serving identity; it
 does not establish resolution of historical provider 429 incidents.
 
+For the current 6881-to-003d716 transition, if a failure requires rollback,
+stop and inform the user first. Do not restore the old unit, restart 6881 or
+modify configuration before the user's decision. The user has declined a
+frontend change for this transition. As of 2026-11-03, 6881's compiled
+contracts did not match the then-current App `latest`; the older 2b6a cache
+had been verified resource by resource. This rule takes precedence over the
+general rollback procedure below.
+
 If promotion fails, first inspect the service, fragment, drop-ins and installation;
 stop if their state or metadata is unknown. For the first transition, restore the
 saved exact prior unit bytes, and any deliberately changed drop-in bytes, only over
