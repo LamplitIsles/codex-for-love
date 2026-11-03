@@ -611,7 +611,10 @@ items without a recorded start retain their relative native history order. Apart
 from the initial input, they follow recorded slots when both exist; their original
 interleaving with recorded starts is unknown. No old conversation is migrated. Authenticated timeline
 changes prompt clients to update a known item or reconcile their loaded history;
-reconnecting clients reconcile again.
+reconnecting clients reconcile again. Active answer text grows in its existing
+message slot with `textState: 'streaming'` and the same native item ID; completion
+sets `textState: 'complete'`. The optional `streamingReply` is omitted when the
+matching timeline slot is present.
 
 Image uploads echo each draft ID and order with its validated resource reference.
 For a manually retried failed image submission, the receipt exposes the verified

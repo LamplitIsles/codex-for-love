@@ -252,9 +252,11 @@ promotion follows [development environments](development-environments.md).
 
 The shared App owns source LF/CRLF display units, Markdown structure, per-unit
 avatar/time/Copy and the browser's Source lines / Whole reply preference. CFL
-supplies the existing optional `streamingReply` contract from official answer
-`item/started` and `item/agentMessage/delta` events. Only the current known
-thread/turn/item can grow that transient slot. Completed items and terminal turns
+projects official answer `item/started` and `item/agentMessage/delta` events into
+ordered `messages` slots with `textState: 'streaming'`. The optional
+`streamingReply` is emitted only when the answer has no matching timeline slot;
+clients must not require that legacy field for an ordered preview. Only the
+current known thread/turn/item can grow that transient text. Completed items and terminal turns
 retire it; late events cannot reopen an observed terminal attempt. No sentences,
 partial text, reasoning or tool payloads are added to CFL persistence, search or
 completion notifications. Existing completed-commentary history is unchanged.
