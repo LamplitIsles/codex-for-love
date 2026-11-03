@@ -1,74 +1,44 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile, rm, mkdir, symlink, unlink } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { mkdtemp, writeFile, readFile, rm, mkdir } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readPin, requirePinned, hashes, identity } from './shared-source.mjs';
+import { readPin, readDigest, hashes, unpackContracts } from './shared-source.mjs';
 
-test('source pins accept only a complete commit and formal preparation requires that clean commit', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'cfl-source-pin-'));
+const sha = bytes => createHash('sha256').update(bytes).digest('hex');
+test('source and independently recorded archive digest have distinct strict formats', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'cfl-pin-'));
   try {
-    const path = join(directory, 'pin'); const pin = 'a'.repeat(40);
-    await writeFile(path, pin + '\n'); assert.equal(await readPin(path), pin);
-    for (const value of ['main', 'a'.repeat(39), 'A'.repeat(40), pin + '\n' + pin]) { await writeFile(path, value); await assert.rejects(readPin(path), /full lowercase commit SHA/); }
-    requirePinned({ sha: pin, dirty: false }, pin);
-    assert.throws(() => requirePinned({ sha: pin, dirty: true }, pin), /local changes/);
-    assert.throws(() => requirePinned({ sha: 'b'.repeat(40), dirty: false }, pin), /Formal source/);
-    assert.throws(() => identity(join(directory, 'missing')), /Selected App source is unavailable/);
+    const path = join(directory, 'pin');
+    await writeFile(path, 'a'.repeat(40)); assert.equal(await readPin(path), 'a'.repeat(40));
+    await assert.rejects(readDigest(path), /SHA-256/);
+    await writeFile(path, 'b'.repeat(64)); assert.equal(await readDigest(path), 'b'.repeat(64));
+    await assert.rejects(readPin(path), /full lowercase commit SHA/);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
-test('artifact manifests detect changed bytes and added resources', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'cfl-source-assets-'));
+test('published contracts require trusted bytes, matching source, exports and notices', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'cfl-contract-artifact-')); const pin = 'a'.repeat(40);
   try {
-    await mkdir(join(directory, 'assets')); await writeFile(join(directory, 'assets/app.js'), 'current');
-    const before = await hashes(directory); assert.equal(Object.keys(before)[0], 'assets/app.js');
-    await writeFile(join(directory, 'assets/app.js'), 'edited'); assert.notDeepEqual(await hashes(directory), before);
-    await mkdir(join(directory, 'node_modules')); await writeFile(join(directory, 'node_modules/install-output'), 'pnpm');
-    assert.equal(Object.keys(await hashes(directory)).length, 1);
-    await writeFile(join(directory, 'index.html'), '<html>'); assert.equal(Object.keys(await hashes(directory)).length, 2);
-  } finally { await rm(directory, { recursive: true, force: true }); }
-});
-
-
-test('local source identity changes with untracked bytes and symlink targets, but ignores generated state', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'cfl-source-git-'));
-  const previousEnv = { GIT_CONFIG_GLOBAL: process.env.GIT_CONFIG_GLOBAL, GIT_CONFIG_NOSYSTEM: process.env.GIT_CONFIG_NOSYSTEM };
-  process.env.GIT_CONFIG_GLOBAL = '/dev/null'; process.env.GIT_CONFIG_NOSYSTEM = '1';
-  const git = args => execFileSync('git', args, { cwd: directory, stdio: 'pipe' });
-  try {
-    git(['init', '--quiet']);
-    await writeFile(join(directory, '.gitignore'), 'generated/\nnode_modules/\n');
-    git(['add', '.gitignore']);
-    git(['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', 'commit', '--quiet', '-m', 'fixture']);
-    const clean = identity(directory); assert.equal(clean.dirty, false);
-    const moduleUrl = new URL('./shared-source.mjs', import.meta.url).href;
-    const probe = `const m = await import(${JSON.stringify(moduleUrl)}); const actual = m.identity(); m.requirePinned(actual, ${JSON.stringify(clean.sha)}); console.log(JSON.stringify({source:m.source,actual}));`;
-    const selected = JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e', probe], { env: { ...process.env, CFL_APP_SOURCE: directory }, encoding: 'utf8' }));
-    assert.equal(selected.source, directory); assert.deepEqual(selected.actual, clean);
-    const path = join(directory, 'new ui\n.svelte');
-    await writeFile(path, '<p>first</p>');
-    const prepared = identity(directory); assert.equal(prepared.dirty, true);
-    assert.equal(prepared.sha, clean.sha);
-    assert.deepEqual(identity(directory), prepared);
-    await writeFile(path, '<p>other</p>');
-    const edited = identity(directory);
-    assert.equal(edited.sha, prepared.sha); assert.equal(edited.dirty, prepared.dirty);
-    assert.notEqual(edited.diffSha256, prepared.diffSha256);
-    for (const name of ['generated', 'node_modules']) {
-      await mkdir(join(directory, name)); await writeFile(join(directory, name, 'ignored'), 'build output');
-    }
-    assert.deepEqual(identity(directory), edited);
-    const link = join(directory, 'asset-link');
-    await symlink('generated/missing-one', link);
-    const linked = identity(directory);
-    await unlink(link); await symlink('generated/missing-two', link);
-    assert.notEqual(identity(directory).diffSha256, linked.diffSha256);
-    await unlink(link); await writeFile(path, '<p>first</p>');
-    assert.deepEqual(identity(directory), prepared);
-  } finally {
-    for (const [key, value] of Object.entries(previousEnv)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
-    await rm(directory, { recursive: true, force: true });
-  }
+    const pkg = join(root, 'package'); await mkdir(join(pkg, 'dist'), { recursive: true }); await mkdir(join(pkg, 'licenses'));
+    await writeFile(join(pkg, 'package.json'), JSON.stringify({ name: '@lamplit/contracts', exports: { '.': { types: './dist/index.d.ts', import: './dist/index.js' } }, dependencies: { typebox: '1.3.34' }, license: 'Apache-2.0' }));
+    await writeFile(join(pkg, 'lamplit-source.json'), JSON.stringify({ revision: pin }));
+    await writeFile(join(pkg, 'LICENSE'), 'license'); await writeFile(join(pkg, 'licenses/chord-1.0.0-MIT.txt'), 'chord');
+    await writeFile(join(pkg, 'dist/index.js'), 'contract'); await writeFile(join(pkg, 'dist/index.d.ts'), 'types');
+    await writeFile(join(pkg, 'dist/cfl-browser-host-auth.js'), 'export const CFL_BROWSER_HOST_AUTH_PROTOCOL = "better-auth";\n');
+    const archive = join(root, 'artifact.tgz'); const dest = join(root, 'out');
+    const pack = () => execFileSync('tar', ['-czf', archive, '-C', root, 'package']);
+    const unpack = async (expectedPin = pin, digest) => { await rm(dest, { recursive: true, force: true }); await mkdir(dest); return unpackContracts(archive, dest, expectedPin, digest ?? sha(await readFile(archive))); };
+    pack(); const digest = sha(await readFile(archive));
+    const first = await unpack(pin, digest); assert.deepEqual(first, await hashes(pkg)); assert.deepEqual(await unpack(pin, digest), first);
+    await assert.rejects(unpack(pin, 'b'.repeat(64)), /SHA-256 mismatch/);
+    await assert.rejects(unpack('b'.repeat(40), digest), /source revision mismatch/);
+    await rm(join(pkg, 'dist/index.d.ts')); pack(); await assert.rejects(unpack(), /ENOENT/);
+    await writeFile(join(pkg, 'dist/index.d.ts'), 'types'); await rm(join(pkg, 'licenses/chord-1.0.0-MIT.txt')); pack(); await assert.rejects(unpack(), /ENOENT/);
+    await writeFile(join(pkg, 'licenses/chord-1.0.0-MIT.txt'), 'chord');
+    await writeFile(join(pkg, 'dist/cfl-browser-host-auth.js'), 'old marker'); pack();
+    await assert.rejects(unpack(), /Better Auth browser-host protocol marker/);
+  } finally { await rm(root, { recursive: true, force: true }); }
 });

@@ -46,9 +46,9 @@ Native builds belong to the Codex fork and follow
 [the release skill](../skills/cfl-release/SKILL.md); application preparation
 uses the pinned native artifact and never rebuilds native code.
 
-For a normal full verification, use Node 24, pinned pnpm and the pinned Bun
-toolchain. Prepare a clean App checkout at `lamplit-app.sha` following
-[source preparation](default-shared-frontend.md), then run the root sequence:
+For a normal full verification, use Node 24 and pinned pnpm. Prepare the verified
+published contracts following [source preparation](default-shared-frontend.md),
+then run the root sequence:
 
 ```sh
 pnpm --config.verify-deps-before-run=false source:prepare --strict
@@ -60,8 +60,7 @@ pnpm test
 
 The preparation command disables pnpm's automatic install-before-run only for
 this bootstrap step: the generated contracts workspace must exist before frozen
-installation. Keep `CFL_APP_SOURCE` set throughout when using an approved isolated
-App checkout.
+installation. No App checkout or Bun is required.
 
 Record the exact reviewed CFL main commit, App pin and prepared contract/license
 hashes. Use test-owned fixtures for automated verification of the source-built

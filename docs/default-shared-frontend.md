@@ -7,14 +7,16 @@ same-origin checks. Platform independently owns hosted auth, manifest, service
 worker and management. Companion MCP configuration and execution ownership stay
 unchanged. No migration, alias, old UI fallback or asset override is supported.
 
-## Source preparation and complete artifacts
+## Published contracts and complete artifacts
 
-Keep `codex-for-love/` and `lamplit-app/` adjacent. CFL uses Node 24 and pinned
-pnpm; App uses Bun 1.3.14. `lamplit-app.sha` contains one full commit SHA.
-Public `https://github.com/LamplitIsles/lamplit-app` serves the initial recorded
-commit and tree matching registered Forgejo source. CI uses that public repository
-and exact SHA, without additional credentials. Future pin changes must also be
-reachable there; following latest main is not the formal source contract.
+CFL uses Node 24 and its pinned pnpm. `lamplit-app.sha` identifies the full App
+commit; `lamplit-contracts.sha256` independently pins the SHA-256 of the public
+`lamplit-contracts-<SHA>.tar.gz` release asset. The commit identifies origin;
+the digest authenticates the downloaded bytes. Preparation verifies both before
+materializing the package into ignored `.generated/shared-app`. It checks exports,
+metadata, required licenses and the Better Auth marker. The build and packaging
+recheck the archive and prepared resources. No App checkout, Bun, App build or
+App tests are required for CFL. App owns its own checks and browser acceptance.
 
 ```sh
 pnpm --config.verify-deps-before-run=false source:prepare
@@ -24,37 +26,13 @@ pnpm build
 pnpm test
 ```
 
-For a fresh checkout, disable pnpm’s automatic install-before-run on this first
-command: the contracts workspace does not exist until preparation completes.
-Use `--strict` for formal candidates.
-
-Preparation runs App frozen install, existing Paraglide generation, check, build
-and test. It materializes compiled public package exports into
-ignored `.generated/shared-app`. CFL has no local browser source, translation
-catalogs or browser compiler. `pnpm check` uses TypeScript for the remaining
-runtime and native test fixtures. That contracts package is a declared pnpm
-workspace dependency with its own domain dependencies; frozen CFL installation
-requires preparation first. No dependency version/lock rewriting is needed in CI.
-The normal build verifies prepared hashes and source identity, including the
-required Better Auth browser-host protocol marker. Older App revisions without
-that marker cannot be prepared for this runtime. Preparation also
-copies App’s LICENSE, IMPORTS and the upstream Noto Sans SC OFL from App’s frozen
-installed font dependency; their hashes are verified alongside the contracts.
-Set `CFL_APP_SOURCE=/absolute/test-owned/lamplit-app` to select an isolated real Git
-checkout at the approved commit. Preparation and verification use this same path;
-the default remains the adjacent checkout. Strict pin/clean-tree validation and
-prepared resource integrity checks apply unchanged. A SHA environment override or
-metadata-free archive is insufficient. Keep the variable set through build/package.
-
-Source edits after preparation require
-preparing again. Local App edits are allowed and recorded, including a dirty
-marker/diff fingerprint; local candidates are not formal deployment artifacts.
-
-For CI and deployment, use `pnpm source:prepare --strict`: source must be clean
-at the recorded pin. Keep it clean through build and packaging. To update the
-pin, review the new App commit, change `lamplit-app.sha`, prepare, and run the same
-frozen sequence. Dependency changes may require a deliberate pnpm lock update in
-the PR, never an ad hoc frozen-install fix in CI.
+The initial command disables pnpm's automatic install because the contracts
+workspace must exist before frozen installation. `--strict` remains accepted;
+all preparations now require the exact published pin and digest. Update both
+pins only after reviewing the App commit and independently verifying the release
+asset digest; compare the published frontend's contracts, retain attribution and
+licenses, and update `pnpm-lock.yaml` deliberately if package dependencies change.
+Frozen installation must pass without rewriting the lock.
 
 ```sh
 mkdir -p .scratch/sha-pinned-shared-frontend/artifacts
@@ -76,8 +54,7 @@ App entries without it fail startup and are not relabeled. The fake-engine packa
 location, links the checkout's existing matching Sharp and Koffi dependencies,
 seeds a synthetic frontend cache with the prepared contracts, and verifies serving,
 root/chat identity, canonical 404s and native session construction. It does not
-verify a fresh installation. Creating the test-owned dependency link requires
-concrete authorization under the repository's resource rules.
+verify a fresh installation. The smoke uses only test-owned paths.
 
 `check.yml` runs source preparation and the frozen CFL sequence, then complete
 artifact/package smoke without publication. The optional tag publication workflow
@@ -137,7 +114,7 @@ Current submission/Keet acceptance uses the unchanged runners and frozen resourc
 from [the approved submission handoff](native-durable-submissions.md).
 
 The isolated native host uses actual CFL webhook, Partner storage, fake official
-app-server transport, fake loopback KFA media, and the prepared browser from the pinned App source:
+app-server transport, fake loopback KFA media, and the approved frozen browser:
 
 ```sh
 node apps/partner/tests/keet-acceptance-host.ts <approved-frozen-browser> <owned-evidence>
@@ -261,9 +238,8 @@ actions hold/release fake-provider task-started through the actual Node relay.
 Frame/event observations and provider-side equality assertions verify exact
 relay delivery. The runner observes genuine browser tracks, AudioContext and
 AudioWorklet release, and supplies its existing backpressure control. No physical
-microphone, real provider or service state participates. Source preparation and
-packaging use a clean real-Git `CFL_APP_SOURCE` at the same pin; frozen acceptance
-identities in IMPORTS remain separate from source-built resource hashes.
+microphone, real provider or service state participates. Current preparation uses the published contract archive; frozen acceptance
+identities in IMPORTS remain separate from current resource hashes.
 
 Public GitHub exact-SHA reachability remains a hosted CI prerequisite. Local
 isolated source acceptance does not establish that reachability or hosted CI

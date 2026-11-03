@@ -24,27 +24,11 @@ bytes remain available through authenticated operation-owned staging/native medi
 
 ## Separate source packaging and frozen native acceptance
 
-The approved App commit is `3aaa48a384549f72cc417a6cb3e6108fe0999b37` (App PR16).
-Use the existing pipeline with a clean real-Git snapshot at that exact commit:
-
-```sh
-export CFL_APP_SOURCE=/absolute/test-owned/lamplit-app
-export BUN_INSTALL_CACHE_DIR=/absolute/test-owned/bun-cache
-pnpm source:prepare --strict
-pnpm install --frozen-lockfile
-pnpm check
-pnpm build
-pnpm test
-pnpm release:prepare /absolute/test-owned/artifacts --strict
-pnpm release:check
-node scripts/packaged-frontend-smoke.mjs /absolute/test-owned/artifacts/<package>.tgz
-```
-
-`CFL_APP_SOURCE` applies to preparation and verification. Default adjacent-source
-behavior, exact pin/clean-source checks, resource/license manifests and CLI bundle
-contracts remain unchanged. Record the real Git commit/tree and source-built
-`source.json`/`vendor/source.json` hashes. Source-built bundle hashes can differ
-from the frozen acceptance package; keep both identities separate.
+The historical acceptance used App PR16 commit
+`3aaa48a384549f72cc417a6cb3e6108fe0999b37`. Current CFL packaging follows
+[published contract preparation](default-shared-frontend.md); record current
+source and contract hashes separately from these historical frozen artifacts.
+The following acceptance artifacts remain unchanged.
 
 Native acceptance consumes the immutable Orc-approved App archive, never freshly
 rebuilt resources or the moving adjacent tree:

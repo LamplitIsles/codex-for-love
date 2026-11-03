@@ -28,17 +28,9 @@ baseline; the App thinking fixture verifies shared UI capability separately.
 The source pin is actual App PR18 merged main
 `132d7dedd8c52eecefa8ea6bb9bb6038d5cdc9e8`. Its tree
 `ac660d08d4f7ccb0b3845de11ac185df5c50301a` equals reviewed App #3560 candidate
-`3e95c3385ac00ba8317d21b85b76484637ce3fc6`. Use a clean real-Git checkout at main's exact commit
-with Node 24, pnpm 11.22.0 and Bun 1.3.14 through the existing workflow:
-
-```sh
-export CFL_APP_SOURCE=/absolute/approved-clean/lamplit-app
-pnpm source:prepare --strict
-pnpm install --frozen-lockfile
-pnpm check
-pnpm build
-pnpm test
-```
+`3e95c3385ac00ba8317d21b85b76484637ce3fc6`. This was the historical
+source build; current CFL preparation uses the separately pinned published
+contracts as described in [shared preparation](default-shared-frontend.md).
 
 Source preparation/build hashes are separate from immutable native acceptance.
 The unchanged Orc-approved `lamplit-matrix-source-ui.tgz` retains candidate

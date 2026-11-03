@@ -753,15 +753,11 @@ Publication serializes its own main workflows, verifies the current
 retries. Do not run an independent concurrent publisher against the same tag.
 A failed or uncertain publication requires registry inspection before any retry.
 
-Snapshot builds use Dagger 0.21.7 and an existing persistent engine. CFL's App
-preparation has its own locked Bun 1.3.14 download cache; CFL also has a separate
-pnpm 11.22.0 store. These caches belong to the CFL module, not the App build's
-module. Source, installed dependencies, credentials and package output are not
-cached in these volumes.
-Both installs remain frozen and an empty cache must work. Local and CI reuse
-requires the same engine, a retained cache and the same module cache namespace.
-That reuse, the engine's available capacity and the CI agent's access remain to
-be verified before enabling the workflow.
+Snapshot builds use Dagger 0.21.7 and an existing persistent engine. CFL uses a
+locked pnpm 11.22.0 store and fetches the digest-pinned published App contract
+archive. The frozen install must work with an empty cache. Local and CI cache
+reuse requires the same engine, retained cache and module namespace; engine
+capacity and CI access must be verified independently.
 
 To run the same snapshot build locally, select that existing engine with
 `_EXPERIMENTAL_DAGGER_RUNNER_HOST`, use the 0.21.7 Dagger CLI, and set
@@ -775,8 +771,8 @@ The result is checked and packed once, but the local command does not publish it
 Run [source preparation](default-shared-frontend.md) before frozen CFL installation.
 `pnpm build` verifies the prepared App public contracts. Packaging retains the
 runtime, contract metadata and licenses, but no browser resources. At startup
-every selector prepares canonical App source in the cache or verifies an existing
-entry. `/` and `/chat` use identical HTML and root-relative assets.
+every selector downloads the published App frontend into the cache or verifies an
+existing entry. `/` and `/chat` use identical HTML and root-relative assets.
 The former `/slice` route and `LAMPLIT_APP_ASSETS` selection are removed. Platform
 keeps hosted auth/PWA/management ownership. Companion MCP configuration semantics
 remain unchanged. Follow [default shared frontend](default-shared-frontend.md)
@@ -786,8 +782,8 @@ Publication and deployment still require Owner review; merging does not deploy.
 ## Source-based complete application candidates
 
 Before building or promoting a checkout candidate, follow
-[source preparation](default-shared-frontend.md): App's recorded SHA supplies
-compiled public contracts with frozen App/CFL dependencies. The selected frontend
+[source preparation](default-shared-frontend.md): App's recorded SHA and archive digest select published
+compiled public contracts with frozen CFL dependencies. The selected frontend
 is prepared independently at startup and must match those contracts. npm packaging
 and publication are optional. For host-local source promotion and code/assets
 rollback, follow [development environments](development-environments.md). Keep

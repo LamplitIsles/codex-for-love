@@ -1,33 +1,23 @@
 import { execFileSync } from 'node:child_process';
-import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
-import { createRequire } from 'node:module';
-import { root, source, prepared, readPin, identity, cflIdentity, requirePinned, hashes, buildWithFreshAuthMarker } from './shared-source.mjs';
-import { requireAuthMarker } from '../apps/partner/runtime/frontend-contract.ts';
+import { cp, mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { root, prepared, readPin, readDigest, cflIdentity, hashes, unpackContracts } from './shared-source.mjs';
 
-const pin = await readPin();
-const app = identity();
-if (process.argv.includes('--strict')) requirePinned(app, pin);
-const packageJson = JSON.parse(await readFile(join(source, 'package.json'), 'utf8'));
-if (packageJson.packageManager !== 'bun@1.3.14' || execFileSync('bun', ['--version'], { encoding: 'utf8' }).trim() !== '1.3.14') throw new Error('App preparation requires pinned Bun 1.3.14.');
-await buildWithFreshAuthMarker(source, () => {
-  for (const args of [['install', '--frozen-lockfile'], ['run', '--cwd', 'apps/web', 'paraglide-js', 'compile', '--project', './project.inlang', '--outdir', './src/lib/paraglide', '--emit-ts-declarations', '--strategy', 'globalVariable', 'preferredLanguage', 'baseLocale', '--silent'], ['run', 'check'], ['run', 'build'], ['run', 'test']]) execFileSync('bun', args, { cwd: source, stdio: 'inherit' });
-  if (JSON.stringify(identity()) !== JSON.stringify(app)) throw new Error('App source changed during preparation.');
-});
-const contracts = JSON.parse(await readFile(join(source, 'packages/contracts/package.json'), 'utf8'));
-for (const exported of Object.values(contracts.exports)) for (const path of Object.values(exported)) {
-  try { await readFile(join(source, 'packages/contracts', path)); }
-  catch { throw new Error(`Compiled public contracts missing: ${path}; App build must complete before CFL installation.`); }
-}
-await rm(prepared, { recursive: true, force: true });
-await mkdir(prepared, { recursive: true });
-await mkdir(join(prepared, 'contracts'));
-for (const path of ['package.json', 'dist', 'LICENSE']) await cp(join(source, 'packages/contracts', path), join(prepared, 'contracts', path), { recursive: true });
-await mkdir(join(prepared, 'licenses'));
-for (const [path, name] of [['LICENSE', 'lamplit-app-Apache-2.0.txt'], ['docs/IMPORTS.md', 'lamplit-app-IMPORTS.md']]) await cp(join(source, path), join(prepared, 'licenses', name));
-const appRequire = createRequire(join(source, 'apps/web/package.json'));
-await cp(join(dirname(appRequire.resolve('@fontsource/noto-sans-sc/package.json')), 'LICENSE'), join(prepared, 'licenses', 'NotoSansSC-OFL-1.1.txt'));
-const manifest = { pin, app, cfl: cflIdentity(), contracts: await hashes(join(prepared, 'contracts')), licenses: await hashes(join(prepared, 'licenses')) };
-requireAuthMarker(manifest.contracts, 'Prepared App contracts');
-await writeFile(join(prepared, 'source.json'), JSON.stringify(manifest, null, 2) + '\n');
-console.log(`Prepared App ${app.sha}${app.dirty ? ' (local edits)' : ''} and public contracts.`);
+const pin = await readPin(); const digest = await readDigest();
+const url = `https://github.com/LamplitIsles/lamplit-app/releases/download/app-${pin}/lamplit-contracts-${pin}.tar.gz`;
+await mkdir(join(root, '.generated'), { recursive: true });
+const stage = await mkdtemp(join(root, '.generated/prepare-contracts-'));
+try {
+  const archive = join(stage, 'contracts.tar.gz');
+  execFileSync('curl', ['--fail', '--silent', '--show-error', '--location', '--proto', '=https', '--proto-redir', '=https', '--max-time', '120', '--max-filesize', '134217728', '--output', archive, url], { stdio: 'inherit' });
+  const extracted = join(stage, 'extract'); await mkdir(extracted);
+  const contracts = await unpackContracts(archive, extracted, pin, digest);
+  await rename(join(extracted, 'package'), join(stage, 'contracts')); await rm(extracted, { recursive: true });
+  await mkdir(join(stage, 'licenses'));
+  for (const [from, name] of [[join(stage, 'contracts/LICENSE'), 'lamplit-app-Apache-2.0.txt'], [join(stage, 'contracts/licenses/chord-1.0.0-MIT.txt'), 'chord-1.0.0-MIT.txt'], [join(root, 'licenses/app/lamplit-app-IMPORTS.md'), 'lamplit-app-IMPORTS.md'], [join(root, 'licenses/app/NotoSansSC-OFL-1.1.txt'), 'NotoSansSC-OFL-1.1.txt']]) await cp(from, join(stage, 'licenses', name));
+  const manifest = { pin, app: { sha: pin }, archiveSha256: digest, cfl: cflIdentity(), contracts, licenses: await hashes(join(stage, 'licenses')) };
+  await writeFile(join(stage, 'source.json'), JSON.stringify(manifest, null, 2) + '\n');
+  await rm(prepared, { recursive: true, force: true });
+  await rename(stage, prepared);
+  console.log(`Prepared published App contracts ${pin} (SHA-256 ${digest}).`);
+} finally { await rm(stage, { recursive: true, force: true }); }

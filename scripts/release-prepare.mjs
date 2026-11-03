@@ -35,9 +35,9 @@ await writeFile(join(vendor, 'package.json'), '{"type":"module"}\n');
 await cp(join(root, 'LICENSE'), join(mainPackage, 'LICENSE'));
 await cp(join(root, 'licenses'), join(vendor, 'licenses'), { recursive: true });
 await cp(join(prepared, 'licenses'), join(vendor, 'licenses'), { recursive: true });
-// The bundled authentication libraries include their dependencies; retain their notices.
+// Retain notices for bundled authentication and contract dependencies.
 const visited = new Set();
-async function copyDependencyLicenses(name, parent) {
+async function copyDependencyLicenses(name, parent, category = 'auth') {
   const entry = createRequire(parent).resolve(name);
   let directory = dirname(entry), info;
   for (;;) {
@@ -47,18 +47,20 @@ async function copyDependencyLicenses(name, parent) {
     directory = next;
   }
   const key = `${info.name}@${info.version}`;
-  if (visited.has(key)) return;
-  visited.add(key);
+  const visitKey = `${category}:${key}`;
+  if (visited.has(visitKey)) return;
+  visited.add(visitKey);
   const names = (await readdir(directory)).filter(file => /^(license|licence|copying|notice)(\.|$)/iu.test(file));
   if (!names.length) throw new Error(`Missing license notice for ${key}`);
-  const destination = join(vendor, 'licenses', 'auth', key.replaceAll('/', '__'));
+  const destination = join(vendor, 'licenses', category, key.replaceAll('/', '__'));
   await mkdir(destination, { recursive: true });
   await Promise.all(names.map(file => cp(join(directory, file), join(destination, file), { recursive: true })));
-  for (const dependency of Object.keys(info.dependencies ?? {})) await copyDependencyLicenses(dependency, join(directory, 'package.json'));
+  for (const dependency of Object.keys(info.dependencies ?? {})) await copyDependencyLicenses(dependency, join(directory, 'package.json'), category);
 }
 for (const name of ['better-auth', '@better-auth/passkey', '@better-auth/oauth-provider']) {
   await copyDependencyLicenses(name, join(root, 'apps/partner/package.json'));
 }
+await copyDependencyLicenses('typebox', join(prepared, 'contracts/package.json'), 'contracts');
 await writeFile(join(vendor, 'source.json'), JSON.stringify(manifest, null, 2) + '\n');
 const packed = Object.values(JSON.parse(execFileSync('npm', ['pack', '--json', '--pack-destination', output], { cwd: mainPackage, encoding: 'utf8' })))[0];
 console.log(JSON.stringify({ artifact: join(output, packed.filename), mainPackage, version: packed.version }, null, 2));

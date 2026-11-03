@@ -575,3 +575,21 @@ independently reviewed App candidate `e8cab2aeb01cdde0ee4045fa89f103f45a8273b0`;
 uses yauzl 3.2.0, with buffer-crc32 0.2.13 and pend 1.2.0. Their MIT notices
 are preserved in `licenses/` and in the packaged artifact. The parser reads
 entries lazily; CFL independently applies path, link, size and image checks.
+
+
+## Published App contracts (FlickNote #15)
+
+CFL consumes Apache-2.0 `@lamplit/contracts` published from App merge commit
+`6af0ad61756052e117234876435afc209ea2b00b` (tree identical to reviewed
+`388faa0db637c4e8b36ea14363bcc1f38e5bcc9b`). The public release asset
+`lamplit-contracts-6af0ad61756052e117234876435afc209ea2b00b.tar.gz` has
+SHA-256 `f9f8342211d3410bdb6ae58d0f41380055090895043af42f3183211f0b5565c1`;
+GitHub release metadata and a local download agreed. Source identity and archive
+integrity are separate pins. Package exports, dependency metadata, Apache license
+and Chord MIT notice come from this archive. The bundled contracts also use
+TypeBox 1.3.34 (MIT); release preparation copies its installed original notice
+to `vendor/licenses/contracts/typebox@1.3.34/license`. The retained App IMPORTS
+and Noto Sans SC OFL notices in `licenses/app/` are copied from the same commit's public
+frontend archive (SHA-256 `53a78b8590bef83a5bd00780721ee4f4eb44991c2a6bf9b4bb6c8b301f9c1b28`).
+Runtime verifies all selected frontend resources and exact compiled contract bytes;
+matching bytes alone do not establish business behavior.

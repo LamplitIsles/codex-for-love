@@ -486,7 +486,7 @@ The direction is companion autonomy without hidden automation, and continuity wi
 Use Node 24 and the pnpm version pinned in [`package.json`](package.json):
 
 ```bash
-pnpm source:prepare
+pnpm --config.verify-deps-before-run=false source:prepare
 pnpm install --frozen-lockfile
 pnpm check
 pnpm build
@@ -517,17 +517,12 @@ There is no `/slice` entry, UI fallback or asset-directory environment override.
 Platform owns hosted authentication, manifest, service worker and management;
 CFL does not register a service worker or serve management routes.
 
-CFL records the App commit in `lamplit-app.sha`. Keep `lamplit-app` adjacent to
-this checkout, with Bun 1.3.14. `pnpm source:prepare` installs App's frozen lock,
-generates localization, checks/builds/tests App, then materializes its compiled
-public contracts, including App attribution and its Noto
-font license. Local preparation permits edits and
-records their identity; CI and formal candidates use `pnpm source:prepare --strict`
-with clean App source at the recorded SHA. Then run CFL's frozen install,
-check, build and test in order. CFL’s `pnpm check` typechecks runtime and native
-test fixtures with TypeScript; browser compilation and checks run in App during
-preparation. Updating the SHA requires reviewing the resulting
-joint checks; no npm publication or submodule is required.
+CFL pins the published App commit in `lamplit-app.sha` and independently pins
+its public contract archive digest in `lamplit-contracts.sha256`. Preparation
+verifies both, exports, licenses and the protocol marker before frozen CFL
+installation. App owns its own build and tests; CFL needs neither an App checkout
+nor Bun. When updating the pin, independently verify the published archive and
+update the dependency lock deliberately if its metadata changes.
 
 `pnpm build` verifies the prepared contracts. Optional main packaging includes
 the runtime and contracts using its explicit Rolldown dependency, licenses and
@@ -589,7 +584,7 @@ reply completion, and official user items establish consumption. Reconnect
 lookup and same-operation retries recover the saved receipt without resubmitting
 ambiguous native input. Lookup returns `null` while no definitive result exists; it never authorizes recovery or replay. Failure and stop produce independent timeline
 notices; successful replies end quietly. Completed messages survive reconnect and restart.
-Browser origins must match the configured canonical origin, and browser access requires a Passkey session. See `lamplit-app/docs/integration.md` for build and
+Browser origins must match the configured canonical origin, and browser access requires a Passkey session. See [shared frontend preparation](docs/default-shared-frontend.md) for build and
 connection commands.
 
 The app owns the public TypeScript/TypeBox schemas. CFL implements six bounded
@@ -756,8 +751,7 @@ workspace/device scope and context limits remain unchanged.
 CFL's authenticated sticker backend supplies a shared library with separate
 Human and Partner favorites. The current shared App does not yet include a
 sticker picker. The public HTTP contract is defined by the App source identified
-in `lamplit-app.sha`; the local candidate must be published before an installed
-runtime can select it as a public frontend release.
+in `lamplit-app.sha`; the frontend must be published before an installed runtime can select it.
 
 Import an administrator-selected directory with the installed CLI:
 

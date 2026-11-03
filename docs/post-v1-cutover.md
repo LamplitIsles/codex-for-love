@@ -10,14 +10,13 @@ Do not invent dev or staging targets.
 
 ## Prepare immutable evidence
 
-Use Node 24, pnpm pinned in package.json and App Bun 1.3.14. Follow
-[shared source preparation](default-shared-frontend.md) and
-[canonical environments](development-environments.md). Work from reviewed clean
-CFL main and a clean exact `lamplit-app.sha` source. For an isolated source, keep
-`CFL_APP_SOURCE` set through preparation, build and packaging:
+Use Node 24 and pnpm pinned in package.json. Follow
+[shared preparation](default-shared-frontend.md) and
+[canonical environments](development-environments.md) from reviewed CFL main.
+Preparation obtains the independently verified published contracts:
 
 ```sh
-pnpm source:prepare --strict
+pnpm --config.verify-deps-before-run=false source:prepare --strict
 pnpm install --frozen-lockfile
 pnpm check
 pnpm build

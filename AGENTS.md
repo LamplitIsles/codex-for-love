@@ -1,11 +1,9 @@
 # Codex for Love
 
 Use Node 24 and the pnpm version pinned in package.json. Before frozen CFL
-installation, prepare adjacent lamplit-app source with its pinned Bun toolchain:
-read [source preparation](docs/default-shared-frontend.md) for local edits, strict
-candidates, pin updates and isolated acceptance. For an approved isolated App source checkout, set
-`CFL_APP_SOURCE` through preparation, build and packaging; strict checks still
-require the clean exact pin. Native acceptance consumes the separately approved
+installation, prepare the published App contracts as described in
+[contract preparation](docs/default-shared-frontend.md). CFL does not need an
+App checkout, Bun, or App's own build and tests. Native acceptance consumes the separately approved
 frozen artifacts as described in [submission acceptance](docs/native-durable-submissions.md).
 Compiled public contracts come from the pinned App revision; the selected
 frontend must match those contracts exactly. At runtime CFL downloads a
@@ -22,8 +20,9 @@ state. lamplit-app owns shared UI implementation, visual and interaction behavio
 UI documentation and browser acceptance.
 
 For an App pin refresh, default to the pin and necessary import attribution,
-then verify existing CFL consumption, build, packaging and deployment contracts.
-Reuse upstream UI evidence with its exact source and artifact provenance. Add a
+then verify the affected CFL consumption and release contracts. Reuse existing
+passing evidence where unchanged and upstream UI evidence with its exact source
+and artifact provenance; do not repeat unrelated checks. Add a
 host integration regression only for a concrete host contract change or demonstrated
 defect; existing backend fixtures remain valid. Keep task evidence in ignored
 scratch and UI guides and browser matrices in App.
@@ -60,7 +59,8 @@ install or deploy Shio.
 - On this Linux host, run one heavy build at a time with four Cargo jobs inside an enforced resource scope: `MemoryMax=6G`, `MemorySwapMax=512M`, `CPUQuota=400%`, and `TasksMax=256`. Verify the scope's limits before compiling; stop if enforcement is unavailable. Job count is not a memory limit.
 - First inspect Cargo freshness under these parameters. If dependencies unexpectedly require widespread rebuilding, stop and report the fingerprint mismatch before continuing a long build. For unchanged fork behavior and release packaging, use lightweight package availability and installed-artifact smoke checks rather than rebuilding the Rust test graph. Establish appropriate resource controls on macOS before its later build.
 
-- Prepare App with `pnpm --config.verify-deps-before-run=false source:prepare` (strict for formal candidates; generates the contracts workspace before frozen installation), then run `pnpm install --frozen-lockfile`, `pnpm check`, `pnpm build` and `pnpm test` from the repository root, in that order; static-artifact tests consume the current build.
+- Prepare published contracts with `pnpm --config.verify-deps-before-run=false source:prepare` before `pnpm install --frozen-lockfile`. Choose local checks and tests for the changed behavior; build before tests that consume static artifacts. The complete `pnpm check`, `pnpm build`, and `pnpm test` sequence is available when warranted and remains part of the established CI/release gates, not a mandatory local rerun for every edit.
+- Reuse relevant, attributable evidence. Do not repeat full suites, heavyweight builds, package smoke tests, or unchanged upstream tests after a passing run unless changed behavior, a failure, a concrete unresolved concern, an applicable release gate, or an explicit user request warrants it. For pin-only or documentation changes, use focused verification. Report interrupted or unrun checks accurately; a partial suite is not a full pass.
 - Fork-native changes follow the local Codex build contract above. A native-only update locally stages Linux and macOS archives and publishes their exact npm tarballs through `skills/cfl-release`; it becomes deployable only after a later main-package change pins those public versions. The published launcher selects its pinned native package, not a production TOML executable override. The removed `pnpm codex:build` command is not a release path.
 - Run the Partner with `pnpm --filter @lamplitisles/partner start -- <config.toml>` after configuring the Codex 0.164.0 app-server executable and existing device-auth login.
 - Use a fresh test-owned workspace and the fake app-server for automated tests. Do not use the real Codex home, credentials or external message side effects in tests.
