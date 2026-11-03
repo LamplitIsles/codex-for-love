@@ -733,7 +733,7 @@ install or restart Shio. The repository's GitHub tag-driven public npm release
 process above remains separate.
 
 For a deliberate package update, select the exact snapshot tarball URL from the
-Forgejo npm package metadata. Use the default registry
+Forgejo npm package metadata and verify its SHA-512 integrity. Use the default registry
 `https://registry.npmjs.org/` without an `@lamplitisles` scope registry override,
 so native optional packages resolve from npmjs. For the exact Shio snapshot
 `0.1.0-beta.0.snapshot.g6881b22d5eda6fdd6715867fdb6397666308adf4`, the Forgejo
@@ -743,7 +743,11 @@ local tarball into the approved versioned prefix with that default registry and
 native executables passed help/version checks, and sharp/koffi native modules
 loaded. This does not establish native business, conversation or cross-platform
 behavior.
-For Shio installation, promotion and rollback, follow
+For the planned fixed-prefix workflow, stop Shio before later in-place updates;
+retain the previous tarball and reinstall it for rollback, since the previous
+dependency tree is not retained. As of 2026-11-03, the 003d716 candidate was
+preinstalled and initially verified in the fixed prefix but not activated; Shio
+was still running 6881. For Shio installation, promotion and rollback, follow
 [canonical environments](development-environments.md). Do not set the whole
 scope to Forgejo: it also contains the public native dependencies.
 

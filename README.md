@@ -174,7 +174,7 @@ the runtime Config. Other unknown keys remain rejected. Existing configs need
 no manual edit, automatic rewrite, or migration.
 
 
-On N5, Shio is the only CFL instance: Neil’s user systemd unit `codex-for-love-shio.service`, serving port 3084. Orc manually promotes a verified Forgejo npm snapshot and its exact pinned native dependency from npmjs. Mac is a build/smoke host with no CFL service. See [Host-local Partner environments](docs/development-environments.md) for preparation, promotion and rollback.
+On N5, Shio is the only CFL instance: Neil’s user systemd unit `codex-for-love-shio.service`, serving port 3084. Orc manually promotes a verified Forgejo npm snapshot and its exact pinned native dependency from npmjs. The fixed installation prefix permits later updates with the service stopped, without a per-version unit change; rollback requires reinstalling the old package. Mac is a build/smoke host with no CFL service. See [Host-local Partner environments](docs/development-environments.md) for current state, preparation, promotion and rollback.
 
 Optional chat backgrounds are configured in the Partner TOML, separately from browser appearance preferences:
 
