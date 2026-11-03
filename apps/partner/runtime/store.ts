@@ -79,6 +79,15 @@ export class Store {
         CREATE TABLE IF NOT EXISTS shared_submissions (operation_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, fingerprint TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS rejected_inputs (message_id TEXT PRIMARY KEY, error TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS chat_completed_items (turn_id TEXT NOT NULL, item_id TEXT PRIMARY KEY);
+        CREATE TABLE IF NOT EXISTS chat_timeline_slots (
+          session_id TEXT NOT NULL,
+          turn_id TEXT NOT NULL,
+          item_id TEXT NOT NULL,
+          kind TEXT NOT NULL CHECK(kind IN ('user','text','image','voice')),
+          position INTEGER NOT NULL CHECK(position >= 0),
+          PRIMARY KEY(session_id,turn_id,item_id),
+          UNIQUE(session_id,turn_id,position)
+        );
         CREATE TABLE IF NOT EXISTS message_meta (
           sequence INTEGER PRIMARY KEY AUTOINCREMENT,
           id TEXT NOT NULL UNIQUE,
@@ -180,6 +189,17 @@ export class Store {
   }
   async completedChatItems(turnId: string): Promise<Set<string>> {
     return this.transaction(() => new Set(this.db.prepare('SELECT item_id FROM chat_completed_items WHERE turn_id=?').all(turnId).map(row => String((row as { item_id: string }).item_id))));
+  }
+
+  async recordTimelineSlot(sessionId: string, turnId: string, itemId: string, kind: 'user' | 'text' | 'image' | 'voice'): Promise<void> {
+    await this.transaction(() => {
+      const previous = this.db.prepare('SELECT kind FROM chat_timeline_slots WHERE session_id=? AND turn_id=? AND item_id=?').get(sessionId, turnId, itemId) as { kind: string } | undefined;
+      if (previous) { if (previous.kind !== kind) throw identityConflict(); return; }
+      this.db.prepare('INSERT INTO chat_timeline_slots(session_id,turn_id,item_id,kind,position) SELECT ?,?,?,?,COALESCE(MAX(position)+1,0) FROM chat_timeline_slots WHERE session_id=? AND turn_id=?').run(sessionId, turnId, itemId, kind, sessionId, turnId);
+    });
+  }
+  async timelineSlots(sessionId: string, turnId: string): Promise<Array<{ itemId: string; kind: 'user' | 'text' | 'image' | 'voice'; position: number }>> {
+    return this.transaction(() => (this.db.prepare('SELECT item_id,kind,position FROM chat_timeline_slots WHERE session_id=? AND turn_id=? ORDER BY position').all(sessionId, turnId) as Array<{ item_id: string; kind: 'user' | 'text' | 'image' | 'voice'; position: number }>).map(row => ({ itemId: row.item_id, kind: row.kind, position: row.position })));
   }
 
   private async revision(): Promise<number> {
@@ -315,6 +335,12 @@ export class Store {
       }
       return undefined;
     }, beforeCommit);
+  }
+  async retryBinding(attemptId: string, sessionId: string): Promise<{ sourceId: string; input: Submission | null } | undefined> {
+    return this.transaction(() => {
+      const row = this.db.prepare('SELECT source_id,payload FROM retry_attempts WHERE attempt_id=? AND session_id=?').get(attemptId, sessionId) as { source_id: string; payload: string | null } | undefined;
+      return row ? { sourceId: row.source_id, input: row.payload ? JSON.parse(row.payload) : null } : undefined;
+    });
   }
   async bindRetry(input: Submission, beforeCommit?: () => void): Promise<void> {
     await this.transaction(() => {

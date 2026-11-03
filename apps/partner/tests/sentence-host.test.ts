@@ -13,7 +13,7 @@ test('sentence controls exercise native ingress, held execution, privacy, sessio
   const root = await mkdtemp(join(tmpdir(), 'cfl-sentence-controls-'));
   const host = await textVoiceHost(root, root);
   let view: ChatView | undefined;
-  const connect = () => openChat(new WS(host.origin.replace('http:', 'ws:') + '/api/chat/socket', { headers: { cookie: 'native-test-owner=1', origin: host.origin } }) as unknown as WebSocket, v => { view = v; }, () => {});
+  const connect = () => openChat(new WS(host.origin.replace('http:', 'ws:') + '/api/chat/socket', { headers: { cookie: 'native-test-owner=1', origin: host.origin } }) as unknown as WebSocket, v => { view = v; }, () => {}, () => {});
   let client = await connect();
   const control = async (action: string, text?: string) => {
     const response = await fetch(host.controlUrl, { method: 'POST', body: JSON.stringify({ action, text }) });

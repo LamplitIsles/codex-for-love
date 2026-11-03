@@ -807,7 +807,7 @@ test('retained Post provenance reaches source UI with original body media and ti
   async function connect() {
     publicView = undefined;
     socket = new WebSocket(h!.origin.replace('http:', 'ws:') + '/api/chat/socket');
-    chat = await openChat(socket, view => { publicView = view; }, () => {});
+    chat = await openChat(socket, view => { publicView = view; }, () => {}, () => {});
     await eventually(async () => publicView?.messages.filter(m => m.role === 'user').length === 4);
     for (const message of expectedMessages) assert.deepEqual(publicView!.messages.find(m => m.id === message.id), message, 'public strict serialized view matches retained source');
     const history = await chat.history(JSON.stringify({ before: Number.MAX_SAFE_INTEGER }));

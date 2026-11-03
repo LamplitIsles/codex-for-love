@@ -8,7 +8,7 @@ import { StickerCatalog } from './sticker-catalog.ts';
 import { readStickerZip } from './sticker-import.ts';
 import { listDiary, readDiary } from './diary.ts';
 export { MAX_DIARY_ENTRY_BYTES } from './diary.ts';
-import { validateUpload, validateSubmission, validateRecovery, type Receipt, type Submission, type ImageUpload, type ImageRef, type InputRecovery, type ChatAppearance, type FinalizeSubmission, type RetryFailed, type DeleteFailed, type StickerBackend, validate, FinalizeSubmissionSchema, RetryFailedSchema, DeleteFailedSchema } from '@lamplit/contracts';
+import { validateUpload, validateSubmission, validateRecovery, validateRetryImageMapping, type Receipt, type Submission, type ImageUpload, type ImageRef, type InputRecovery, type ChatAppearance, type FinalizeSubmission, type RetryFailed, type DeleteFailed, type StickerBackend, type TimelineUpdate, validate, FinalizeSubmissionSchema, RetryFailedSchema, DeleteFailedSchema } from '@lamplit/contracts';
 import { createHash, randomUUID } from 'node:crypto';
 import { access, lstat, mkdir, open, readFile, writeFile, unlink } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
@@ -89,7 +89,7 @@ type TurnResult = {
   error: string | null;
   status: string;
   generatedIds: string[];
-  voiceIds: string[];
+  voiceDispatches: Array<{ id: string; itemId: string }>;
   completedAt?: number;
 };
 const HISTORY_PAGE_MESSAGES = 50;
@@ -103,18 +103,24 @@ export function visibleHistoryPage(messages: readonly MessageMeta[], results: re
   const selected: MessageMeta[] = [];
   let visible = 0;
   let index = candidates.length - 1;
+  let requiredIndex = Number.POSITIVE_INFINITY;
   for (; index >= 0; index -= 1) {
     const message = candidates[index]!;
     const result = resultBySource.get(message.id);
     const resultUnits = result
-      ? result.answers.length + result.generatedIds.length + result.voiceIds.length + (result.error || ['failed', 'interrupted', 'cancelled'].includes(result.status) ? 1 : 0)
+      ? result.answers.length + result.generatedIds.length + result.voiceDispatches.length + (result.error || ['failed', 'interrupted', 'cancelled'].includes(result.status) ? 1 : 0)
       : 0;
     const units = 1 + resultUnits;
     // Keep one whole input/result group when it alone is larger than the page,
     // so a Partner response is never detached from the input it answers.
-    if (selected.length && visible + units > HISTORY_PAGE_MESSAGES) break;
+    if (selected.length && visible + units > HISTORY_PAGE_MESSAGES && index < requiredIndex) break;
     selected.push(message);
     visible += units;
+    for (const group of results) {
+      if (!group.sourceIds.includes(message.id)) continue;
+      const earliest = candidates.findIndex(candidate => group.sourceIds.includes(candidate.id));
+      if (earliest >= 0) requiredIndex = Math.min(requiredIndex, earliest);
+    }
   }
   selected.reverse();
   return {
@@ -277,6 +283,12 @@ function officialItemId(item: OfficialItem): string {
   return '';
 }
 
+function timelineKind(item: OfficialItem): 'user' | 'text' | 'image' | 'voice' | undefined {
+  return item.type === 'userMessage' ? 'user' : item.type === 'agentMessage' ? 'text'
+    : item.type === 'imageGeneration' || (item.type === 'mcpToolCall' && item.server === 'companion' && item.tool === 'send_sticker') ? 'image'
+      : item.type === 'mcpToolCall' && item.server === 'companion' && item.tool === 'send_voice' ? 'voice' : undefined;
+}
+
 function sourceLocation(turn: OfficialTurn, sourceId: string): SourceLocation | undefined {
   for (const item of userItems(turn)) {
     const ids = expandClientId(typeof item.clientId === 'string' ? item.clientId : '');
@@ -303,21 +315,24 @@ function answersFromTurn(turn: OfficialTurn | undefined): string[] {
     .filter((value): value is string => typeof value === 'string' && value.trim().length > 0);
 }
 
-function voiceIdsFromTurn(turn: OfficialTurn | undefined): string[] {
-  const ids = new Set<string>();
-  const visit = (value: unknown): void => {
-    if (typeof value === 'string') { try { visit(JSON.parse(value)); } catch {} }
-    else if (Array.isArray(value)) value.forEach(visit);
-    else if (value && typeof value === 'object') {
-      const entry = value as Record<string, unknown>;
-      if (entry.kind === 'voice' && typeof entry.audioId === 'string' && /^[a-f0-9]{64}$/u.test(entry.audioId)) ids.add(entry.audioId);
-      Object.values(entry).forEach(visit);
-    }
-  };
+function voiceDispatchesFromTurn(turn: OfficialTurn | undefined): Array<{ id: string; itemId: string }> {
+  const dispatches: Array<{ id: string; itemId: string }> = [];
   for (const item of turn?.items ?? []) {
-    if (item.type === 'mcpToolCall' && item.status === 'completed' && item.server === 'companion' && item.tool === 'send_voice') visit(item.result);
+    if (item.type !== 'mcpToolCall' || item.status !== 'completed' || item.server !== 'companion' || item.tool !== 'send_voice' || typeof item.id !== 'string' || !item.id) continue;
+    const ids = new Set<string>();
+    const visit = (value: unknown): void => {
+      if (typeof value === 'string') { try { visit(JSON.parse(value)); } catch {} }
+      else if (Array.isArray(value)) value.forEach(visit);
+      else if (value && typeof value === 'object') {
+        const entry = value as Record<string, unknown>;
+        if (entry.kind === 'voice' && typeof entry.audioId === 'string' && /^[a-f0-9]{64}$/u.test(entry.audioId)) ids.add(entry.audioId);
+        Object.values(entry).forEach(visit);
+      }
+    };
+    visit(item.result);
+    for (const id of ids) dispatches.push({ id, itemId: item.id });
   }
-  return [...ids];
+  return dispatches;
 }
 
 function errorFromTurn(turn: OfficialTurn | undefined): string | null {
@@ -517,7 +532,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
   catch (error) { await store.close(); throw error; }
   const stickerImageRefs = new Map<string, { id: string; version: string }>();
   const now = dependencies.now ?? Date.now;
-  const listeners = new Set<() => void>();
+  const listeners = new Set<(update?: TimelineUpdate) => void>();
   const storedMessages = await store.allMessages();
   const messageIds = new Set(storedMessages.map((message) => message.id));
   const messagesById = new Map<string, KnownMessage>(
@@ -571,7 +586,8 @@ export async function createPartner(config: Config, credentials: Credentials, de
   let alarmTimer: ReturnType<typeof setInterval> | undefined;
   const pet = config.pet.enabled ? new PetActivityProjection(() => { if (!closing) notify(); }) : undefined;
 
-  const notify = () => { for (const listener of listeners) listener(); };
+  const notify = (update?: TimelineUpdate) => { for (const listener of listeners) listener(update); };
+  const timelineStructure = () => notify({ sessionId: threadId, change: { type: 'structure' } });
 
   function officialInputIds(turn: OfficialTurn): string[] {
     return userItems(turn).flatMap((item) => {
@@ -936,7 +952,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
     if (status === 'completed') completedOperationId = sourceIds.at(-1) ?? completedOperationId;
 
     const generatedIds: string[] = [];
-    const voiceIds = voiceIdsFromTurn(turn);
+    const voiceDispatches = voiceDispatchesFromTurn(turn);
     let resultError = errorFromTurn(turn);
     let resultStatus = status;
     const completedAt = status === 'completed' ? completedTurnTime(turn.completedAt) : undefined;
@@ -961,7 +977,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
       error: resultError,
       status: resultStatus,
       generatedIds,
-      voiceIds,
+      voiceDispatches,
       ...(completedAt === undefined
         ? {}
         : { completedAt }),
@@ -1451,7 +1467,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
           || !streaming || streaming.turnId !== turnId || streaming.id !== itemId
           || completedStreamItems.get(turnId)?.has(itemId) || !delta) break;
         streaming = { ...streaming, text: streaming.text + delta };
-        if (!closing) notify();
+        if (!closing) notify({ sessionId: threadId, change: { type: 'item', message: { id: streaming.id, role: 'agent', text: streaming.text, textState: 'streaming', createdAt: messagesById.get(sourceIdsForTurn(turnId)[0] ?? '')?.created ?? streaming.createdAt, operationId: null, turnId } } });
         break;
       }
       case 'item/started': {
@@ -1459,6 +1475,16 @@ export async function createPartner(config: Config, credentials: Credentials, de
         pet?.itemStarted(item);
         const turnId = typeof params.turnId === 'string' ? params.turnId : '';
         const turn = turns.get(turnId);
+        const kind = timelineKind(item);
+        const existing = turn?.items?.find(candidate => candidate.id === item.id);
+        if (notification.params.threadId === threadId && activeTurnId === turnId && isActiveTurn(turn)
+          && kind && typeof item.id === 'string' && item.id && !completedStreamItems.get(turnId)?.has(item.id)
+          && !(existing && (existing.status === 'completed' || existing.status === 'failed'))) {
+          await store.recordTimelineSlot(threadId, turnId, item.id, kind);
+          mergeItem(turnId, item);
+          if (kind === 'user' && turn && userItems(turn).length) await projectTurn(turn);
+          if (!closing) timelineStructure();
+        }
         if (notification.params.threadId === threadId && activeTurnId === turnId && isActiveTurn(turn)
           && item.type === 'agentMessage' && typeof item.id === 'string'
           && !completedStreamItems.get(turnId)?.has(item.id) && completedReply && item.id !== completedReply.itemId) {
@@ -1476,12 +1502,9 @@ export async function createPartner(config: Config, credentials: Credentials, de
             streaming = { id: item.id, turnId, text: typeof item.text === 'string' ? item.text : '',
               createdAt: notification.params.startedAtMs };
           }
-          if (!closing) notify();
+          if (!closing) timelineStructure();
         }
-        if (turnId && item.type === 'imageGeneration') {
-          mergeItem(turnId, item);
-          syncActiveTurn();
-        } else if (item.type === 'contextCompaction') {
+        if (item.type === 'contextCompaction') {
           lifecycle = { compactionId: `compact:${typeof item.id === 'string' ? item.id : randomUUID()}`, nativeId: typeof item.id === 'string' ? item.id : undefined, status: 'running', startSeq: eventSequence, startedAt: now() };
           if (!closing) notify();
         }
@@ -1490,6 +1513,10 @@ export async function createPartner(config: Config, credentials: Credentials, de
       case 'item/completed': {
         const item = record(params.item);
         const turnId = typeof params.turnId === 'string' ? params.turnId : '';
+        if (turnId && typeof item.id === 'string') {
+          const slot = (await store.timelineSlots(threadId, turnId)).find(value => value.itemId === item.id);
+          if (slot && slot.kind !== timelineKind(item)) throw projectionError('PROTOCOL_RECONCILE_FAILED', 'Native timeline item changed kind');
+        }
         // Unknown/wrong-turn events must not claim the globally unique item ID
         // in the durable completion ledger before its real owner completes it.
         if (item.type === 'agentMessage' && (!turns.has(turnId)
@@ -1529,7 +1556,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
           syncActiveTurn();
         }
         if (item.type === 'contextCompaction') await finishCompaction(typeof params.turnId === 'string' ? params.turnId : undefined, typeof item.id === 'string' ? item.id : undefined);
-        if (!closing) notify();
+        if (!closing) timelineStructure();
         break;
       }
       case 'turn/completed': {
@@ -1561,7 +1588,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
         }
         await refreshBootstrap();
         if (!activeTurnId) { void drainRejectedSteers(); drainExternal(); }
-        if (!closing) notify();
+        if (!closing) timelineStructure();
         break;
       }
       case 'thread/compacted':
@@ -2007,7 +2034,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
         const fingerprint = createHash('sha256').update(JSON.stringify(input)).digest('hex');
         if (!await authorize()) throw new Error('Image authorization changed');
         await store.stageImages(input.operationId, threadId, fingerprint, { images: materialized.map(({ id, operation_id, name, media_type, path }) => ({ id, operation_id, name, media_type, path })), refs, variants: input.images.map(({ preview, model }) => ({ preview, model })) }, commitGuard(input.sessionId, authorizeCommit));
-        return { sessionId: threadId, operationId: input.operationId, images: refs };
+        return { sessionId: threadId, operationId: input.operationId, images: refs.map((ref, order) => ({ id: input.images[order]!.id, order, ref })) };
       });
       admission = task.then(() => undefined, () => undefined);
       return task;
@@ -2165,6 +2192,40 @@ export async function createPartner(config: Config, credentials: Credentials, de
         });
         return [result.turnId, messages] as const;
       })));
+      const timelines = new Map(await Promise.all(pageTurns.map(async result => {
+        const turn = turns.get(result.turnId);
+        const slots = await store.timelineSlots(threadId, result.turnId);
+        const items = turn?.items ?? [];
+        const known = new Set(slots.map(slot => slot.itemId));
+        // Native history retains completion order for items whose start was not
+        // observed. Keep them available without claiming a recovered start order.
+        const unrecorded = items.flatMap(item => {
+          if (typeof item.id !== 'string' || known.has(item.id)) return [];
+          const kind = timelineKind(item);
+          // An in-progress image in an RPC snapshot has no established start
+          // position until its notification has been committed locally.
+          if (kind === 'image' && item.status !== 'completed' && item.status !== 'failed') return [];
+          const initialInput = kind === 'user' && expandClientId(typeof item.clientId === 'string' ? item.clientId : '').includes(result.sourceIds[0] ?? '');
+          // Native turn admission proves its initial input precedes all work in
+          // that turn even when its start notification was not observed.
+          return kind ? [{ itemId: item.id, kind, position: slots.length && initialInput ? -1 : slots.length + items.indexOf(item) }] : [];
+        });
+        const completed = await store.completedChatItems(result.turnId);
+        const entries = await Promise.all([...slots, ...unrecorded].map(async slot => {
+          const item = items.find(candidate => candidate.id === slot.itemId);
+          const sourceIds = slot.kind === 'user' && item ? expandClientId(typeof item.clientId === 'string' ? item.clientId : '') : [];
+          const stream = streaming?.turnId === result.turnId && streaming.id === slot.itemId ? streaming : undefined;
+          const text = slot.kind === 'text' ? stream?.text ?? (typeof item?.text === 'string' && (turn?.status === 'completed' || completed.has(slot.itemId)) ? item.text : undefined) : undefined;
+          const image = slot.kind === 'image' ? await store.generatedImageForItem(resultOperationId(result.turnId), slot.itemId) : undefined;
+          const imageState = slot.kind !== 'image' ? undefined : image ? 'ready' as const
+            : item?.status === 'failed' || record(item?.result).isError === true ? 'failed' as const
+              : item && item.status !== 'completed' && isActiveTurn(turn) ? 'preparing' as const : 'unknown' as const;
+          const voice = slot.kind === 'voice' ? result.voiceDispatches.find(value => value.itemId === slot.itemId) : undefined;
+          return { ...slot, sourceIds, ...(text === undefined ? {} : { text, textState: stream ? 'streaming' as const : 'complete' as const }),
+            ...(imageState ? { imageState } : {}), ...(image ? { imageId: image.id } : {}), ...(voice ? { voiceId: voice.id } : {}) };
+        }));
+        return [result.turnId, entries] as const;
+      })));
       const results = pageTurns.map((result) => ({
         id: resultOperationId(result.turnId),
         turnId: result.turnId,
@@ -2172,12 +2233,15 @@ export async function createPartner(config: Config, credentials: Credentials, de
         sequence: result.sequence,
         revision: result.revision,
         completedMessages: chatMessages.get(result.turnId) ?? [],
+        timeline: timelines.get(result.turnId) ?? [],
+        anchorSequence: Math.min(...result.sourceIds.map(id => messagesById.get(id)?.sequence ?? Number.MAX_SAFE_INTEGER)),
+        anchorCreated: messagesById.get(result.sourceIds[0] ?? '')?.created ?? result.completedAt ?? 0,
         chatStatus: turnStatus(turns.get(result.turnId)),
         answers: result.status === 'failed' || result.status === 'interrupted' || result.status === 'cancelled' ? [] : result.answers,
         error: result.error,
         status: result.status,
         images: generatedMeta.filter((image) => image.operation_id === resultOperationId(result.turnId) && result.generatedIds.includes(image.id)).map(({ id, name }) => ({ id, name, url: `/api/images/${id}` })),
-        voices: result.voiceIds.map((id) => ({ id, url: `/api/audio/${id}.mp3` })),
+        voices: result.voiceDispatches.map(({ id, itemId }) => ({ id, itemId, url: `/api/audio/${id}.mp3` })),
         ...(result.completedAt === undefined ? {} : { completedAt: result.completedAt }),
       }));
       const unresolved = await unresolvedMessages();
@@ -2220,9 +2284,39 @@ export async function createPartner(config: Config, credentials: Credentials, de
     },
     async chatReceipt(id: string): Promise<Receipt | null> {
       const meta = await store.messageMeta(id);
-      if (meta) return { operationId: id, state: 'submitted', messageId: id, turnId: operationTurn(id)?.id ?? null, error: await store.rejected(id) ?? null };
       const failed = await store.failedSubmission(id, threadId);
-      return failed ? { operationId: id, state: 'failed', messageId: null, turnId: null, error: failed.error } : null;
+      if (!meta && !failed) return null;
+      const binding = await store.retryBinding(id, threadId);
+      let retryImages: Receipt['retryImages'];
+      if (binding) {
+        if (!binding.input || binding.input.operationId !== id || binding.sourceId === id) return null;
+        const source = await store.failedSubmission(binding.sourceId, threadId);
+        if (!source || source.input.operationId !== binding.sourceId
+          || JSON.stringify(binding.input.replacementSourceIds) !== JSON.stringify([binding.sourceId])
+          || (!source.input.images?.length && binding.input.images?.length)) return null;
+        if (source.input.images?.length) {
+          const original = await store.stagedImages(binding.sourceId, threadId), target = await store.stagedImages(id, threadId);
+          if (!original || !target || JSON.stringify(original.refs) !== JSON.stringify(source.input.images)
+            || JSON.stringify(target.refs) !== JSON.stringify(binding.input.images)
+            || original.images.length !== target.images.length || original.images.length !== source.input.images.length) return null;
+          try {
+            // bindRetry is reached only after the source bytes were hashed
+            // against every original ID and those same bytes produced the
+            // target IDs. Recheck the durable metadata, without rereading up to
+            // 20 MiB on every view refresh or streamed token.
+            for (const [index, image] of original.images.entries()) {
+              const next = target.images[index]!, oldRef = original.refs[index]!, newRef = target.refs[index]!;
+              if (image.operation_id !== binding.sourceId || next.operation_id !== id || image.id !== oldRef.attachmentId || next.id !== newRef.attachmentId
+                || image.name !== oldRef.name || image.media_type !== oldRef.mediaType || next.name !== newRef.name || next.media_type !== newRef.mediaType
+                || image.name !== next.name || image.media_type !== next.media_type) return null;
+            }
+            retryImages = validateRetryImageMapping({ sessionId: threadId, sourceOperationId: binding.sourceId,
+              images: original.refs.map((ref, index) => ({ sourceAttachmentId: ref.attachmentId, ref: target.refs[index]! })) }, threadId, binding.sourceId, source.input.images);
+          } catch { return null; }
+        }
+      }
+      return meta ? { operationId: id, state: 'submitted', messageId: id, turnId: operationTurn(id)?.id ?? null, error: await store.rejected(id) ?? null, ...(retryImages ? { retryImages } : {}) }
+        : { operationId: id, state: 'failed', messageId: null, turnId: null, error: failed!.error, ...(retryImages ? { retryImages } : {}) };
     },
     async chatStop(id: string) {
       if (!activeTurnId || activeTurnId !== id) return { stopped: false };
@@ -2363,7 +2457,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
       admission = task.then(() => undefined, () => { if (!closing) notify(); });
       try { return await task; } finally { compactAdmissionPending = false; }
     },
-    subscribe(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
+    subscribe(listener: (update?: TimelineUpdate) => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
     close() {
       if (closePromise) return closePromise;
       closing = true;

@@ -9,6 +9,7 @@ import {
   AppServerRequestTimeoutError,
 } from '@jaminzhou/codex-app-server-client';
 import { fixture, eventually } from './fixture.ts';
+import { createCodexChatBackend } from '../runtime/chat.ts';
 
 test('CFL always launches the direct app-server with one managed handshake', async () => {
   const f = await fixture();
@@ -230,10 +231,17 @@ test('a successful voice tool artifact projects once with its durable same-origi
     const id = randomUUID(); await partner.submit(id, 'please send voice');
     await eventually(async () => (await partner.snapshot()).results?.some((result) => result.sourceIds.includes(id) && result.voices?.length === 1) === true);
     const first = await partner.snapshot(); const result = first.results!.find((entry) => entry.sourceIds.includes(id))!;
-    assert.deepEqual(result.voices, [{ id: 'a'.repeat(64), url: `/api/audio/${'a'.repeat(64)}.mp3` }]); assert.equal(result.answers.length, 0);
+    assert.equal(result.voices.length, 1); assert.equal(result.voices[0]!.id, 'a'.repeat(64));
+    assert.equal(result.voices[0]!.url, `/api/audio/${'a'.repeat(64)}.mp3`); assert.ok(result.voices[0]!.itemId); assert.equal(result.answers.length, 0);
+    const voice = (await createCodexChatBackend(partner).read()).messages.find(message => message.voice?.id === 'a'.repeat(64));
+    assert.ok(voice); assert.equal(voice.text, '');
     await f.holdVoiceFinal(false); await eventually(async () => (await partner.snapshot()).results?.find((entry) => entry.sourceIds.includes(id))?.answers.length === 1);
+    const mixed = (await createCodexChatBackend(partner).read()).messages;
+    assert.equal(mixed.find(message => message.voice?.id === 'a'.repeat(64))?.id, voice.id);
+    assert.ok(mixed.some(message => message.role === 'agent' && message.text));
     await partner.close(); partner = await f.createPartner();
     const restored = await partner.snapshot(); assert.deepEqual(restored.results!.find((entry) => entry.sourceIds.includes(id))!.voices, result.voices);
+    assert.equal((await createCodexChatBackend(partner).read()).messages.find(message => message.voice?.id === 'a'.repeat(64))?.id, voice.id);
   } finally { await partner.close(); await f.close(); }
 });
 

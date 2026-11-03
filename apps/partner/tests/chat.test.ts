@@ -23,7 +23,7 @@ for (const rounds of [16, 31]) for (const advance of [0, 11]) test(`older histor
   app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening');
   const port = (app.server.address() as { port: number }).port;
   let view: ChatView | undefined;
-  const connect = () => openChat(new WebSocket(`ws://127.0.0.1:${port}/api/chat/socket`), value => { view = value; }, () => {});
+  const connect = () => openChat(new WebSocket(`ws://127.0.0.1:${port}/api/chat/socket`), value => { view = value; }, () => {}, () => {});
   let client = await connect();
   try {
     await eventually(async () => !!view?.before);
@@ -62,7 +62,7 @@ test('real Node host and official SDK: completed messages, duplicate admission, 
   app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening');
   const port = (app.server.address() as { port: number }).port;
   let view: ChatView | undefined;
-  let client = await openChat(new WebSocket(`ws://127.0.0.1:${port}/api/chat/socket`), value => { view = value; }, () => {});
+  let client = await openChat(new WebSocket(`ws://127.0.0.1:${port}/api/chat/socket`), value => { view = value; }, () => {}, () => {});
   try {
     const input = { operationId: crypto.randomUUID(), text: 'shared Codex protocol' };
     await client.submit(input); await client.submit(input);
@@ -74,7 +74,7 @@ test('real Node host and official SDK: completed messages, duplicate admission, 
     assert.equal((await client.stop('stale-turn')).stopped, false);
     client.close(); await f.holdProvider(false);
     await eventually(async () => (await partner.snapshot()).results.some(r => r.status === 'completed'));
-    client = await openChat(new WebSocket(`ws://127.0.0.1:${port}/api/chat/socket`), value => { view = value; }, () => {});
+    client = await openChat(new WebSocket(`ws://127.0.0.1:${port}/api/chat/socket`), value => { view = value; }, () => {}, () => {});
     await eventually(async () => !!view?.messages.some(m => m.role === 'agent'));
     assert.equal((await client.lookup(input.operationId))?.state, 'submitted');
     await eventually(async () => view?.activeTurnId === null);
@@ -100,7 +100,7 @@ test('each completed message appears while running; consumed input and terminal 
   app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening');
   let port = (app.server.address() as { port: number }).port;
   let view: ChatView | undefined;
-  const connect = () => openChat(new WebSocket(`ws://127.0.0.1:${port}/api/chat/socket`), value => { view = value; }, () => {});
+  const connect = () => openChat(new WebSocket(`ws://127.0.0.1:${port}/api/chat/socket`), value => { view = value; }, () => {}, () => {});
   let client = await connect();
   try {
     for (const ending of ['finish', 'fail', 'stop'] as const) {
@@ -114,9 +114,10 @@ test('each completed message appears while running; consumed input and terminal 
       await f.chatPhase('message-completed');
       await eventually(async () => !!view?.messages.some(m => m.turnId === turnId && m.text === 'completed commentary'));
       assert.equal(view!.activeTurnId, turnId);
-      assert.equal(view!.messages.filter(m => m.turnId === turnId && m.role === 'agent').length, 1);
-      assert.equal(view!.messages.some(m => m.text.startsWith('unfinished')), false);
-      const completedId = view!.messages.find(m => m.turnId === turnId && m.role === 'agent')!.id;
+      assert.equal(view!.messages.filter(m => m.turnId === turnId && m.role === 'agent' && m.textState === 'complete').length, 1);
+      assert.equal(view!.messages.some(m => m.text.startsWith('unfinished') && m.textState === 'complete'), false);
+      const completedId = view!.messages.find(m => m.turnId === turnId && m.text === 'completed commentary')!.id;
+      await eventually(async () => !!view?.messages.some(m => m.turnId === turnId && m.imageState === 'failed'));
       await eventually(async () => (await partner.snapshot()).results.some(r => r.turnId === turnId && r.status === 'failed'));
       assert.equal(view!.messages.some(m => m.turnId === turnId && m.role === 'notice'), false);
       client.close(); view = undefined; client = await connect();
@@ -130,7 +131,7 @@ test('each completed message appears while running; consumed input and terminal 
       else await eventually(async () => !!view?.messages.some(m => m.turnId === turnId && m.role === 'notice' && m.text === status));
       assert.equal((await client.lookup(input.operationId))?.state, 'submitted');
       assert.equal(view!.recovery.length, 0, 'reply outcome never restores a consumed input');
-      const messages = view!.messages.filter(m => m.turnId === turnId && m.role === 'agent');
+      const messages = view!.messages.filter(m => m.turnId === turnId && m.role === 'agent' && m.textState === 'complete');
       assert.equal(messages.length, ending === 'finish' ? 2 : 1);
       assert.ok(messages.some(m => m.id === completedId));
       assert.equal(view!.messages.some(m => m.text.startsWith('unfinished')), false);
@@ -146,7 +147,7 @@ test('each completed message appears while running; consumed input and terminal 
       await eventually(async () => view?.activeTurnId === null);
       if (ending === 'finish') assert.equal(view!.messages.some(m => m.turnId === turnId && m.role === 'notice'), false);
       else await eventually(async () => !!view?.messages.some(m => m.turnId === turnId && m.role === 'notice' && m.text === status));
-      assert.equal(view!.messages.filter(m => m.turnId === turnId && m.role === 'agent').length, ending === 'finish' ? 2 : 1);
+      assert.equal(view!.messages.filter(m => m.turnId === turnId && m.role === 'agent' && m.textState === 'complete').length, ending === 'finish' ? 2 : 1);
     }
   } finally { client.close(); await app.close(); await f.close(); }
 });

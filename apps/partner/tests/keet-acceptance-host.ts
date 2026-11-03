@@ -64,7 +64,7 @@ export async function keetAcceptanceHost(assets: string, evidence?: string) {
   const origin = `http://127.0.0.1:${(app.server.address() as { port: number }).port}`;
   async function observe() {
     observer?.close(); published = undefined;
-    observer = await openChat(new WebSocket(origin.replace('http:', 'ws:') + '/api/chat/socket', { headers: { Cookie: 'keet-test-owner=1' } }) as unknown as globalThis.WebSocket, view => { published = view; }, () => {});
+    observer = await openChat(new WebSocket(origin.replace('http:', 'ws:') + '/api/chat/socket', { headers: { Cookie: 'keet-test-owner=1' } }) as unknown as globalThis.WebSocket, view => { published = view; }, () => {}, () => {});
   }
   await observe();
   async function settled() {

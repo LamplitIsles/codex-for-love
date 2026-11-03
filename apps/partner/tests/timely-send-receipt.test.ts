@@ -40,7 +40,7 @@ async function harness(summary = false, failAdmission = false) {
     socket.addEventListener('message', event => { if (dropIncoming) event.stopImmediatePropagation(); });
     const send = socket.send.bind(socket);
     socket.send = data => { calls.push(String(data)); send(data); };
-    return openChat(socket, value => { view = value; }, () => {});
+    return openChat(socket, value => { view = value; }, () => {}, () => {});
   };
   let client = await connect();
   return { f, partner, control, get client() { return client; }, get view() { return view; }, calls,

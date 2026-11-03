@@ -8,6 +8,11 @@ import { createWebServer } from './web-server.ts';
 import { createCodexChatBackend } from '../runtime/chat.ts';
 import { fixture, eventually } from './fixture.ts';
 
+function activePreview(view: ChatView | undefined) {
+  const message = view?.messages.find(item => item.textState === 'streaming');
+  return message ? { id: message.id, turnId: message.turnId!, createdAt: message.createdAt, text: message.text } : view?.streamingReply;
+}
+
 test('final native body completes atomically on the shared socket while execution stays cancellable', async () => {
   const f = await fixture(); f.appServer.env.FAKE_STREAM_FIXTURE = 'true';
   const partner = await f.createPartner();
@@ -16,14 +21,14 @@ test('final native body completes atomically on the shared socket while executio
   const port = (app.server.address() as { port: number }).port;
   let view: ChatView | undefined;
   const observed: ChatView[] = [];
-  const connect = () => openChat(new WebSocket(`ws://127.0.0.1:${port}/api/chat/socket`), v => { view = v; observed.push(v); }, () => {});
+  const connect = () => openChat(new WebSocket(`ws://127.0.0.1:${port}/api/chat/socket`), v => { view = v; observed.push(v); }, () => {}, () => {});
   let client = await connect();
   try {
     await client.submit({ operationId: crypto.randomUUID(), text: 'Test-owned final body input' });
     await eventually(async () => !!(await f.nativeState()).streamingItem);
     await f.streamCommand({ action: 'advance', text: 'Final body\nexact tail' });
-    await eventually(async () => view?.streamingReply?.text === 'Final body\nexact tail');
-    const preview = view!.streamingReply!;
+    await eventually(async () => activePreview(view)?.text === 'Final body\nexact tail');
+    const preview = activePreview(view)!;
     const native = await f.nativeState();
     await f.streamCommand({ action: 'event', notification: { method: 'item/completed', params: {
       threadId: native.threadId, turnId: preview.turnId, completedAtMs: Date.now(),
@@ -34,7 +39,7 @@ test('final native body completes atomically on the shared socket while executio
     assert.equal(view!.streamingReply, undefined);
     assert.equal(view!.messages.find(m => m.id === preview.id)?.text, preview.text);
     assert.equal(view!.replyCompletedTurnId, preview.turnId);
-    for (const v of observed.filter(v => v.messages.some(m => m.id === preview.id))) {
+    for (const v of observed.filter(v => v.messages.some(m => m.id === preview.id && m.textState !== 'streaming'))) {
       assert.equal(v.replyCompletedTurnId, preview.turnId);
       assert.equal(v.streamingReply, undefined);
     }
@@ -59,15 +64,15 @@ for (const ending of ['complete', 'stop', 'fail'] as const) test(`held official 
   app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening');
   const port = (app.server.address() as { port: number }).port;
   let view: ChatView | undefined;
-  const connect = () => openChat(new WebSocket(`ws://127.0.0.1:${port}/api/chat/socket`), v => { view = v; }, () => {});
+  const connect = () => openChat(new WebSocket(`ws://127.0.0.1:${port}/api/chat/socket`), v => { view = v; }, () => {}, () => {});
   let client = await connect(); let appClosed = false;
   try {
     const input = { operationId: crypto.randomUUID(), text: 'Test-owned sentence acceptance input' };
     assert.equal((await client.submit(input)).state, 'submitted');
     await eventually(async () => !!(await f.nativeState()).streamingItem);
     await f.streamCommand({ action: 'advance', text: '第一行。同行第二句。\r' });
-    await eventually(async () => view?.streamingReply?.text === '第一行。同行第二句。\r');
-    const identity = { ...view!.streamingReply! };
+    await eventually(async () => activePreview(view)?.text === '第一行。同行第二句。\r');
+    const identity = { ...activePreview(view)! };
     const turnId = identity.turnId!, itemId = identity.id;
     const event = (method: string, params: Record<string, unknown>) => f.streamCommand({ action: 'event', notification: { method, params } });
     const delta = (threadId: string, targetTurn: string, targetItem: string, text: string) => event('item/agentMessage/delta', { threadId, turnId: targetTurn, itemId: targetItem, delta: text });
@@ -77,9 +82,9 @@ for (const ending of ['complete', 'stop', 'fail'] as const) test(`held official 
     await delta(view!.sessionId, turnId, itemId, '');
     await event('item/reasoning/textDelta', { threadId: view!.sessionId, turnId, itemId: 'reasoning', delta: 'CFL_REASONING_PRIVATE_SENTINEL', contentIndex: 0 });
     await f.streamCommand({ action: 'advance', text: '第一行。同行第二句。\r\n第二行' });
-    await eventually(async () => view?.streamingReply?.text === '第一行。同行第二句。\r\n第二行');
-    assert.equal(view!.streamingReply!.id, identity.id); assert.equal(view!.streamingReply!.createdAt, identity.createdAt);
-    assert.equal(view!.messages.filter(m => m.role === 'agent').length, 0);
+    await eventually(async () => activePreview(view)?.text === '第一行。同行第二句。\r\n第二行');
+    assert.equal(activePreview(view)!.id, identity.id); assert.equal(activePreview(view)!.createdAt, identity.createdAt);
+    assert.equal(view!.messages.filter(m => m.role === 'agent' && m.textState !== 'streaming').length, 0);
     assert.equal((await partner.snapshot()).results.some(r => r.completedMessages.length > 0), false);
     assert.equal((await client.lookup(input.operationId))?.state, 'submitted');
     assert.equal(JSON.stringify(await createCodexChatBackend(partner).read()).includes('CFL_REASONING_PRIVATE_SENTINEL'), false);
@@ -90,13 +95,13 @@ for (const ending of ['complete', 'stop', 'fail'] as const) test(`held official 
     await f.streamCommand({ action: 'advance', text: '第一行。同行第二句。\r\n第二行继续' });
     assert.equal(partner.streamingReply()?.text, '第一行。同行第二句。\r\n第二行继续');
     client = await connect();
-    await eventually(async () => view?.streamingReply?.text === '第一行。同行第二句。\r\n第二行继续');
-    assert.equal(view!.streamingReply!.id, identity.id);
+    await eventually(async () => activePreview(view)?.text === '第一行。同行第二句。\r\n第二行继续');
+    assert.equal(activePreview(view)!.id, identity.id);
     assert.equal((await f.requests()).filter(r => r.method === 'turn/start').length, starts);
     assert.equal((await f.requests()).filter(r => r.method === 'turn/interrupt').length, 0);
     if (ending === 'stop') assert.equal((await client.stop(turnId)).stopped, true);
     else await f.streamCommand({ action: ending, text: '第一行。同行第二句。\r\n第二行继续完成' });
-    await eventually(async () => view?.activeTurnId === null && !view.streamingReply);
+    await eventually(async () => view?.activeTurnId === null && !activePreview(view));
     if (ending === 'complete') {
       await eventually(async () => !!view?.messages.some(m => m.id === itemId));
       assert.equal(view!.messages.find(m => m.id === itemId)!.text, '第一行。同行第二句。\r\n第二行继续完成');
@@ -194,10 +199,10 @@ for (const ending of ['complete', 'stop', 'fail'] as const) test(`native body ev
     await partner.submit(crypto.randomUUID(), 'next test-owned body');
     await eventually(async () => (await f.nativeState()).streamingItem !== oldItem);
     await f.streamCommand({ action: 'advance', text: 'next reply' });
-    await eventually(async () => (await backend.read()).streamingReply?.text === 'next reply');
+    await eventually(async () => activePreview(await backend.read())?.text === 'next reply');
     await event('item/completed', completed); await partner.snapshot();
     assert.equal(await completion(), undefined);
-    assert.equal((await backend.read()).streamingReply?.text, 'next reply');
+    assert.equal(activePreview(await backend.read())?.text, 'next reply');
     await partner.close(); assert.equal(partner.replyCompletion(), undefined);
     partner = await f.createPartner();
     const restarted = await createCodexChatBackend(partner).read();
@@ -224,12 +229,12 @@ test('new answer ownership clears completion and an independent session never in
     assert.equal(isolated.messages.some(m => m.id === first.id), false);
     await f.streamCommand({ action: 'next', phase: 'final_answer' });
     await f.streamCommand({ action: 'advance', text: 'replacement body' });
-    await eventually(async () => (await backend.read()).streamingReply?.text === 'replacement body');
+    await eventually(async () => activePreview(await backend.read())?.text === 'replacement body');
     assert.equal((await backend.read()).replyCompletedTurnId, undefined);
     await f.streamCommand({ action: 'event', notification: { method: 'item/completed', params: completed } });
     await partner.snapshot();
     assert.equal((await backend.read()).replyCompletedTurnId, undefined);
-    assert.equal((await backend.read()).streamingReply?.text, 'replacement body');
+    assert.equal(activePreview(await backend.read())?.text, 'replacement body');
     await partner.chatStop(first.turnId);
   } finally { await other.close(); await f.close(); }
 });
@@ -321,7 +326,7 @@ test('a delayed host history read cannot overwrite newer partials or resurrect a
         await f.streamCommand({ action: terminal ? 'complete' : 'advance', text: terminal ? 'first updated final' : 'first updated' });
         await partner.snapshot(); release();
         const delayed = await pending;
-        assert.equal(delayed.streamingReply?.text, terminal ? undefined : 'first updated');
+        assert.equal(activePreview(delayed)?.text, terminal ? undefined : 'first updated');
         assert.equal(JSON.stringify(delayed).includes('CFL_REASONING_PRIVATE_SENTINEL'), false);
       } finally { release(); await pending; }
     }
@@ -348,13 +353,13 @@ test('same-second native item time orders the preview after its source and stays
     assert.ok(sourceTime > Math.floor(sourceTime / 1000) * 1000, 'second truncation would put the preview before its source');
     assert.ok(startedAtMs >= sourceTime, 'native lifecycle follows source admission');
     await f.streamCommand({ action: 'advance', text: 'test-owned timestamp answer' });
-    await eventually(async () => (await backend.read()).streamingReply?.text === 'test-owned timestamp answer');
-    const preview = (await backend.read()).streamingReply!;
-    assert.equal(preview.createdAt, startedAtMs, 'use the original official item millisecond timestamp');
+    await eventually(async () => activePreview(await backend.read())?.text === 'test-owned timestamp answer');
+    const preview = activePreview(await backend.read())!;
+    assert.equal(preview.createdAt, sourceTime, 'the slot uses its stable source timestamp');
     assert.ok(preview.createdAt >= sourceTime, 'public preview follows the current admitted source');
     await f.streamCommand({ action: 'advance', text: 'test-owned timestamp answer\ncontinued' });
-    await eventually(async () => (await backend.read()).streamingReply?.text.endsWith('continued') === true);
-    const grown = (await backend.read()).streamingReply!;
-    assert.equal(grown.createdAt, startedAtMs); assert.equal(grown.id, preview.id); assert.equal(grown.turnId, preview.turnId);
+    await eventually(async () => activePreview(await backend.read())?.text.endsWith('continued') === true);
+    const grown = activePreview(await backend.read())!;
+    assert.equal(grown.createdAt, sourceTime); assert.equal(grown.id, preview.id); assert.equal(grown.turnId, preview.turnId);
   } finally { await f.close(); }
 });

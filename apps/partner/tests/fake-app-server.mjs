@@ -248,10 +248,16 @@ async function runTurn(turn) {
       }
     }
     if (text.includes('send voice')) {
-      const audioId = 'a'.repeat(64); mkdirSync(join(root, 'workspace', '.lamplit', 'audio'), { recursive: true });
-      writeFileSync(join(root, 'workspace', '.lamplit', 'audio', `${audioId}.mp3`), 'ID3');
-      const voice = { type: 'mcpToolCall', id: `voice-${state.next++}`, server: 'companion', tool: 'send_voice', arguments: {}, status: 'completed', result: { content: [{ type: 'text', text: JSON.stringify({ kind: 'voice', audioId }) }] } };
-      turn.items.push(voice); send({ method: 'item/completed', params: { threadId: state.threadId, turnId: turn.id, completedAtMs: Date.now(), item: voice } });
+      const count = Number(process.env.FAKE_VOICE_COUNT ?? 1);
+      if (!Number.isInteger(count) || count < 1 || count > 100) throw new Error('Invalid fake voice count');
+      mkdirSync(join(root, 'workspace', '.lamplit', 'audio'), { recursive: true });
+      for (let index = 0; index < count; index++) {
+        const audioId = count === 1 || process.env.FAKE_VOICE_DUPLICATE === 'true' ? 'a'.repeat(64) : (index + 1).toString(16).padStart(64, '0');
+        writeFileSync(join(root, 'workspace', '.lamplit', 'audio', `${audioId}.mp3`), 'ID3');
+        const content = { type: 'text', text: JSON.stringify({ kind: 'voice', audioId }) };
+        const voice = { type: 'mcpToolCall', id: `voice-${state.next++}`, server: 'companion', tool: 'send_voice', arguments: {}, status: 'completed', result: { content: process.env.FAKE_VOICE_DUPLICATE === 'true' ? [content, content] : [content] } };
+        turn.items.push(voice); send({ method: 'item/completed', params: { threadId: state.threadId, turnId: turn.id, completedAtMs: Date.now(), item: voice } });
+      }
       while (control().holdVoiceFinal) await new Promise(resolve => setTimeout(resolve, 15));
     }
     const answer = { type: 'agentMessage', id: `answer-${state.next++}`, text: control().completedText ?? (items.length ? `已完成${text.includes('edit') ? '编辑' : '创作'}。` : `fixture reply ${state.next}`), phase: 'final_answer', memoryCitation: null, delivery: null, questions: null };
@@ -321,6 +327,7 @@ function steerTurn(params) {
   turn.items.push(item);
   save();
   if (process.env.FAKE_DELAY_STEER_ITEM !== 'true') {
+    if (process.env.FAKE_TIMELINE_USER_START === 'true') send({ method: 'item/started', params: { threadId: state.threadId, turnId: turn.id, startedAtMs: Date.now(), item } });
     send({ method: 'item/completed', params: { threadId: state.threadId, turnId: turn.id, completedAtMs: Date.now(), item } });
   }
   return { turnId: turn.id };
@@ -462,6 +469,17 @@ if (process.env.FAKE_STREAM_FIXTURE === 'true') {
     const turn = state.turns.find(t => t.id === state.active);
     let item = turn?.items.find(i => i.id === state.streamingItem);
     if (command.action === 'event') send(command.notification);
+    else if (command.action === 'timeline' && turn) {
+      // Paginated native history retains completion, not an uncompleted start.
+      for (const entry of command.entries) {
+        if (entry.method === 'item/completed') {
+          const index = turn.items.findIndex(candidate => candidate.id === entry.item.id);
+          if (index < 0) turn.items.push(entry.item); else turn.items[index] = entry.item;
+          save();
+        }
+        send({ method: entry.method, params: { threadId: state.threadId, turnId: turn.id, ...(entry.method === 'item/started' ? { startedAtMs: Date.now() } : { completedAtMs: Date.now() }), item: entry.item } });
+      }
+    }
     else if (turn && item) {
       if (command.action === 'next') {
         send({ method: 'item/completed', params: { threadId: state.threadId, turnId: turn.id, completedAtMs: Date.now(), item } });

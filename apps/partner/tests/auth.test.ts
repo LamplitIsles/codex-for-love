@@ -40,6 +40,7 @@ test('independent service credentials do not authorize human requests', async ()
   try {
     assert.equal((await fetch(base + '/api/session')).status, 401);
     assert.equal((await fetch(base + '/api/chat/media/anything')).status, 401);
+    assert.equal((await fetch(base + `/api/audio/${'a'.repeat(64)}.mp3`)).status, 401);
     for (const path of ['/api/chat/socket', '/api/voice/stream']) {
       const ws = new WebSocket(base.replace('http', 'ws') + path, { origin });
       ws.on('error', () => {}); const [, res] = await once(ws, 'unexpected-response'); assert.equal((res as unknown as { statusCode: number }).statusCode, 403); ws.terminate();

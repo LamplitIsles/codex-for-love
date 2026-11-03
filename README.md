@@ -587,6 +587,26 @@ notices; successful replies end quietly. Completed messages survive reconnect an
 Browser origins must match the configured canonical origin, and browser access requires a Passkey session. See [shared frontend preparation](docs/default-shared-frontend.md) for build and
 connection commands.
 
+The ordered chat projection records only the session, turn, native item identity,
+kind and observed start position in the Partner's existing SQLite store. Text,
+media and execution remain owned by native history and existing attachment
+storage. An image started during an active turn has a stable slot; completion or
+failure updates that slot while later voice messages remain independently usable.
+If an observed image start survives but the native item is absent after restart,
+its state is unknown. Starts missed while CFL is offline cannot be reconstructed;
+items without a recorded start retain their relative native history order. Apart
+from the initial input, they follow recorded slots when both exist; their original
+interleaving with recorded starts is unknown. No old conversation is migrated. Authenticated timeline
+changes prompt clients to update a known item or reconcile their loaded history;
+reconnecting clients reconcile again.
+
+Image uploads echo each draft ID and order with its validated resource reference.
+For a manually retried failed image submission, the receipt exposes the verified
+source-to-attempt attachment mapping, including through lookup and finalization.
+An unbound attempt remains unknown and is never automatically resent. The new
+shared contract must be published and pinned before the standard CFL release
+build; local source-based checks are not release artifact provenance.
+
 The app owns the public TypeScript/TypeBox schemas. CFL implements six bounded
 reads on `lamplit.chat.v2` over that same connection:
 

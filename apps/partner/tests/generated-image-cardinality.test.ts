@@ -44,7 +44,7 @@ for (const [rounds, count] of [[1, 7], [1, 11], [31, 11]] as const) {
       let view: ChatView | undefined;
       const connect = () => {
         socket = new WebSocket(origin.replace('http:', 'ws:') + '/api/chat/socket');
-        return openChat(socket, value => { view = value; }, () => {});
+        return openChat(socket, value => { view = value; }, () => {}, () => {});
       };
       for (let connection = 0; connection < 2; connection++) {
         client = await connect();
@@ -57,7 +57,7 @@ for (const [rounds, count] of [[1, 7], [1, 11], [31, 11]] as const) {
         }
         const reply = messages.find(message => message.id === 'history-agent-0')!;
         assert.equal(reply.text, 'partner 0');
-        assert.deepEqual(reply.images?.map(image => image.attachmentId), expectedIds);
+        assert.deepEqual(messages.filter(message => message.imageState === 'ready').flatMap(message => message.images?.map(image => image.attachmentId) ?? []), expectedIds);
         assert.equal(messages.filter(message => message.id === reply.id).length, 1);
         const albumIds = [];
         let cursor: string | null = null;

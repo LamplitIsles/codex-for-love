@@ -157,7 +157,7 @@ export async function imageAcceptanceFixture(assets: string, port = 0, controlPo
         }
         const staged = images.length ? await partner.uploadImages({ sessionId: (await partner.snapshot()).sessionId, operationId, images }) : undefined;
         // The fixture rejection trigger targets its original captions; edited replacement exercises native resolution.
-        await partner.submitShared({ operationId, text: `${source.text}（确认恢复）`, ...(staged ? { images: staged.images } : {}), replacementSourceIds: [source.sourceId] });
+        await partner.submitShared({ operationId, text: `${source.text}（确认恢复）`, ...(staged ? { images: staged.images.map(item => item.ref) } : {}), replacementSourceIds: [source.sourceId] });
       }
       control.mode = previous; await writeControl();
       await eventually(async () => (await partner.sharedRecovery()).length === 0);

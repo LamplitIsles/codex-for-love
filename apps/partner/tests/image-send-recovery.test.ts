@@ -45,7 +45,7 @@ test('bounded authenticated HTTP staging is immutable, operation-owned and separ
     const result = await response.json();
     const httpsResponse = await post(input, { origin: origin.replace('http:', 'https:') });
     assert.equal(httpsResponse.status, 200); assert.deepEqual(await httpsResponse.json(), result);
-    const id = result.images[0].attachmentId;
+    const id = result.images[0].ref.attachmentId;
     assert.equal((await partner.snapshot()).messages.length, 0);
     assert.equal((await partner.conversationImages()).images.length, 0);
     assert.equal((await f.requests()).filter(r => r.method === 'turn/start').length, 0);
@@ -57,14 +57,14 @@ test('bounded authenticated HTTP staging is immutable, operation-owned and separ
     assert.deepEqual(Buffer.from(await (await fetch(origin + media, { headers })).arrayBuffer()), fixtureImage);
     assert.equal((await fetch(origin + `/api/chat/media/${id}/../original`, { headers })).status, 400);
     assert.equal((await fetch(origin + `/api/chat/media/${id}/preview`, { headers })).headers.get('content-type'), 'image/jpeg');
-    const submission = { operationId: input.operationId, text: '', images: result.images };
+    const submission = { operationId: input.operationId, text: '', images: result.images.map((item: { ref: import("@lamplit/contracts").ImageRef }) => item.ref) };
     await assert.rejects(partner.submitShared({ ...submission, operationId: crypto.randomUUID() }));
     assert.equal((await partner.snapshot()).messages.length, 0);
     await partner.submitShared(submission); await partner.submitShared(submission);
     await partner.submitShared({ ...submission, images: submission.images.map(({ name, mediaType, attachmentId, availability }: typeof submission.images[number]) => ({ availability, mediaType, name, attachmentId })) });
     await assert.rejects(partner.submitShared({ ...submission, text: 'changed' }));
     const steer = upload(input.sessionId); const uploadedSteer = await partner.uploadImages(steer);
-    await partner.submitShared({ operationId: steer.operationId, text: 'steer', images: uploadedSteer.images });
+    await partner.submitShared({ operationId: steer.operationId, text: 'steer', images: uploadedSteer.images.map(item => item.ref) });
     await eventually(async () => await f.consumed(steer.operationId));
     const requests = (await f.requests()).filter(r => r.method === 'turn/start' || r.method === 'turn/steer');
     assert.equal(requests.filter(r => r.method === 'turn/start').length, 1);
@@ -78,11 +78,11 @@ test('bounded authenticated HTTP staging is immutable, operation-owned and separ
     assert.equal(view.messages.find(m => m.id === input.operationId)?.text, '');
     assert.equal(view.recovery.length, 0);
     const changed = upload(input.sessionId); const changedRefs = await partner.uploadImages(changed);
-    await writeFile(imagePath(f.workspace, { id: changedRefs.images[0]!.attachmentId, media_type: 'image/png' }), Buffer.concat([fixtureImage, Buffer.from('changed')]));
-    await assert.rejects(partner.submitShared({ operationId: changed.operationId, text: '', images: changedRefs.images }));
+    await writeFile(imagePath(f.workspace, { id: changedRefs.images[0]!.ref.attachmentId, media_type: 'image/png' }), Buffer.concat([fixtureImage, Buffer.from('changed')]));
+    await assert.rejects(partner.submitShared({ operationId: changed.operationId, text: '', images: changedRefs.images.map(item => item.ref) }));
     const incomplete = upload(input.sessionId); incomplete.images.push({ ...incomplete.images[0]!, id: 'second', order: 1 });
     const incompleteRefs = await partner.uploadImages(incomplete);
-    await assert.rejects(partner.submitShared({ operationId: incomplete.operationId, text: '', images: incompleteRefs.images.slice(0, 1) }));
+    await assert.rejects(partner.submitShared({ operationId: incomplete.operationId, text: '', images: incompleteRefs.images.slice(0, 1).map(item => item.ref) }));
     const nativeMax = Buffer.concat([fixtureImage, Buffer.alloc(imageLimits.maxImageBytes - fixtureImage.length)]).toString('base64');
     assert.equal((await post({ ...upload(input.sessionId), images: Array.from({ length: 5 }, (_, i) => ({ ...input.images[0], id: `total${i}`, order: i, original: nativeMax })) })).status, 400);
     let remaining = MAX_UPLOAD_BODY_BYTES + 1;
@@ -194,7 +194,7 @@ test('rolled-back native admission persists failed text/image recovery across re
   try {
     const uploadInput = upload((await partner.snapshot()).sessionId);
     const staged = await partner.uploadImages(uploadInput);
-    const original = { operationId: uploadInput.operationId, text: 'definite rollback', images: staged.images };
+    const original = { operationId: uploadInput.operationId, text: 'definite rollback', images: staged.images.map(item => item.ref) };
     assert.equal((await partner.submitShared(original)).state, 'failed');
     assert.equal((await partner.submitShared(original)).state, 'failed');
     await assert.rejects(partner.submitShared({ ...original, text: 'conflict' }));
@@ -203,11 +203,11 @@ test('rolled-back native admission persists failed text/image recovery across re
     await partner.close(); partner = await f.createPartner();
     assert.equal((await partner.chatReceipt(original.operationId))?.state, 'failed');
     const recovery = await partner.sharedRecovery();
-    assert.deepEqual(recovery[0], { sourceId: original.operationId, operationId: original.operationId, text: original.text, images: staged.images, replacementEligible: true });
-    assert.deepEqual((await partner.sharedMedia(staged.images[0]!.attachmentId, 'original'))?.bytes, fixtureImage);
+    assert.deepEqual(recovery[0], { sourceId: original.operationId, operationId: original.operationId, text: original.text, images: staged.images.map(item => item.ref), replacementEligible: true });
+    assert.deepEqual((await partner.sharedMedia(staged.images[0]!.ref.attachmentId, 'original'))?.bytes, fixtureImage);
     const replacementUpload = upload((await partner.snapshot()).sessionId);
     const replacementImages = await partner.uploadImages(replacementUpload);
-    const replacement = { operationId: replacementUpload.operationId, text: 'edited replacement', images: replacementImages.images, replacementSourceIds: [original.operationId] };
+    const replacement = { operationId: replacementUpload.operationId, text: 'edited replacement', images: replacementImages.images.map(item => item.ref), replacementSourceIds: [original.operationId] };
     assert.equal((await partner.submitShared(replacement)).state, 'submitted');
     assert.equal((await partner.submitShared(replacement)).state, 'submitted');
     await eventually(async () => await f.consumed(replacement.operationId));

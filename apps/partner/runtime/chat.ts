@@ -4,6 +4,7 @@ import { panelCursors } from './panel-cursor.ts';
 import type { Partner } from './partner.ts';
 import type { ConversationSearch } from './conversation-search.ts';
 import { WebSocketServer } from 'ws';
+import { createHash } from 'node:crypto';
 
 export function createCodexChatBackend(partner: Partner, authorize: () => Promise<boolean> = async () => true, conversationSearch?: ConversationSearch, authorizeCommit?: () => boolean): ChatBackend {
   const cursors = panelCursors();
@@ -14,7 +15,7 @@ export function createCodexChatBackend(partner: Partner, authorize: () => Promis
     // for native history; known activity and durable receipts are independent.
     const snapshot = await partner.snapshot(options.before === undefined ? {} : { before: options.before }, false);
     const receipts = new Map(await Promise.all(snapshot.messages.map(async m => [m.id, await partner.chatReceipt(m.id)] as const)));
-    const ordered: Array<{ order: number; message: ChatMessage }> = [];
+    const ordered: Array<{ order: number; position?: number; message: ChatMessage }> = [];
     for (const m of snapshot.messages) {
       if (m.delivery === 'replaced' || receipts.get(m.id)?.state !== 'submitted') continue;
       const images = (await Promise.all(m.inputImages.map(image => partner.sharedImageRef(image.id)))).filter((ref): ref is ImageRef => !!ref);
@@ -31,20 +32,33 @@ export function createCodexChatBackend(partner: Partner, authorize: () => Promis
         : m.matrix ? { kind: 'matrix', senderId: m.matrix.sender_id, senderDisplayName: m.matrix.sender_display_name, roomId: m.matrix.room_id }
         : m.post ? m.post.source
         : m.alarm ? { kind: 'reminder', reminderId: m.id.split(':')[1]!, occurrenceId: m.id } : undefined;
-      ordered.push({ order: m.sequence * 2, message: {
+      const owner = snapshot.results.find(result => result.sourceIds.includes(m.id));
+      const slot = owner?.timeline.find(entry => entry.kind === 'user' && entry.sourceIds.includes(m.id));
+      const position = slot ? slot.position + slot.sourceIds.indexOf(m.id) / (slot.sourceIds.length + 1) : undefined;
+      ordered.push({ order: owner ? owner.anchorSequence * 2 : m.sequence * 2, ...(owner ? { position: position ?? -1 } : {}), message: {
         id: m.id, role: 'user', text: m.keet ? `${m.keet.text}${m.keet.imageNote ?? ''}` : m.matrix ? m.matrix.body : post ? postText! : m.input,
         ...(images.length ? { images } : {}), createdAt: m.matrix?.timestamp ?? m.post?.timestamp ?? m.created,
         operationId: m.id, turnId: m.turnId, ...(source ? { source } : {}),
       } });
     }
     for (const r of snapshot.results) {
-      const source = snapshot.messages.find(m => m.id === r.sourceIds.at(-1));
-      const images = (await Promise.all(r.images.map(image => partner.sharedImageRef(image.id)))).filter((ref): ref is ImageRef => !!ref);
-      const completed = r.completedMessages.length ? r.completedMessages : images.length ? [{ id: `${r.id}:images`, text: '' }] : [];
-      for (const [index, message] of completed.entries()) ordered.push({ order: (source?.sequence ?? 0) * 2 + 1 + index / 1000, message: { id: message.id, role: 'agent', text: message.text, ...(index === completed.length - 1 && images.length ? { images } : {}), createdAt: r.completedAt ?? source?.created ?? 0, operationId: null, turnId: r.turnId } });
-      if (['failed', 'interrupted', 'cancelled'].includes(r.chatStatus)) ordered.push({ order: (source?.sequence ?? 0) * 2 + 1.9, message: { id: `${r.id}:status`, role: 'notice', text: r.chatStatus === 'failed' ? '回复失败' : '已停止回复', createdAt: r.completedAt ?? source?.created ?? 0, operationId: null, turnId: r.turnId } });
+        const createdAt = r.anchorCreated;
+        const order = r.anchorSequence * 2;
+        for (const slot of r.timeline) {
+          if (slot.kind === 'text' && slot.text !== undefined && (slot.text || slot.textState === 'streaming')) {
+            ordered.push({ order, position: slot.position, message: { id: slot.itemId, role: 'agent', text: slot.text, textState: slot.textState, createdAt, operationId: null, turnId: r.turnId } });
+          } else if (slot.kind === 'image' && slot.imageState) {
+            const image = slot.imageId ? await partner.sharedImageRef(slot.imageId) : undefined;
+            const imageState = slot.imageState === 'ready' && image?.availability !== 'available' ? 'unknown' : slot.imageState;
+            ordered.push({ order, position: slot.position, message: { id: `image:${createHash('sha256').update(JSON.stringify([r.turnId, slot.itemId])).digest('hex')}`, role: 'agent', text: '', imageState,
+              ...(imageState === 'ready' && image ? { images: [image] } : {}), createdAt, operationId: null, turnId: r.turnId } });
+          } else if (slot.kind === 'voice' && slot.voiceId) {
+            ordered.push({ order, position: slot.position, message: { id: `voice:${createHash('sha256').update(JSON.stringify([r.id, slot.itemId, slot.voiceId])).digest('hex')}`, role: 'agent', text: '', voice: { id: slot.voiceId }, createdAt, operationId: null, turnId: r.turnId } });
+          }
+        }
+        if (['failed', 'interrupted', 'cancelled'].includes(r.chatStatus)) ordered.push({ order, position: Number.POSITIVE_INFINITY, message: { id: `${r.id}:status`, role: 'notice', text: r.chatStatus === 'failed' ? '回复失败' : '已停止回复', createdAt, operationId: null, turnId: r.turnId } });
     }
-    ordered.sort((a,b) => a.order - b.order);
+    ordered.sort((a,b) => a.order - b.order || (a.position ?? 0) - (b.position ?? 0));
     const all = ordered.map(x => x.message);
     const end = options.anchor ? all.findIndex(m => m.id === options.anchor) : all.length;
     if (end < 0) throw new Error('Cursor no longer exists');
@@ -74,6 +88,11 @@ export function createCodexChatBackend(partner: Partner, authorize: () => Promis
       // Read transient authority after async history/media work, so an older
       // host read cannot resurrect a preview cleared by item/turn completion.
       const streamingReply = partner.streamingReply();
+      p.messages = p.messages.flatMap(message => {
+        if (message.textState !== 'streaming') return [message];
+        if (!streamingReply || streamingReply.id !== message.id || streamingReply.turnId !== message.turnId) return [];
+        return [{ ...message, text: streamingReply.text }];
+      });
       const completion = partner.replyCompletion();
       const replyCompletedTurnId = completion && p.snapshot.cancellable[0] === completion.turnId
         && p.messages.some(m => m.role === 'agent' && m.turnId === completion.turnId && m.id === completion.itemId && m.text === completion.text)

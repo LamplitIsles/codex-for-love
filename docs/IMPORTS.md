@@ -580,16 +580,17 @@ entries lazily; CFL independently applies path, link, size and image checks.
 ## Published App contracts (FlickNote #15)
 
 CFL consumes Apache-2.0 `@lamplit/contracts` published from App merge commit
-`6af0ad61756052e117234876435afc209ea2b00b` (tree identical to reviewed
-`388faa0db637c4e8b36ea14363bcc1f38e5bcc9b`). The public release asset
-`lamplit-contracts-6af0ad61756052e117234876435afc209ea2b00b.tar.gz` has
-SHA-256 `f9f8342211d3410bdb6ae58d0f41380055090895043af42f3183211f0b5565c1`;
+`a6aa95feb8d108c5a050af95b1cab3bb1d32eb3c` (tree
+`c0cc66e6b1408e818347911c316cb4e0b7949f51`, identical to reviewed
+`9948b8224669dba3e507ad13ba85755ffb1f78bd`). The public release asset
+`lamplit-contracts-a6aa95feb8d108c5a050af95b1cab3bb1d32eb3c.tar.gz` has
+SHA-256 `4e14529c73e50f30cce054fdedaa61a4dc9eb372fba5e4bcccc253aa404aa4ab`;
 GitHub release metadata and a local download agreed. Source identity and archive
 integrity are separate pins. Package exports, dependency metadata, Apache license
 and Chord MIT notice come from this archive. The bundled contracts also use
 TypeBox 1.3.34 (MIT); release preparation copies its installed original notice
 to `vendor/licenses/contracts/typebox@1.3.34/license`. The retained App IMPORTS
 and Noto Sans SC OFL notices in `licenses/app/` are copied from the same commit's public
-frontend archive (SHA-256 `53a78b8590bef83a5bd00780721ee4f4eb44991c2a6bf9b4bb6c8b301f9c1b28`).
+frontend archive (SHA-256 `e368aaf4fde9c3b5c6bf814ece4c17e3590a2423e8b9a4efa06d759a38c51fbe`).
 Runtime verifies all selected frontend resources and exact compiled contract bytes;
 matching bytes alone do not establish business behavior.

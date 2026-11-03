@@ -26,7 +26,7 @@ test('public panels read native journal, diary, catalogue and SQLite; MCP writes
   const socket = new WebSocket(base.replace('http', 'ws') + '/api/chat/socket');
   const frames: Array<{ type: string; id?: string }> = [];
   socket.addEventListener('message', event => frames.push(JSON.parse(String(event.data))));
-  const client = await openChat(socket, v => { view = v; }, () => {});
+  const client = await openChat(socket, v => { view = v; }, () => {}, () => {});
   const mcp = new Client({ name: 'panels-test', version: '1' });
   await mcp.connect(new StdioClientTransport({ command: process.execPath, args: [fileURLToPath(new URL('../runtime/companion-mcp.ts', import.meta.url)), f.workspace], stderr: 'ignore' }));
   const input = { sessionId: view!.sessionId, cursor: null };
