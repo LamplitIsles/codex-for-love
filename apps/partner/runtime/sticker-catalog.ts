@@ -11,6 +11,7 @@ import type { ImageInput } from './images.ts';
 const id = z.string().regex(/^[A-Za-z0-9_-]{1,100}$/u);
 const label = z.string().min(1).regex(/\S/u).refine(value => [...value].length <= 160);
 const tags = z.array(z.string().min(1).regex(/\S/u).refine(value => [...value].length <= 80)).max(32).refine(value => new Set(value).size === value.length);
+export const stickerMetadataSchema = z.object({ name: label.optional(), tags: tags.optional() }).strict().refine(value => value.name !== undefined || value.tags !== undefined, 'Provide a name or tags');
 const entry = z.object({ id, file: z.string().min(1).max(160).regex(/^[^/\\\x00-\x1f]+$/u).refine(name => name !== '.' && name !== '..'), name: label, tags }).strict();
 export const stickerManifestSchema = z.object({ id, name: label, description: z.string().max(2000), stickers: z.array(entry).min(1).max(500) }).strict().superRefine((value, context) => {
   if (new Set(value.stickers.map(item => item.id)).size !== value.stickers.length || new Set(value.stickers.map(item => item.file)).size !== value.stickers.length) context.addIssue({ code: 'custom', message: 'Duplicate sticker ID or file' });
@@ -135,6 +136,13 @@ export class StickerCatalog {
     return { id: row.id, version: row.asset_hash, name: row.name, tags: JSON.parse(row.tags), mediaType: row.media_type, available: (await Promise.all([regular(row.original_path), regular(row.preview_path), regular(row.model_path)])).every(Boolean) };
   }
   async get(stickerId: string): Promise<StickerView | undefined> { const row = this.row(stickerId); return row ? this.view(row) : undefined; }
+  async updateMetadata(stickerId: string, input: unknown): Promise<StickerView> {
+    id.parse(stickerId);
+    const changes = stickerMetadataSchema.parse(input);
+    const result = this.db.prepare('UPDATE stickers SET name=COALESCE(?,name), tags=COALESCE(?,tags) WHERE id=?').run(changes.name ?? null, changes.tags === undefined ? null : JSON.stringify(changes.tags), stickerId);
+    if (!result.changes) throw new Error('Sticker not found');
+    return (await this.get(stickerId))!;
+  }
   async asset(stickerId: string, version: string): Promise<{ sticker: StickerView; original: Buffer; preview: Buffer; model: Buffer; previewPath: string; modelPath: string }> {
     const row = this.row(stickerId);
     if (!row || row.asset_hash !== version) throw new Error('Sticker version unavailable');

@@ -836,6 +836,14 @@ require owner authentication and use private, revalidated ETags. The Partner
 uses the separate Companion MCP sticker tools. A conversation image can be
 favorited only after it belongs to that conversation; imports and favorites do
 not themselves create chat messages or photo-library membership.
+Companion's `inspect_sticker` reads the current image without sending it or
+changing favorites. It returns JPEG frames in playback order; animations are
+sampled at up to six frames, so content between samples may be missed. Frame
+indices in `sampledFrames` are zero-based. `send_sticker` remains the separate
+sending action. `update_sticker_metadata` changes the shared name and/or tags
+for any existing sticker, immediately affecting both participants' browsing
+and search. Reimporting the original pack overwrites those edits with its
+manifest values; editing metadata does not modify the manifest or image bytes.
 When both participants favorite the same conversation image or identical upload,
 they share one sticker and its first saved name and tags. Later favorite requests
 return that saved metadata; each participant can remove their own favorite

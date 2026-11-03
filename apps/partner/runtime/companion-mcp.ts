@@ -12,7 +12,8 @@ import { loadConfig, loadCredentials } from './config.ts';
 import { synthesizeSpeech } from './speech.ts';
 import { elevenLabsSpeech } from './elevenlabs-voice.ts';
 import { pageConversationImages, readConversationImages, withAvailability } from './conversation-images.ts';
-import { StickerCatalog } from './sticker-catalog.ts';
+import { StickerCatalog, stickerMetadataSchema } from './sticker-catalog.ts';
+import { inspectStickerImage } from './sticker-image.ts';
 import { stickerToolDescriptions } from './sticker-tool-descriptions.ts';
 import { open } from 'node:fs/promises';
 import { constants } from 'node:fs';
@@ -97,6 +98,19 @@ server.registerTool('list_pack_stickers', { description: stickerToolDescriptions
 });
 server.registerTool('search_stickers', { description: stickerToolDescriptions.searchStickers, inputSchema: stickerPage }, async input => ({ content: [{ type: 'text', text: JSON.stringify(await stickers.listStickers({ cursor: input.cursor ?? null, limit: input.limit ?? 10, query: input.query })) }] }));
 server.registerTool('list_sticker_favorites', { description: stickerToolDescriptions.listFavorites, inputSchema: stickerPage }, async input => ({ content: [{ type: 'text', text: JSON.stringify(await stickers.listStickers({ participant: 'agent', cursor: input.cursor ?? null, limit: input.limit ?? 10, query: input.query })) }] }));
+server.registerTool('inspect_sticker', { description: stickerToolDescriptions.inspect, inputSchema: { stickerId } }, async input => {
+  try {
+    const current = await stickers.get(input.stickerId);
+    if (!current?.available) throw new Error('unavailable');
+    const asset = await stickers.asset(current.id, current.version);
+    const result = await inspectStickerImage(asset.original, asset.sticker.mediaType);
+    return { content: [
+      { type: 'text' as const, text: JSON.stringify({ id: asset.sticker.id, version: asset.sticker.version, name: asset.sticker.name, tags: asset.sticker.tags, mediaType: asset.sticker.mediaType, animated: result.frames > 1, frameCount: result.frames, sampledFrames: result.sampledFrames, ...(result.frames > 1 ? { notice: 'Sampled frames may omit animation content.' } : {}) }) },
+      ...result.images.map(image => ({ type: 'image' as const, mimeType: 'image/jpeg', data: image.toString('base64') })),
+    ] };
+  } catch { return { content: [{ type: 'text' as const, text: 'Sticker unavailable, unreadable or exceeds image limits' }], isError: true }; }
+});
+server.registerTool('update_sticker_metadata', { description: stickerToolDescriptions.updateMetadata, inputSchema: { stickerId, ...stickerMetadataSchema.shape } }, async ({ stickerId, ...changes }) => ({ content: [{ type: 'text', text: JSON.stringify(await stickers.updateMetadata(stickerId, changes)) }] }));
 server.registerTool('favorite_sticker', { description: stickerToolDescriptions.favorite, inputSchema: { stickerId: stickerId.optional(), conversationImageId: z.string().regex(/^[a-f0-9]{64}$/u).optional(), data: z.string().max(Math.ceil(5 * 1024 * 1024 / 3) * 4).optional(), mediaType: z.enum(['image/png','image/jpeg','image/webp','image/gif']).optional(), favorite: z.boolean(), name: z.string().min(1).refine(value => [...value].length <= 160).optional(), tags: z.array(z.string().min(1).refine(value => [...value].length <= 80)).max(32).optional() } }, async input => {
   if ([input.stickerId, input.conversationImageId, input.data].filter(Boolean).length !== 1) throw new Error('Choose one sticker, conversation image or upload');
   if (input.stickerId) return { content: [{ type: 'text' as const, text: JSON.stringify({ sticker: await stickers.favorite('agent', input.stickerId, input.favorite), favorite: input.favorite }) }] };
