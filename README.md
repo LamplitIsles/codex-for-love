@@ -743,3 +743,72 @@ delay/fail delivery while public responses come from the native Rust daemon. Rus
 acceptance evidence. See [current acceptance commands](docs/default-shared-frontend.md).
 Reading archives preserves the active conversation and draft; native matching,
 workspace/device scope and context limits remain unchanged.
+
+## Sticker library
+
+CFL's authenticated sticker backend supplies a shared library with separate
+Human and Partner favorites. The current shared App does not yet include a
+sticker picker. The public HTTP contract is defined by the App source identified
+in `lamplit-app.sha`; the local candidate must be published before an installed
+runtime can select it as a public frontend release.
+
+Import an administrator-selected directory with the installed CLI:
+
+```sh
+codex-for-love import-stickers <config.toml> <directory>
+```
+
+The directory is flat and contains `manifest.json` and exactly the named files:
+
+```json
+{
+  "id": "cats",
+  "name": "Cats",
+  "description": "Small reactions",
+  "stickers": [
+    { "id": "hello", "file": "hello.gif", "name": "Hello", "tags": ["wave"] },
+    { "id": "happy", "file": "happy.png", "name": "Happy", "tags": ["smile"] }
+  ]
+}
+```
+
+The first entry is the cover and is also sendable. Pack and member IDs use
+ASCII letters, digits, `_` or `-` (1–100 characters); each public sticker ID
+is derived from its pack and member ID. The same manifest format is accepted
+by authenticated `POST /api/stickers/imports?sessionId=...` as a ZIP. Imports
+are validated before the index transaction: only flat regular files, no links,
+duplicate paths or undeclared entries; at most 500 images, 32 MiB compressed,
+64 MiB expanded, 5 MiB per image, 25 million total frame pixels and 100 frames
+per image. ZIP reading has a 15-second limit, individual image operations a
+5-second limit, and pack validation checks a 30-second deadline between images. Import errors distinguish invalid content, limits, processing timeout,
+and storage failure without exposing local paths. JPEG, PNG, WebP and GIF
+signatures and decoded contents must match. Preview and model representations are static JPEGs; GIF originals remain
+animated. An identical member ID may acquire a new immutable content version on
+reimport. Concurrent conflicting imports reject the stale change; identical
+retries are idempotent. Existing favorites follow the member; already sent
+messages and their original bytes retain their previous version. Removing a member does not delete
+its historical asset or the other participant's favorites.
+
+`/api/stickers/packs`, `/packs/{id}`, `/search`, and `/favorites` provide
+bounded pages; `/favorites`, `/favorites/image`, and `/favorites/upload`
+modify the authenticated Human's collection. `/stage` binds a sticker ID and
+version to a session and operation, returning the existing image reference for
+the normal durable chat submission. `/media/{version}/preview` and `/original`
+require owner authentication and use private, revalidated ETags. The Partner
+uses the separate Companion MCP sticker tools. A conversation image can be
+favorited only after it belongs to that conversation; imports and favorites do
+not themselves create chat messages or photo-library membership.
+When both participants favorite the same conversation image or identical upload,
+they share one sticker and its first saved name and tags. Later favorite requests
+return that saved metadata; each participant can remove their own favorite
+independently. A conversation image identity cannot be reused for different bytes.
+
+The index and immutable files live in `<workspace>/.lamplit/stickers/`;
+message attachments remain under `.lamplit/attachments/`. Back up the entire
+`.lamplit` tree consistently with the running Partner stopped or using a
+SQLite-consistent backup including WAL state. Plan space for original files,
+JPEG variants, retained versions, SQLite and import temporaries. The importer
+may leave unreferenced immutable files after a failed transaction; there is no
+automatic cleanup, since deleting referenced versions would break history.
+Never expose this directory as static web content. No live provider, production
+deployment or App UI is enabled by these contracts alone.

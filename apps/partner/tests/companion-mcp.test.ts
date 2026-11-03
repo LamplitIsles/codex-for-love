@@ -27,7 +27,7 @@ test('Companion MCP serves bounded journal tools over stdio', async () => {
   await client.connect(new StdioClientTransport({ command: process.execPath, args: [script, workspace], stderr: 'ignore' }));
   try {
     const tools = await client.listTools();
-    assert.deepEqual(tools.tools.map((tool) => tool.name).sort(), ['create_alarm', 'delete_alarm', 'edit_alarm', 'list_alarms', 'list_diary', 'list_photos', 'read_conversation_record', 'read_diary', 'read_relationship_history', 'roll_dice', 'search_conversation', 'send_voice', 'set_signature', 'update_relationship']);
+    assert.deepEqual(tools.tools.map((tool) => tool.name).sort(), ['create_alarm', 'delete_alarm', 'edit_alarm', 'favorite_sticker', 'list_alarms', 'list_diary', 'list_pack_stickers', 'list_photos', 'list_sticker_favorites', 'list_sticker_packs', 'read_conversation_record', 'read_diary', 'read_relationship_history', 'roll_dice', 'search_conversation', 'search_stickers', 'send_sticker', 'send_voice', 'set_signature', 'update_relationship']);
     const created = await client.callTool({ name: 'create_alarm', arguments: { message: 'Check the tea', schedule: { kind: 'once', at: new Date(Date.now() + 3_600_000).toISOString() } } }) as { content: Array<{ text: string }> };
     const alarm = JSON.parse(created.content[0]!.text) as { id: string; message: string; schedule: unknown; nextAt: number; createdAt: number };
     assert.equal(alarm.message, 'Check the tea');
@@ -86,4 +86,47 @@ test('journal rejects an affinity delta inconsistent with its predecessor', asyn
     await writeFile(journal, `${JSON.stringify({ at: '2026-01-01T00:00:00.000Z', changes: { affinity: { value: 60, delta: 5, reason: 'bad' } }, state: { mood: 'neutral', affinity: 60, signature: '' } })}\n`);
     await assert.rejects(readRelationshipJournal(journal), /affinity change/);
   } finally { await rm(workspace, { recursive: true, force: true }); }
+});
+
+test('Companion discovers bounded packs, keeps Agent favorites separate and returns a representative frame', async () => {
+  const sharp = (await import('sharp')).default;
+  const { StickerCatalog, packStickerId } = await import('../runtime/sticker-catalog.ts');
+  const workspace = await mkdtemp(join(tmpdir(), 'sticker-mcp-'));
+  const bytes = await sharp(Buffer.from([255,0,0,255, 0,255,0,255]), { raw: { width: 1, height: 2, channels: 4, pageHeight: 1 } }).gif({ delay: [100,100], loop: 0 }).toBuffer();
+  const catalog = await StickerCatalog.open(workspace);
+  await catalog.importPack({ id: 'cats', name: '猫', description: '可爱', stickers: [{ id: 'one', file: 'one.gif', name: '挥手', tags: ['开心'] }] }, new Map([['one.gif', { bytes, mediaType: 'image/gif' }]]));
+  const stickerId = packStickerId('cats', 'one');
+  const client = new Client({ name: 'test', version: '1.0.0' });
+  const script = fileURLToPath(new URL('../runtime/companion-mcp.ts', import.meta.url));
+  await client.connect(new StdioClientTransport({ command: process.execPath, args: [script, workspace], stderr: 'ignore' }));
+  try {
+    const packs = await client.callTool({ name: 'list_sticker_packs', arguments: { limit: 1, query: '猫' } });
+    assert.match(JSON.stringify(packs), /可爱/u);
+    const members = await client.callTool({ name: 'list_pack_stickers', arguments: { packId: 'cats', limit: 1 } });
+    assert.match(JSON.stringify(members), /挥手/u);
+    const found = await client.callTool({ name: 'search_stickers', arguments: { query: '开心', limit: 1 } });
+    assert.match(JSON.stringify(found), /挥手/u);
+    await client.callTool({ name: 'favorite_sticker', arguments: { stickerId, favorite: true } });
+    assert.equal((await catalog.listStickers({ participant: 'human', cursor: null, limit: 10 })).stickers.length, 0);
+    assert.equal((await catalog.listStickers({ participant: 'agent', cursor: null, limit: 10 })).stickers[0]?.id, stickerId);
+    const sent = await client.callTool({ name: 'send_sticker', arguments: { stickerId } }) as { content: Array<{ type: string; text?: string; data?: string; mimeType?: string }> };
+    assert.equal(JSON.parse(sent.content[0]!.text!).kind, 'sticker');
+    assert.equal(sent.content[1]!.mimeType, 'image/jpeg');
+    assert.equal((await sharp(Buffer.from(sent.content[1]!.data!, 'base64'), { animated: true }).metadata()).pages ?? 1, 1);
+    assert.equal((await sharp(bytes, { animated: true }).metadata()).pages, 2);
+    assert.equal((await client.callTool({ name: 'favorite_sticker', arguments: { conversationImageId: 'a'.repeat(64), favorite: true, name: 'bad', tags: [] } })).isError, true);
+    const imageId = createHash('sha256').update('test-owned-chat-image').digest('hex');
+    const imagePath = join(workspace, 'chat.gif'); await writeFile(imagePath, bytes);
+    await writeFile(join(workspace, '.lamplit', 'conversation-images.json'), JSON.stringify([{ id: imageId, filename: 'chat.gif', path: imagePath, mediaType: 'image/gif', created: Date.now(), origin: 'human', available: true }]));
+    const saved = await client.callTool({ name: 'favorite_sticker', arguments: { conversationImageId: imageId, favorite: true, name: '聊天', tags: ['收藏'] } });
+    assert.equal(saved.isError, undefined);
+    assert.equal((await catalog.listStickers({ participant: 'agent', cursor: null, limit: 10 })).stickers.length, 2);
+    assert.equal((await catalog.listStickers({ participant: 'human', cursor: null, limit: 10 })).stickers.length, 0);
+    assert.deepEqual(await (await import('node:fs/promises')).readFile(imagePath), bytes);
+    const uploaded = await client.callTool({ name: 'favorite_sticker', arguments: { data: bytes.toString('base64'), mediaType: 'image/gif', favorite: true, name: '上传', tags: [] } });
+    assert.equal(uploaded.isError, undefined);
+    assert.equal((await catalog.listStickers({ participant: 'agent', cursor: null, limit: 10 })).stickers.length, 3);
+    assert.equal((await catalog.listStickers({ participant: 'human', cursor: null, limit: 10 })).stickers.length, 0);
+    assert.equal((await client.callTool({ name: 'favorite_sticker', arguments: { data: 'bad!', mediaType: 'image/gif', favorite: true, name: 'bad', tags: [] } })).isError, true);
+  } finally { await client.close(); catalog.close(); await rm(workspace, { recursive: true, force: true }); }
 });

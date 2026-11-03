@@ -240,6 +240,13 @@ async function runTurn(turn) {
       turn.items.push(image);
       send({ method: 'item/completed', params: { threadId: state.threadId, turnId: turn.id, completedAtMs: Date.now(), item: image } });
     }
+    if (text.includes('send sticker') && process.env.FAKE_STICKER_RESULT) {
+      const result = { content: [{ type: 'text', text: process.env.FAKE_STICKER_RESULT }, ...(process.env.FAKE_STICKER_IMAGE ? [{ type: 'image', mimeType: 'image/jpeg', data: process.env.FAKE_STICKER_IMAGE }] : [])] };
+      for (const [tool, status] of [['other_tool', 'completed'], ['send_sticker', 'failed'], ['send_sticker', 'completed']]) {
+        const item = { type: 'mcpToolCall', id: `sticker-${state.next++}`, server: 'companion', tool, arguments: {}, status, result };
+        turn.items.push(item); send({ method: 'item/completed', params: { threadId: state.threadId, turnId: turn.id, completedAtMs: Date.now(), item } });
+      }
+    }
     if (text.includes('send voice')) {
       const audioId = 'a'.repeat(64); mkdirSync(join(root, 'workspace', '.lamplit', 'audio'), { recursive: true });
       writeFileSync(join(root, 'workspace', '.lamplit', 'audio', `${audioId}.mp3`), 'ID3');

@@ -1,5 +1,5 @@
 import { APPEARANCE_PATH, WORKSPACE_IMAGE_PATH } from '@lamplit/contracts';
-import { imageHttp } from '@lamplit/contracts/server';
+import { imageHttp, stickerHttp } from '@lamplit/contracts/server';
 import { createChatSocket } from './chat.ts';
 import { createVoiceHost, type VoiceDependencies } from './voice.ts';
 import { VOICE_CAPABILITY_PATH, VOICE_STREAM_PATH } from '@lamplit/contracts/voice';
@@ -166,6 +166,34 @@ export function createWebServer(partner: Partner, assets: string, options: { aut
         });
         const bytes = Buffer.from(await result!.arrayBuffer());
         if (!stillAuthorized(request)) return unauthorized();
+        response.writeHead(result!.status, Object.fromEntries(result!.headers));
+        response.end(bytes); return;
+      }
+      if (path === '/api/stickers' || path.startsWith('/api/stickers/')) {
+        const origin = options.auth.origin;
+        const webRequest = new Request(`${origin}${request.url}`, {
+          method: request.method,
+          headers: new Headers(Object.entries(request.headers).flatMap(([key, value]) => value === undefined ? [] : [[key, Array.isArray(value) ? value.join(',') : value] as [string,string]])),
+          ...(request.method === 'POST' ? { body: requestBody(request), duplex: 'half' } : {}),
+        } as RequestInit);
+        const backend = partner.stickerBackend(() => authorize(request), () => stillAuthorized(request));
+        const importZip = backend.importZip;
+        let importError: unknown;
+        backend.importZip = async (...args) => { try { return await importZip(...args); } catch (error) { importError = error; throw error; } };
+        const result = await stickerHttp(webRequest, backend, async () => {
+          if (!await authorize(request)) return null;
+          return { sessionId: (await partner.snapshot()).sessionId };
+        });
+        const bytes = Buffer.from(await result!.arrayBuffer());
+        if (!stillAuthorized(request)) return unauthorized();
+        if (result!.status === 400 && importError) {
+          const message = importError instanceof Error ? importError.message : '';
+          const failure = /timed out/iu.test(message) ? { code: 'import_timeout', message: 'Sticker import exceeded its processing time limit.' }
+            : /too large|exceeds|size limit|excessive/iu.test(message) ? { code: 'import_limit', message: 'Sticker archive or image exceeds its size or animation limits.' }
+            : /invalid|duplicate|manifest|zip|unsupported|conflict/iu.test(message) || (importError as { name?: string }).name === 'ZodError' ? { code: 'invalid_import', message: 'Sticker archive, manifest or image is invalid.' }
+            : { code: 'import_failed', message: 'Sticker import failed; check storage and try again.' };
+          return json(response, { error: failure }, 400);
+        }
         response.writeHead(result!.status, Object.fromEntries(result!.headers));
         response.end(bytes); return;
       }

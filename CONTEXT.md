@@ -79,6 +79,18 @@ _Avoid_: retained attachment, image snapshot, library image
 **Chat Image Library（聊天图片库）**:
 The shared, finite conversation-owned catalogue of Human-sent, Agent-generated, and restored Historical media images. Humans browse it in the drawer and Partners discover the same membership through bounded Companion MCP pages. Explicit native inspection never adds an item, and Historical media remains out of active context unless deliberately inspected.
 
+**Sticker（表情）**:
+An image used as an expressive message by the Human or Partner. A Sticker may come from a Sticker pack, a conversation image, or an individual upload.
+_Avoid_: emoji reaction, Chat Image Library entry
+
+**Sticker pack（表情包）**:
+An ordered collection of Stickers presented as a group for the Human and Partner to browse and use. Its first Sticker is also the group image and remains sendable.
+_Avoid_: individual Sticker, Chat Image Library
+
+**Favorite Stickers（收藏的表情）**:
+The Stickers a participant has saved for later use, including Stickers saved from conversation images or individually uploaded. The Human and Partner maintain separate collections of Favorite Stickers.
+_Avoid_: shared favorites, Chat Image Library
+
 **Graph memory（图谱记忆）**:
 The Partner's durable, connected recollection of people, events, preferences, and relationships across conversations.
 _Avoid_: chat history, prompt context

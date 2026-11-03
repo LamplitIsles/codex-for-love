@@ -11,6 +11,11 @@ import { partnerPaths } from './storage-paths.ts';
 import { loadConfig, loadCredentials } from './config.ts';
 import { synthesizeSpeech } from './speech.ts';
 import { pageConversationImages, readConversationImages, withAvailability } from './conversation-images.ts';
+import { StickerCatalog } from './sticker-catalog.ts';
+import { stickerToolDescriptions } from './sticker-tool-descriptions.ts';
+import { open } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import type { ImageInput } from './images.ts';
 import { createConversationSearch } from './conversation-search.ts';
 import { alarmMessageSchema, alarmScheduleSchema, createAlarm, deleteAlarm, editAlarm, listAlarms } from './alarms.ts';
 
@@ -22,6 +27,7 @@ const conversationImages = partnerPaths(workspace).conversationImages;
 const alarms = partnerPaths(workspace).alarms;
 const conversationSearch = createConversationSearch({ workspace });
 const cursors = panelCursors();
+const stickers = await StickerCatalog.open(workspace);
 const server = new McpServer({ name: 'companion', version: '0.1.0' });
 const reaction = { mood: z.object({ value: z.enum(MOODS), note: z.string().optional(), reason: z.string() }).strict().optional(), affinity: z.object({ delta: z.number().int().min(-10).max(10), reason: z.string() }).strict().optional() };
 server.registerTool('update_relationship', { description: 'Record a current mood or relationship reaction with concise factual reasons.', inputSchema: reaction }, async (input) => ({ content: [{ type: 'text', text: JSON.stringify(await updateRelationshipJournal(journal, canonicalizeRelationshipUpdate(input))) }] }));
@@ -79,5 +85,39 @@ server.registerTool('send_voice', { description: 'Send one standalone Voice mess
       : await synthesizeSpeech({ ...tts, endpoint: 'https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation', model: tts.provider === 'alibaba' ? 'qwen3-tts-flash' : 'seed-tts-2.0', credential: tts.provider === 'alibaba' ? credentials.speech ?? '' : credentials.tts ?? '', text, audioDir });
     return { content: [{ type: 'text' as const, text: JSON.stringify({ kind: 'voice', audioId: id }) }] };
   } catch (error) { return { content: [{ type: 'text' as const, text: 'Voice synthesis failed' }], isError: true }; }
+});
+const stickerPage = { limit: z.number().int().min(1).max(30).optional(), cursor: z.string().min(1).max(16).optional(), query: z.string().max(100).optional() };
+const stickerId = z.string().regex(/^[A-Za-z0-9_-]{1,100}$/u);
+server.registerTool('list_sticker_packs', { description: stickerToolDescriptions.listPacks, inputSchema: stickerPage }, async input => ({ content: [{ type: 'text', text: JSON.stringify(await stickers.listPacks({ cursor: input.cursor ?? null, limit: input.limit ?? 10, query: input.query })) }] }));
+server.registerTool('list_pack_stickers', { description: stickerToolDescriptions.listPackStickers, inputSchema: { packId: stickerId, limit: stickerPage.limit, cursor: stickerPage.cursor } }, async input => {
+  if (!await stickers.getPack(input.packId)) throw new Error('Pack unavailable');
+  return { content: [{ type: 'text', text: JSON.stringify(await stickers.listStickers({ packId: input.packId, cursor: input.cursor ?? null, limit: input.limit ?? 10 })) }] };
+});
+server.registerTool('search_stickers', { description: stickerToolDescriptions.searchStickers, inputSchema: stickerPage }, async input => ({ content: [{ type: 'text', text: JSON.stringify(await stickers.listStickers({ cursor: input.cursor ?? null, limit: input.limit ?? 10, query: input.query })) }] }));
+server.registerTool('list_sticker_favorites', { description: stickerToolDescriptions.listFavorites, inputSchema: stickerPage }, async input => ({ content: [{ type: 'text', text: JSON.stringify(await stickers.listStickers({ participant: 'agent', cursor: input.cursor ?? null, limit: input.limit ?? 10, query: input.query })) }] }));
+server.registerTool('favorite_sticker', { description: stickerToolDescriptions.favorite, inputSchema: { stickerId: stickerId.optional(), conversationImageId: z.string().regex(/^[a-f0-9]{64}$/u).optional(), data: z.string().max(Math.ceil(5 * 1024 * 1024 / 3) * 4).optional(), mediaType: z.enum(['image/png','image/jpeg','image/webp','image/gif']).optional(), favorite: z.boolean(), name: z.string().min(1).refine(value => [...value].length <= 160).optional(), tags: z.array(z.string().min(1).refine(value => [...value].length <= 80)).max(32).optional() } }, async input => {
+  if ([input.stickerId, input.conversationImageId, input.data].filter(Boolean).length !== 1) throw new Error('Choose one sticker, conversation image or upload');
+  if (input.stickerId) return { content: [{ type: 'text' as const, text: JSON.stringify({ sticker: await stickers.favorite('agent', input.stickerId, input.favorite), favorite: input.favorite }) }] };
+  if (!input.favorite || !input.name || !input.tags) throw new Error('Image favorite requires a name and tags');
+  if (input.data) {
+    const bytes = Buffer.from(input.data, 'base64');
+    if (!input.mediaType || !bytes.length || bytes.length > 5 * 1024 * 1024 || bytes.toString('base64') !== input.data) throw new Error('Invalid image upload');
+    const sticker = await stickers.favoriteImage('agent', { kind: 'upload' }, { name: input.name, tags: input.tags, bytes, mediaType: input.mediaType });
+    return { content: [{ type: 'text' as const, text: JSON.stringify({ sticker, favorite: true }) }] };
+  }
+  const images = await withAvailability(await readConversationImages(conversationImages));
+  const image = images.find(entry => entry.id === input.conversationImageId);
+  if (!image?.available) throw new Error('Conversation image unavailable');
+  const file = await open(image.path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  let bytes: Buffer;
+  try { const stat = await file.stat(); if (!stat.isFile() || stat.size <= 0 || stat.size > 5 * 1024 * 1024) throw new Error('Conversation image unavailable'); bytes = await file.readFile(); if (bytes.length !== stat.size) throw new Error('Conversation image changed'); } finally { await file.close(); }
+  const sticker = await stickers.favoriteImage('agent', { kind: 'chat', imageId: image.id }, { name: input.name, tags: input.tags, bytes, mediaType: image.mediaType as ImageInput['mediaType'] });
+  return { content: [{ type: 'text' as const, text: JSON.stringify({ sticker, favorite: true }) }] };
+});
+server.registerTool('send_sticker', { description: stickerToolDescriptions.send, inputSchema: { stickerId } }, async input => {
+  const current = await stickers.get(input.stickerId);
+  if (!current?.available) throw new Error('Sticker unavailable');
+  const asset = await stickers.asset(current.id, current.version);
+  return { content: [{ type: 'text' as const, text: JSON.stringify({ kind: 'sticker', id: current.id, version: current.version, name: current.name, tags: current.tags, mediaType: current.mediaType }) }, { type: 'image' as const, mimeType: 'image/jpeg', data: asset.model.toString('base64') }] };
 });
 await server.connect(new StdioServerTransport());

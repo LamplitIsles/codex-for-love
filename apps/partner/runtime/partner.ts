@@ -4,13 +4,16 @@ import { postImage } from './post-assets.ts';
 import type { EventV1 } from './post-contract.ts';
 import { postEndpoint } from './config.ts';
 import { readWorkspaceImage } from './workspace-images.ts';
+import { StickerCatalog } from './sticker-catalog.ts';
+import { readStickerZip } from './sticker-import.ts';
 import { listDiary, readDiary } from './diary.ts';
 export { MAX_DIARY_ENTRY_BYTES } from './diary.ts';
-import { validateUpload, validateSubmission, validateRecovery, type Receipt, type Submission, type ImageUpload, type ImageRef, type InputRecovery, type ChatAppearance, type FinalizeSubmission, type RetryFailed, type DeleteFailed, validate, FinalizeSubmissionSchema, RetryFailedSchema, DeleteFailedSchema } from '@lamplit/contracts';
+import { validateUpload, validateSubmission, validateRecovery, type Receipt, type Submission, type ImageUpload, type ImageRef, type InputRecovery, type ChatAppearance, type FinalizeSubmission, type RetryFailed, type DeleteFailed, type StickerBackend, validate, FinalizeSubmissionSchema, RetryFailedSchema, DeleteFailedSchema } from '@lamplit/contracts';
 import { createHash, randomUUID } from 'node:crypto';
-import { access, lstat, mkdir, readFile, writeFile, unlink } from 'node:fs/promises';
+import { access, lstat, mkdir, open, readFile, writeFile, unlink } from 'node:fs/promises';
+import { constants as fsConstants } from 'node:fs';
 import { basename, extname, isAbsolute, join, relative, resolve, sep as pathSeparator } from 'node:path';
-import type { z } from 'zod';
+import { z } from 'zod';
 import {
   AppServerInvalidRequestError,
   AppServerRpcError,
@@ -36,6 +39,7 @@ import {
   materializeGeneratedImage,
   materializeImages,
   type MaterializedInputImage,
+  type ImageInput,
   imageInputSchema,
 } from './images.ts';
 import { transcribeAudio } from './speech.ts';
@@ -323,12 +327,26 @@ function errorFromTurn(turn: OfficialTurn | undefined): string | null {
   return typeof message === 'string' && message.trim() ? message.trim() : 'Codex turn failed';
 }
 
-function nativeInput(input: string, images: readonly Pick<MaterializedInputImage, 'path'>[]): v2.UserInput[] {
+async function nativeInput(input: string, images: readonly StoredImage[], store: Store, sessionId: string, attachments: string): Promise<{ values: v2.UserInput[]; stickerContext?: { kind: 'application'; value: string } }> {
   const values: v2.UserInput[] = [];
+  const metadata: Array<{ name: string; tags: string[]; originalMediaType: string; representation: string }> = [];
   if (input) values.push({ type: 'text', text: input, text_elements: [] });
-  values.push(...images.map((image): v2.UserInput => ({ type: 'localImage', path: image.path })));
+  for (const image of images) {
+    const operation = await store.stagedImages(image.operation_id, sessionId);
+    const ref = operation?.refs.find(candidate => candidate.attachmentId === image.id);
+    if (!ref?.sticker) { values.push({ type: 'localImage', path: image.path }); continue; }
+    const staged = await store.stagedMedia(image.id, sessionId);
+    if (!staged) throw new Error('Sticker model frame unavailable');
+    const data = Buffer.from(staged.model, 'base64');
+    if (!data.length || data.length > 320_000 || data[0] !== 255 || data[1] !== 216 || data[2] !== 255) throw new Error('Sticker model frame unavailable');
+    const path = join(attachments, `${image.id}.model.jpg`);
+    try { await writeFile(path, data, { flag: 'wx', mode: 0o600 }); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; const info = await lstat(path); if (!info.isFile() || !(await readFile(path)).equals(data)) throw new Error('Sticker model frame changed'); }
+    values.push({ type: 'localImage', path });
+    metadata.push({ name: image.name, tags: staged.stickerTags ?? [], originalMediaType: image.media_type, representation: 'static representative frame' });
+  }
   if (!values.length) throw new Error('A native turn needs text or an image');
-  return values;
+  return { values, ...(metadata.length ? { stickerContext: { kind: 'application' as const, value: JSON.stringify(metadata) } } : {}) };
 }
 
 function imageMediaType(path: string): StoredImage['media_type'] | undefined {
@@ -494,6 +512,10 @@ export async function createPartner(config: Config, credentials: Credentials, de
     if (!reconcilingCatalogue) await writeConversationImages(paths.conversationImages, await withAvailability([...catalogue.values()]));
   }
   const store = new Store(paths.database);
+  let stickers: StickerCatalog;
+  try { stickers = await StickerCatalog.open(paths.workspaceRoot); }
+  catch (error) { await store.close(); throw error; }
+  const stickerImageRefs = new Map<string, { id: string; version: string }>();
   const now = dependencies.now ?? Date.now;
   const listeners = new Set<() => void>();
   const storedMessages = await store.allMessages();
@@ -784,6 +806,27 @@ export async function createPartner(config: Config, credentials: Credentials, de
     }
   }
 
+  async function projectSticker(operationId: string, sourceIds: readonly string[], item: OfficialItem, created: number): Promise<string | undefined> {
+    if (item.type !== 'mcpToolCall' || item.status !== 'completed' || item.server !== 'companion' || item.tool !== 'send_sticker' || typeof item.id !== 'string' || !item.id) return undefined;
+    const result = record(item.result); if (result.isError === true || !Array.isArray(result.content) || result.content.length < 1 || result.content.length > 2) return undefined;
+    if (result.content.length === 2) { const frame = record(result.content[1]); if (frame.type !== 'image' || frame.mimeType !== 'image/jpeg' || typeof frame.data !== 'string' || frame.data.length > 426_668) return undefined; }
+    const content = record(result.content[0]); if (content.type !== 'text' || typeof content.text !== 'string' || content.text.length > 8192) return undefined;
+    let raw: unknown; try { raw = JSON.parse(content.text); } catch { return undefined; }
+    const parsed = z.object({ kind: z.literal('sticker'), id: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/u), version: z.string().regex(/^[a-f0-9]{64}$/u), name: z.string().min(1).refine(value => [...value].length <= 160), tags: z.array(z.string().min(1).refine(value => [...value].length <= 80)).max(32), mediaType: z.enum(['image/png','image/jpeg','image/webp','image/gif']) }).strict().safeParse(raw);
+    if (!parsed.success) return undefined;
+    try {
+      const value = parsed.data; const asset = await stickers.historicalAsset(value.id, value.version);
+      if (asset.mediaType !== value.mediaType) throw new Error('Sticker MIME changed');
+      const imageId = createHash('sha256').update(JSON.stringify([operationId, item.id, value.id, value.version])).digest('hex');
+      const image: StoredImage = { id: imageId, operation_id: operationId, name: value.name, media_type: asset.mediaType, path: asset.path };
+      await store.saveGeneratedImage(image, item.id); stickerImageRefs.set(imageId, { id: value.id, version: value.version });
+      await catalogueImage('agent', image, created); return imageId;
+    } catch (error) {
+      storageError = true; await markAttachmentError(sourceIds, 'Sticker image unavailable');
+      processError('sticker.persistence_failed', error, { operationId, itemId: item.id }); return undefined;
+    }
+  }
+
   async function imagesForUserItem(item: OfficialItem, operationId: string, offset = 0): Promise<StoredImage[]> {
     const content = item.content;
     if (!Array.isArray(content)) return [];
@@ -898,6 +941,11 @@ export async function createPartner(config: Config, credentials: Credentials, de
     let resultStatus = status;
     const completedAt = status === 'completed' ? completedTurnTime(turn.completedAt) : undefined;
     for (const item of turn.items ?? []) {
+      if (item.type === 'mcpToolCall') {
+        const stickerId = await projectSticker(resultOperationId(turn.id), sourceIds, item, completedTurnTime(turn.completedAt) ?? turnTime(turn.startedAt, now()));
+        if (stickerId) generatedIds.push(stickerId);
+        continue;
+      }
       if (item.type !== 'imageGeneration') continue;
       const generatedId = await projectGeneratedImage(resultOperationId(turn.id), sourceIds, item, completedTurnTime(turn.completedAt) ?? turnTime(turn.startedAt, now()));
       if (generatedId) generatedIds.push(generatedId);
@@ -1028,14 +1076,15 @@ export async function createPartner(config: Config, credentials: Credentials, de
     try {
       const keetContext = intent.source === 'keet' ? await store.keetContext(intent.ids[0]!) : undefined;
       if (postContext) processLog('post.execution', { stage: 'native_start', status: 'submitted', platform: postContext.event.message.platform, kind: postContext.event.message.conversation.type });
+      const native = await nativeInput(postContext && intent.ids.length === 1 ? postInput(postContext.event, postContext.media, { conversationName }) : intent.source === 'alarm' ? `${ALARM_INPUT_PREFIX}${intent.input}` : intent.input, intent.images, store, threadId, paths.attachments);
       const response = await appServer.call('turn/start', {
         threadId,
-        input: nativeInput(postContext && intent.ids.length === 1 ? postInput(postContext.event, postContext.media, { conversationName }) : intent.source === 'alarm' ? `${ALARM_INPUT_PREFIX}${intent.input}` : intent.input, intent.images),
+        input: native.values,
         clientUserMessageId: intent.transportId,
         ...(intent.source !== 'none'
           ? { additionalContext: intent.source === 'post' && postContext ? postAdditionalContext(postContext.event, postContext.media, conversationName) : intent.source === 'keet' && keetContext ? keetAdditionalContext(keetContext) : intent.source === 'alarm'
             ? { 'codex-for-love.alarm': { kind: 'application' as const, value: 'This is a scheduled reminder you previously wrote to yourself. It is not a message, instruction, or commitment from the Human or a Keet sender. Decide what to do now using current context; do not automatically send to the originating channel.' }, 'codex-for-love.message-time': inputTimeContext(intent.source, now()) }
-            : { 'codex-for-love.message-time': inputTimeContext(intent.source, now()) } }
+            : { 'codex-for-love.message-time': inputTimeContext(intent.source, now()), ...(native.stickerContext ? { 'codex-for-love.sticker': native.stickerContext } : {}) } }
           : {}),
       }).catch((error: unknown) => {
         if (postContext) processLog('post.execution', { stage: 'native_start', status: 'failed', category: error instanceof AppServerRpcError ? 'rejected' : 'unavailable', platform: postContext.event.message.platform, kind: postContext.event.message.conversation.type });
@@ -1092,13 +1141,14 @@ export async function createPartner(config: Config, credentials: Credentials, de
     for (;;) {
       submittingOperationId = intent.transportId;
       try {
+        const native = await nativeInput(intent.input, intent.images, store, threadId, paths.attachments);
         const response = await appServer.call('turn/steer', {
           threadId,
-          input: nativeInput(intent.input, intent.images),
+          input: native.values,
           clientUserMessageId: intent.transportId,
           expectedTurnId: expected,
           ...(intent.source !== 'none'
-            ? { additionalContext: { 'codex-for-love.message-time': inputTimeContext(intent.source, now()) } }
+            ? { additionalContext: { 'codex-for-love.message-time': inputTimeContext(intent.source, now()), ...(native.stickerContext ? { 'codex-for-love.sticker': native.stickerContext } : {}) } }
             : {}),
         });
         intent.turnId = response.turnId;
@@ -1444,6 +1494,8 @@ export async function createPartner(config: Config, credentials: Credentials, de
         // in the durable completion ledger before its real owner completes it.
         if (item.type === 'agentMessage' && (!turns.has(turnId)
           || (streaming && streaming.id === item.id && streaming.turnId !== turnId))) break;
+        if (item.type === 'mcpToolCall' && item.server === 'companion' && item.tool === 'send_sticker'
+          && (notification.params.threadId !== threadId || !turns.has(turnId))) break;
         if (item.type === 'mcpToolCall' && item.server === 'post' && item.tool === 'send_message' && turns.has(turnId)) {
           const result = record(record(item.result).structuredContent), code = record(result.error).code;
           const category = typeof code === 'string' && ['unauthorized','not_found','invalid_request','conflict','unavailable','capacity','internal'].includes(code) ? code
@@ -1693,12 +1745,13 @@ export async function createPartner(config: Config, credentials: Credentials, de
     await appServer?.close().catch(() => undefined);
     await managedServer?.stop().catch(() => undefined);
     await store.close().catch(() => undefined);
+    stickers.close();
     throw error;
   }
 
   function normalizeSubmission(value: Submission): Submission {
     const input = validateSubmission(value);
-    return { operationId: input.operationId, text: input.text, ...(input.images?.length ? { images: input.images.map(({ attachmentId, name, mediaType, availability }) => ({ attachmentId, name, mediaType, availability })) } : {}), ...(input.replacementSourceIds?.length ? { replacementSourceIds: input.replacementSourceIds } : {}) };
+    return { operationId: input.operationId, text: input.text, ...(input.images?.length ? { images: input.images.map(({ attachmentId, name, mediaType, availability, sticker }) => ({ attachmentId, name, mediaType, availability, ...(sticker ? { sticker: { id: sticker.id, version: sticker.version } } : {}) })) } : {}), ...(input.replacementSourceIds?.length ? { replacementSourceIds: input.replacementSourceIds } : {}) };
   }
   function serializeInput<T>(action: () => Promise<T>): Promise<T> {
     const result = inputAdmission.then(action);
@@ -1737,7 +1790,11 @@ export async function createPartner(config: Config, credentials: Credentials, de
         const staged = await store.stagedImages(id, threadId);
         if (shared.images?.length) {
           if (!staged || JSON.stringify(staged.refs) !== JSON.stringify(shared.images)) throw new Error('Images do not belong to this operation');
-          values = await Promise.all(staged.images.map(async image => ({ type: 'image' as const, name: image.name, mediaType: image.media_type, data: (await readFile(image.path)).toString('base64') })));
+          values = await Promise.all(staged.images.map(async image => {
+            const ref = staged.refs.find(item => item.attachmentId === image.id);
+            if (ref?.sticker && !await store.stagedMedia(image.id, threadId)) throw new Error('Sticker variants unavailable');
+            return { type: 'image' as const, name: image.name, mediaType: image.media_type, data: (await readFile(image.path)).toString('base64') };
+          }));
         } else if (staged?.refs.length) throw new Error('Incomplete image submission');
       }
       const images = inputImages(id, values);
@@ -1873,6 +1930,69 @@ export async function createPartner(config: Config, credentials: Credentials, de
       return transcribeAudio(config.speech.endpoint, credentials.speech, data, mediaType, signal);
     },
     workspaceImage(path: string | null) { return readWorkspaceImage(paths.workspaceRoot, path); },
+    stickerBackend(authorize: () => Promise<boolean>, authorizeCommit: () => boolean): StickerBackend {
+      const guard = () => mutationGuard(threadId, authorize);
+      const beforeCommit = commitGuard(threadId, authorizeCommit);
+      return {
+        async packs(input) { await mutationGuard(input.sessionId, authorize); return stickers.listPacks(input); },
+        async pack(input) { await mutationGuard(input.sessionId, authorize); if (!await stickers.getPack(input.packId)) throw new Error('Pack unavailable'); return stickers.listStickers({ ...input, packId: input.packId }); },
+        async search(input) { await mutationGuard(input.sessionId, authorize); return stickers.listStickers(input); },
+        async favorites(input) { await mutationGuard(input.sessionId, authorize); return stickers.listStickers({ ...input, participant: 'human' }); },
+        async favorite(input, allowed) { await mutationGuard(input.sessionId, authorize); if (!await allowed()) throw new Error('Unauthorized'); return { sticker: await stickers.favorite('human', input.stickerId, input.favorite, beforeCommit), favorite: input.favorite }; },
+        async favoriteImage(input, allowed) {
+          await mutationGuard(input.sessionId, authorize); await eventChain;
+          let source = catalogue.get(input.imageId);
+          if (!source) {
+            const metadata = await store.imageMetadata(input.imageId);
+            if (metadata) source = [...catalogue.values()].find(image => image.path === metadata.path);
+          }
+          if (!source || !source.available) throw new Error('Image is not in the conversation');
+          const file = await open(source.path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK);
+          let bytes: Buffer;
+          try { const stat = await file.stat(); if (!stat.isFile() || stat.size <= 0 || stat.size > imageLimits.maxImageBytes) throw new Error('Conversation image unavailable'); bytes = await file.readFile(); if (bytes.length !== stat.size) throw new Error('Conversation image changed'); }
+          finally { await file.close(); }
+          if (!await allowed()) throw new Error('Unauthorized');
+          const sticker = await stickers.favoriteImage('human', { kind: 'chat', imageId: source.id }, { name: input.name, tags: input.tags, bytes, mediaType: source.mediaType as ImageInput['mediaType'] }, beforeCommit);
+          return { sticker, favorite: true };
+        },
+        async upload(input, allowed) {
+          await mutationGuard(input.sessionId, authorize); if (!await allowed()) throw new Error('Unauthorized');
+          const sticker = await stickers.favoriteImage('human', { kind: 'upload' }, { name: input.name, tags: input.tags, bytes: Buffer.from(input.data, 'base64'), mediaType: input.mediaType }, beforeCommit);
+          return { sticker, favorite: true };
+        },
+        async importZip(sessionId, bytes, allowed) {
+          await mutationGuard(sessionId, authorize); const source = await readStickerZip(Buffer.from(bytes));
+          if (!await allowed()) throw new Error('Unauthorized');
+          const result = await stickers.importPack(source.manifest, source.files, beforeCommit);
+          const pack = await stickers.getPack(result.id); if (!pack) throw new Error('Pack unavailable');
+          return { pack, count: result.count };
+        },
+        async stage(input, allowed) { return serializeInput(async () => {
+          await mutationGuard(input.sessionId, authorize);
+          const previous = await store.stagedImages(input.operationId, input.sessionId);
+          if (previous) {
+            const ref = previous.refs[0];
+            if (previous.refs.length !== 1 || !ref?.sticker || (ref.sticker.id !== input.sticker.id || ref.sticker.version !== input.sticker.version)) throw new Error('Stage identity conflict');
+            const image = previous.images[0]; if (!image || !previous.variants[0]) throw new Error('Staged sticker unavailable');
+            const info = await lstat(image.path); if (!info.isFile()) throw new Error('Staged sticker unavailable');
+            const bytes = await readFile(image.path);
+            const checked = inputImages(input.operationId, [{ type: 'image', name: image.name, mediaType: image.media_type, data: bytes.toString('base64') }]);
+            if (checked[0]?.id !== ref.attachmentId || !await store.stagedMedia(ref.attachmentId, input.sessionId)) throw new Error('Staged sticker changed');
+            if (!await allowed()) throw new Error('Unauthorized');
+            return { sessionId: input.sessionId, operationId: input.operationId, image: ref };
+          }
+          const asset = await stickers.asset(input.sticker.id, input.sticker.version);
+          if (!asset.sticker.available) throw new Error('Sticker unavailable');
+          const imageInput = inputImages(input.operationId, [{ type: 'image', name: asset.sticker.name, mediaType: asset.sticker.mediaType, data: asset.original.toString('base64') }]);
+          const images = await materializeImages(paths.workspaceRoot, imageInput);
+          const image: ImageRef = { attachmentId: images[0]!.id, name: images[0]!.name, mediaType: images[0]!.media_type, availability: 'available', sticker: { id: input.sticker.id, version: input.sticker.version } };
+          await guard(); if (!await allowed()) throw new Error('Unauthorized');
+          await store.stageImages(input.operationId, input.sessionId, createHash('sha256').update(JSON.stringify({ sticker: input.sticker, image })).digest('hex'), { images, refs: [image], variants: [{ previewPath: asset.previewPath, modelPath: asset.modelPath, stickerTags: asset.sticker.tags }] }, beforeCommit);
+          return { sessionId: input.sessionId, operationId: input.operationId, image };
+        }); },
+        async media(version, variant) { await guard(); return stickers.media(version, variant); },
+      };
+    },
     async sharedImageLimits() { return storageError || closing ? false as const : { ...imageLimits, mediaTypes: [...imageLimits.mediaTypes] }; },
     async uploadImages(value: ImageUpload, authorize: () => Promise<boolean> = async () => true, authorizeCommit?: () => boolean) {
       const task = admission.then(async () => {
@@ -1893,19 +2013,36 @@ export async function createPartner(config: Config, credentials: Credentials, de
       return task;
     },
     async sharedMedia(id: string, variant: 'original' | 'preview' | 'model') {
-      const staged = await store.stagedMedia(id, threadId);
-      if (staged && variant !== 'original') return { bytes: Buffer.from(staged[variant], 'base64'), mediaType: 'image/jpeg' };
+      if (variant !== 'original') {
+        const staged = await store.stagedMedia(id, threadId).catch(() => undefined);
+        return staged ? { bytes: Buffer.from(staged[variant], 'base64'), mediaType: 'image/jpeg' } : null;
+      }
+      const staged = await store.stagedImageRef(id, threadId);
       const metadata = staged?.image ?? await store.imageMetadata(id);
-      if (!metadata || variant !== 'original') return null;
+      if (!metadata) return null;
       // Store metadata belongs to this Partner's selected conversation, never a caller path.
-      try { const file = await lstat(metadata.path); if (!file.isFile() || file.size > 32 * 1024 * 1024) return null; return { bytes: await readFile(metadata.path), mediaType: metadata.media_type }; } catch { return null; }
+      try {
+        const file = await lstat(metadata.path); if (!file.isFile() || file.size > 32 * 1024 * 1024) return null;
+        const bytes = await readFile(metadata.path); const sticker = staged?.ref.sticker ?? stickerImageRefs.get(id);
+        if (sticker && createHash('sha256').update(bytes).digest('hex') !== sticker.version) return null;
+        return { bytes, mediaType: metadata.media_type };
+      } catch { return null; }
     },
     async sharedImageRef(id: string): Promise<ImageRef | undefined> {
-      const image = await store.imageMetadata(id) ?? (await store.stagedMedia(id, threadId))?.image;
+      const image = await store.imageMetadata(id) ?? (await store.stagedImageRef(id, threadId))?.image;
       if (!image) return undefined;
+      const staged = await store.stagedImageRef(id, threadId);
+      const sticker = staged?.ref.sticker ?? stickerImageRefs.get(id);
       let availability: ImageRef['availability'] = 'available';
-      try { await access(image.path); } catch { availability = 'missing'; }
-      return { attachmentId: id, name: image.name, mediaType: image.media_type as ImageRef['mediaType'], availability };
+      try {
+        if (!sticker) await access(image.path);
+        else {
+          const file = await open(image.path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK);
+          try { const stat = await file.stat(); if (!stat.isFile() || stat.size <= 0 || stat.size > imageLimits.maxImageBytes) throw new Error('Sticker original unavailable'); const bytes = await file.readFile(); if (bytes.length !== stat.size || createHash('sha256').update(bytes).digest('hex') !== sticker.version) throw new Error('Sticker original changed'); }
+          finally { await file.close(); }
+        }
+      } catch { availability = 'missing'; }
+      return { attachmentId: id, name: image.name, mediaType: image.media_type as ImageRef['mediaType'], availability, ...(sticker ? { sticker } : {}) };
     },
     async sharedRecovery(settled = true): Promise<InputRecovery[]> {
       if (settled) {
@@ -2039,7 +2176,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
         answers: result.status === 'failed' || result.status === 'interrupted' || result.status === 'cancelled' ? [] : result.answers,
         error: result.error,
         status: result.status,
-        images: generatedMeta.filter((image) => image.operation_id === resultOperationId(result.turnId)).map(({ id, name }) => ({ id, name, url: `/api/images/${id}` })),
+        images: generatedMeta.filter((image) => image.operation_id === resultOperationId(result.turnId) && result.generatedIds.includes(image.id)).map(({ id, name }) => ({ id, name, url: `/api/images/${id}` })),
         voices: result.voiceIds.map((id) => ({ id, url: `/api/audio/${id}.mp3` })),
         ...(result.completedAt === undefined ? {} : { completedAt: result.completedAt }),
       }));
@@ -2156,7 +2293,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
           const values = staged.images.map((image, index) => ({ type: 'image' as const, name: image.name, mediaType: image.media_type, data: bytes[index]!.toString('base64') }));
           if (JSON.stringify(inputImages(operationId, values).map(image => image.id)) !== JSON.stringify(original.images.map(image => image.attachmentId))) throw new Error('Original images changed');
           const materialized = await materializeImages(paths.workspaceRoot, inputImages(attemptId, values));
-          images = materialized.map(image => ({ attachmentId: image.id, name: image.name, mediaType: image.media_type, availability: 'available' }));
+          images = materialized.map((image, index) => ({ attachmentId: image.id, name: image.name, mediaType: image.media_type, availability: 'available', ...(original.images?.[index]?.sticker ? { sticker: original.images[index]!.sticker } : {}) }));
           await mutationGuard(sessionId, authorize);
           await store.stageImages(attemptId, sessionId, createHash('sha256').update(JSON.stringify(images)).digest('hex'), { images: materialized.map(({ id, operation_id, name, media_type, path }) => ({ id, operation_id, name, media_type, path })), refs: images, variants: staged.variants }, beforeCommit);
         }
@@ -2250,6 +2387,8 @@ export async function createPartner(config: Config, credentials: Credentials, de
         await eventChain;
         listeners.clear();
         try { await store.close(); }
+        catch (error) { closeError ??= error; }
+        try { stickers.close(); }
         catch (error) { closeError ??= error; }
         if (closeError) throw closeError;
       })();

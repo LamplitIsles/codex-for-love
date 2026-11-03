@@ -1,4 +1,6 @@
 import { uploadPostAsset, savePostAsset } from './post-assets.ts';
+import { StickerCatalog } from './sticker-catalog.ts';
+import { readStickerDirectory } from './sticker-import.ts';
 import { randomBytes } from 'node:crypto';
 import { mkdir, readFile, writeFile, rename, access, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
@@ -21,14 +23,14 @@ if (nativeRootIndex !== -1) {
   cliArgs.splice(nativeRootIndex, 2);
 }
 if (cliArgs.includes('--help') || cliArgs.includes('-h')) {
-  console.log('Usage: codex-for-love <serve|pair|credential|asset-fetch|asset-upload|import-session|migrate-relationship-journal> <config.toml>');
+  console.log('Usage: codex-for-love <serve|pair|credential|asset-fetch|asset-upload|import-session|import-stickers|migrate-relationship-journal> <config.toml>');
   process.exit(0);
 }
 const dryRun = cliArgs.includes('--dry-run');
 const stdin = cliArgs.includes('--stdin');
 const positionalArgs = cliArgs.filter((argument) => argument !== '--dry-run' && argument !== '--stdin');
 const [command, configPath, name, companionStatePath, attachmentRoot, destinationPath, dshSettingsPath] = positionalArgs;
-if (!configPath) throw new Error('Usage: cli.ts <serve|pair|credential|asset-fetch|asset-upload|import-session|migrate-relationship-journal> <config.toml>');
+if (!configPath) throw new Error('Usage: cli.ts <serve|pair|credential|asset-fetch|asset-upload|import-session|import-stickers|migrate-relationship-journal> <config.toml>');
 let config = await loadConfig(resolve(configPath));
 if (nativePackageRoot) {
   const root = resolve(nativePackageRoot);
@@ -39,6 +41,14 @@ if (nativePackageRoot) {
       command: join(root, 'bin', 'codex-app-server'),
     },
   };
+}
+if (command === 'import-stickers') {
+  if (!name || companionStatePath) throw new Error('Usage: cli.ts import-stickers <config.toml> <directory>');
+  const source = await readStickerDirectory(resolve(name));
+  const catalog = await StickerCatalog.open(config.workspace!);
+  try { const result = await catalog.importPack(source.manifest, source.files); console.log(JSON.stringify({ pack: await catalog.getPack(result.id), count: result.count })); }
+  finally { catalog.close(); }
+  process.exit(0);
 }
 if (command === 'asset-fetch' || command === 'asset-upload') {
   const credentials = await loadCredentials(config.state);

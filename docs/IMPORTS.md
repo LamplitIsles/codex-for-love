@@ -563,4 +563,15 @@ The previous pin was merged App PR #38 `dde912022c7d145dd90a092765d35f54a3310e8d
 
 ### Browser-host authentication protocol marker — App PR #39 / CFL #5068
 
-`lamplit-app.sha` pins merged App PR #39 `01c9d257f124ef8006fcf96d2bc77f58e5d66f66`, tree `3136c20da07bd1226bb246c441086c3cca5a92ce`, based on merged App PR #38. Its tree is identical to the reviewed candidate `a503dd5039dca83278e124c6c0029b6c9c1a1c4b`. App owns the emitted public authentication protocol marker; CFL requires the Better Auth marker and exact compiled-contract hashes for every selected frontend. App's reported targeted TypeScript build test verified the emitted marker on the candidate, not directly on the merged SHA; prior App+CFL browser integration evidence above applies to the earlier candidate and CFL revision.
+At that handoff, `lamplit-app.sha` pinned merged App PR #39 `01c9d257f124ef8006fcf96d2bc77f58e5d66f66`, tree `3136c20da07bd1226bb246c441086c3cca5a92ce`, based on merged App PR #38. Its tree is identical to the reviewed candidate `a503dd5039dca83278e124c6c0029b6c9c1a1c4b`. App owns the emitted public authentication protocol marker; CFL requires the Better Auth marker and exact compiled-contract hashes for every selected frontend. App's reported targeted TypeScript build test verified the emitted marker on the candidate, not directly on the merged SHA; prior App+CFL browser integration evidence above applies to the earlier candidate and CFL revision.
+
+### Sticker library and ZIP intake — CFL spec #7 / App spec #8
+
+The sticker HTTP adapter consumes the Apache-2.0 `@lamplit/contracts` public
+exports built from merged App PR #42 commit `b1d59ded58934d9cad1c7ec78039a484bd31c357`.
+Its tree `5bd3120c6b740b0eeffa6062829a897ffe38633d` is identical to the
+independently reviewed App candidate `e8cab2aeb01cdde0ee4045fa89f103f45a8273b0`;
+`lamplit-app.sha` remains the authoritative source identity. CFL's importer
+uses yauzl 3.2.0, with buffer-crc32 0.2.13 and pend 1.2.0. Their MIT notices
+are preserved in `licenses/` and in the packaged artifact. The parser reads
+entries lazily; CFL independently applies path, link, size and image checks.

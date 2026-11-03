@@ -2,10 +2,11 @@ import { postInput, postInputId, postPresentation } from './post.ts';
 import type { EventV1 } from './post-contract.ts';
 import { type MatrixEvent, type MatrixContext } from './matrix.ts';
 import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { open, readFile } from 'node:fs/promises';
+import { constants as fsConstants } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import type { Submission, ImageRef } from '@lamplit/contracts';
-import type { MaterializedGeneratedImage, MaterializedInputImage } from './images.ts';
+import type { MaterializedInputImage } from './images.ts';
 import type { CompactBoundary, ContextObservation } from './continuity.ts';
 
 /** UI/domain metadata only. Official Codex owns the conversation transcript. */
@@ -26,8 +27,8 @@ export type LocalOutcomeStatus = 'replaced' | 'attachment-error';
 export type LocalOutcome = { status: LocalOutcomeStatus; error: string | null };
 export type MessagePageOptions = { before?: number; after?: number };
 export type StoredImage = Omit<MaterializedInputImage, 'data'>;
-export type StoredGeneratedImage = MaterializedGeneratedImage;
-export type StagedImages = { images: StoredImage[]; refs: ImageRef[]; variants: Array<{ preview: string; model: string }> };
+export type StoredGeneratedImage = StoredImage;
+export type StagedImages = { images: StoredImage[]; refs: ImageRef[]; variants: Array<({ preview: string; model: string } | { previewPath: string; modelPath: string }) & { stickerTags?: string[] }> };
 export type KeetDestination = { groupName: string; kind: 'group' | 'broadcast' | 'dm' };
 export type KeetGroupRecord = { senderLabel: string; text: string; replyTo?: { deviceId: string; seq: number } };
 export type KeetReactionContext = { targetMessageId: { deviceId: string; seq: number }; targetText: string; emoji: string; externalCount: number };
@@ -243,17 +244,35 @@ export class Store {
       return row ? JSON.parse(row.payload) : undefined;
     });
   }
-  async stagedMedia(id: string, sessionId: string): Promise<{ image: StoredImage; preview: string; model: string } | undefined> {
+  async stagedImageRef(id: string, sessionId: string): Promise<{ image: StoredImage; ref: ImageRef } | undefined> {
     return this.transaction(() => {
+      const rows = this.db.prepare('SELECT payload FROM staged_images WHERE session_id=?').all(sessionId) as Array<{ payload: string }>;
+      for (const row of rows) { const payload = JSON.parse(row.payload) as StagedImages; const index = payload.images.findIndex(image => image.id === id); if (index >= 0) return { image: payload.images[index]!, ref: payload.refs[index]! }; }
+      return undefined;
+    });
+  }
+  async stagedMedia(id: string, sessionId: string): Promise<{ image: StoredImage; ref: ImageRef; preview: string; model: string; stickerTags?: string[] } | undefined> {
+    const entry = await this.transaction(() => {
       const rows = this.db.prepare('SELECT payload FROM staged_images WHERE session_id=?').all(sessionId) as Array<{ payload: string }>;
       for (const row of rows) {
         const payload = JSON.parse(row.payload) as StagedImages;
         const index = payload.images.findIndex(image => image.id === id);
-        if (index >= 0) return { image: payload.images[index]!, ...payload.variants[index]! };
+        if (index >= 0) return { image: payload.images[index]!, ref: payload.refs[index]!, variant: payload.variants[index]! };
       }
       return undefined;
     });
+    if (!entry) return undefined;
+    const variant = entry.variant;
+    if ('preview' in variant) return { image: entry.image, ref: entry.ref, ...variant };
+    const readVariant = async (path: string, max: number) => {
+      const file = await open(path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK);
+      try { const stat = await file.stat(); if (!stat.isFile() || stat.size <= 0 || stat.size > max) throw new Error('Sticker variant unavailable'); const bytes = await file.readFile(); const match = /\.([a-f0-9]{64})\.(?:preview|model)\.jpg$/u.exec(path); if (bytes.length !== stat.size || !match || createHash('sha256').update(bytes).digest('hex') !== match[1]) throw new Error('Sticker variant changed'); return bytes.toString('base64'); }
+      finally { await file.close(); }
+    };
+    const [preview, model] = await Promise.all([readVariant(variant.previewPath, 160_000), readVariant(variant.modelPath, 320_000)]);
+    return { image: entry.image, ref: entry.ref, preview, model, ...(variant.stickerTags ? { stickerTags: variant.stickerTags } : {}) };
   }
+
   async sharedSubmission(id: string, sessionId: string): Promise<string | undefined> {
     return this.transaction(() => {
       const row = this.db.prepare('SELECT fingerprint,session_id FROM shared_submissions WHERE operation_id=?').get(id) as { fingerprint: string; session_id: string } | undefined;
