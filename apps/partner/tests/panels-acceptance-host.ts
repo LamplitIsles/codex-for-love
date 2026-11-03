@@ -11,7 +11,7 @@ import { partnerPaths } from '../runtime/storage-paths.ts';
 import { createWebServer } from './web-server.ts';
 const evidence = resolve(process.argv[3]!); await mkdir(evidence, { recursive: true });
 const f = await fixture(); const root = f.directory; const seed = await seedPanels(f.workspace, f.appServer.env.FAKE_SERVER_STATE!);
-f.config.speech = { endpoint: 'http://127.0.0.1/unused-batch' }; f.credentials.speech = 'synthetic-fixture-key';
+f.config.speech = {}; f.credentials.speech = 'synthetic-fixture-key';
 let clock = seedNow;
 const sourceAlarm = createAlarm(partnerPaths(f.workspace).alarms, '这是应用的提醒', { kind: 'once', at: new Date(clock + 1000).toISOString() }, clock);
 clock += 1000;

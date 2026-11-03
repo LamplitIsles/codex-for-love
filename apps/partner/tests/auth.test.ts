@@ -39,6 +39,11 @@ test('independent service credentials do not authorize human requests', async ()
   const base = `http://127.0.0.1:${(app.server.address() as { port: number }).port}`;
   try {
     assert.equal((await fetch(base + '/api/session')).status, 401);
+    for (const path of ['/api/voice/settings','/api/background-settings','/api/background-settings/landscape','/api/backgrounds/landscape']) for (const method of ['GET', 'POST']) {
+      const response = await fetch(base + path, {method, headers:{origin, authorization:'Bearer post-secret'}, ...(method === 'POST' ? {body:JSON.stringify({region:'beijing',apiKey:'secret'})} : {})});
+      assert.equal(response.status,401);
+      assert.equal(response.headers.get('cache-control'),'no-store');
+    }
     assert.equal((await fetch(base + '/api/chat/media/anything')).status, 401);
     assert.equal((await fetch(base + `/api/audio/${'a'.repeat(64)}.mp3`)).status, 401);
     for (const path of ['/api/chat/socket', '/api/voice/stream']) {
@@ -58,7 +63,7 @@ test('successful recovery closes existing authenticated chat, voice and event co
   const { WebSocketServer } = await import('ws');
   const { fixture } = await import('./fixture.ts');
   const f = await fixture();
-  f.config.speech = { endpoint: 'https://unused.invalid' }; f.credentials.speech = 'synthetic-speech';
+  f.config.speech = {}; f.credentials.speech = 'synthetic-speech';
   const provider = createServer(), providerSockets = new WebSocketServer({ noServer: true });
   provider.on('upgrade', (request, socket, head) => providerSockets.handleUpgrade(request, socket, head, ws => providerSockets.emit('connection', ws)));
   provider.listen(0, '127.0.0.1'); await once(provider, 'listening');
@@ -93,25 +98,16 @@ for (const revocation of ['logout', 'recovery'] as const) test(`${revocation} pr
   const { request } = await import('node:http');
   const root = await mkdtemp(join(tmpdir(), 'cfl-auth-race-'));
   const auth = new AuthStore(root, origin);
-  const counts = { submit: 0, cancel: 0, transcribe: 0 };
+  const counts = { submit: 0, cancel: 0 };
   const imageId = 'a'.repeat(64);
   let releaseRead: (() => void) | undefined;
   let notifyRead: (() => void) | undefined;
   const readStarted = new Promise<void>(resolve => { notifyRead = resolve; });
   const readGate = new Promise<void>(resolve => { releaseRead = resolve; });
   let holdRead = false;
-  let transcriptionStarted: (() => void) | undefined;
-  let transcriptionAborted: (() => void) | undefined;
-  const providerStarted = new Promise<void>(resolve => { transcriptionStarted = resolve; });
-  const providerAborted = new Promise<void>(resolve => { transcriptionAborted = resolve; });
   const partner = {
     close: async () => {}, voiceCredential: () => null,
     submit: async () => { counts.submit++; }, cancel: async () => { counts.cancel++; },
-    transcribe: async (_data: Uint8Array, _type: string, signal: AbortSignal) => {
-      counts.transcribe++; transcriptionStarted!();
-      await new Promise<void>((_resolve, reject) => signal.addEventListener('abort', () => { transcriptionAborted!(); reject(new Error('aborted')); }, { once: true }));
-      return { text: 'synthetic' };
-    },
     image: async () => { if (holdRead) { notifyRead!(); await readGate; } return { media_type: 'image/png', data: Buffer.from('synthetic') }; },
     conversationImage: async () => ({ media_type: 'image/png', data: Buffer.from('synthetic') }),
     audio: async () => Buffer.from('synthetic-audio'),
@@ -128,17 +124,14 @@ for (const revocation of ['logout', 'recovery'] as const) test(`${revocation} pr
       assert.equal(response.status, 200); assert.equal(response.headers.get('cache-control'), 'no-store');
       await response.arrayBuffer();
     }
-    const activeTranscription = fetch(base + '/api/voice/transcribe', { method: 'POST', headers: { origin, cookie, 'content-type': 'audio/webm' }, body: 'audio' }).catch(() => undefined);
-    await providerStarted;
     const originalAuthorize = auth.authorize.bind(auth);
     let seen: (() => void) | undefined;
     const entered = new Promise<void>(resolve => { seen = resolve; });
     let entries = 0;
-    auth.authorize = req => { const result = originalAuthorize(req); if (result && ['/api/messages', '/api/cancel', '/api/voice/transcribe'].includes(req.url ?? '')) { entries++; if (entries === 3) seen!(); } return result; };
+    auth.authorize = req => { const result = originalAuthorize(req); if (result && ['/api/messages', '/api/cancel'].includes(req.url ?? '')) { entries++; if (entries === 2) seen!(); } return result; };
     for (const [path, type, content] of [
       ['/api/messages', 'application/json', JSON.stringify({ id: crypto.randomUUID(), input: 'delayed' })],
       ['/api/cancel', 'application/json', JSON.stringify({ id: 'turn' })],
-      ['/api/voice/transcribe', 'audio/webm', 'audio'],
     ]) {
       const req = request({ host: '127.0.0.1', port, path, method: 'POST', headers: { origin, cookie, 'content-type': type } });
       const result = new Promise<number>((resolve, reject) => { req.on('response', res => { res.resume(); resolve(res.statusCode!); }); req.on('error', reject); });
@@ -151,15 +144,14 @@ for (const revocation of ['logout', 'recovery'] as const) test(`${revocation} pr
     await readStarted;
     if (revocation === 'logout') assert.equal((await post('/api/auth/sign-out', {}, cookie)).status, 200);
     else await enroll(base, auth);
-    await providerAborted; await activeTranscription;
     for (const item of pending) item.finish();
     releaseRead!();
-    assert.deepEqual(await Promise.all(pending.map(item => item.result)), [401, 401, 401]);
+    assert.deepEqual(await Promise.all(pending.map(item => item.result)), [401, 401]);
     assert.equal((await delayedRead).status, 401);
     for (const path of [`/api/images/${imageId}`, `/api/conversation-images/${imageId}`, `/api/audio/${imageId}.mp3`]) {
       assert.equal((await fetch(base + path, { headers: { cookie } })).status, 401);
     }
-    assert.deepEqual(counts, { submit: 0, cancel: 0, transcribe: 1 });
+    assert.deepEqual(counts, { submit: 0, cancel: 0 });
   } finally { releaseRead?.(); await app.close(); await rm(root, { recursive: true, force: true }); }
 });
 

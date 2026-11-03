@@ -1,54 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { join } from 'node:path';
 import { fixture } from './fixture.ts';
 import { createWebServer } from './web-server.ts';
-import { synthesizeSpeech, transcribeAudio } from '../runtime/speech.ts';
+import { synthesizeSpeech } from '../runtime/speech.ts';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { spawn } from 'node:child_process';
 import { writeFile, readFile } from 'node:fs/promises';
-
-test('STT forwards bounded audio, ignores emotion annotations and never admits a model turn', async () => {
-  const f = await fixture(); let calls = 0;
-  const upstream = createServer(async (request, response) => {
-    let text = ''; for await (const chunk of request) text += chunk;
-    const body = JSON.parse(text); calls++;
-    assert.equal(request.headers.authorization, 'Bearer fixture-speech');
-    assert.equal(body.model, 'qwen3-asr-flash');
-    assert.equal(body.input.messages[0].content[0].audio, 'data:audio/webm;codecs=opus;base64,AQID');
-    response.setHeader('content-type', 'application/json');
-    response.end(JSON.stringify({ output: { choices: [{ message: { content: [{ text: ' 今天下雨了。 ' }], annotations: [{ emotion: 'happy' }] } }] } }));
-  });
-  upstream.listen(0, '127.0.0.1'); await once(upstream, 'listening');
-  f.config.speech = { endpoint: `http://127.0.0.1:${(upstream.address() as { port: number }).port}` }; f.credentials.speech = 'fixture-speech';
-  const partner = await f.createPartner();
-  const app = createWebServer(partner, join(f.directory, 'assets'));
-  app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening');
-  const url = `http://127.0.0.1:${(app.server.address() as { port: number }).port}/api/voice/transcribe`;
-  try {
-    const response = await fetch(url, { method: 'POST', headers: { 'content-type': 'audio/webm;codecs=opus' }, body: new Uint8Array([1,2,3]) });
-    assert.equal(response.status, 200); assert.deepEqual(await response.json(), { text: '今天下雨了。' });
-    assert.equal((await partner.snapshot()).speech, true);
-    assert.equal((await partner.snapshot()).messages.length, 0); assert.equal((await f.requests()).filter(request => request.method === 'turn/start' || request.method === 'turn/steer').length, 0);
-    assert.equal((await fetch(url, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: 'invalid' })).status, 415);
-    assert.equal(calls, 1);
-    const aborted = AbortSignal.abort();
-    await assert.rejects(transcribeAudio(f.config.speech.endpoint, 'fixture', new Uint8Array([1]), 'audio/wav', aborted));
-    await assert.rejects(transcribeAudio(f.config.speech.endpoint, 'fixture', new Uint8Array(8 * 1024 * 1024), 'audio/wav', new AbortController().signal));
-    assert.equal(calls, 1);
-  } finally { await app.close(); upstream.closeAllConnections(); await new Promise<void>(resolve => upstream.close(() => resolve())); await f.close(); }
-});
-
-test('voice transcription returns only text regardless of provider emotion', async () => {
-  for (const emotion of [' HAPPY ', 'unknown', null]) {
-    const result = await transcribeAudio('http://fixture.invalid', 'fixture', new Uint8Array([1]), 'audio/wav', new AbortController().signal,
-      async () => Response.json({ output: { choices: [{ message: { content: [{ text: '你好' }], annotations: [{ emotion }] } }] } }));
-    assert.deepEqual(result, { text: '你好' });
-  }
-});
 
 test('provider synthesis caches provider and voice identities', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'lamplit-audio-test-')); let calls = 0;
@@ -107,5 +67,29 @@ test('oversized messages are rejected before admission with a definite validatio
     });
     assert.equal(response.status, 422); assert.equal((await response.json()).code, 'invalid_message');
     assert.equal((await partner.snapshot()).messages.length, 0); assert.equal((await f.requests()).filter(request => request.method === 'turn/start' || request.method === 'turn/steer').length, 0);
+  } finally { await app.close(); await f.close(); }
+});
+
+test('removed whole-audio route returns authenticated no-store 404 without native admission', async () => {
+  const f = await fixture();
+  f.config.speech = {}; f.credentials.speech = 'legacy-stream-and-tts-key';
+  const partner = await f.createPartner();
+  let allowed = true;
+  const app = createWebServer(partner,join(f.directory,'assets'),{authorize:async()=>allowed});
+  app.server.listen(0,'127.0.0.1'); await once(app.server,'listening');
+  const origin = `http://127.0.0.1:${(app.server.address() as {port:number}).port}`;
+  const oldRoute = () => fetch(`${origin}/api/voice/transcribe`,{method:'POST',headers:{origin,'content-type':'audio/webm'},body:'retired'});
+  try {
+    for (const method of ['GET','POST']) {
+      const response = method === 'POST' ? await oldRoute() : await fetch(`${origin}/api/voice/transcribe`);
+      assert.equal(response.status,404);
+      assert.equal(response.headers.get('cache-control'),'no-store');
+    }
+    allowed = false;
+    assert.equal((await oldRoute()).status,401);
+    allowed = true;
+    assert.deepEqual(await (await fetch(`${origin}/api/voice/capability`)).json(),{available:true});
+    assert.equal(partner.voiceCredential(),'legacy-stream-and-tts-key');
+    assert.equal((await f.requests()).some(value=>value.method==='turn/start' || value.method==='turn/steer'),false);
   } finally { await app.close(); await f.close(); }
 });

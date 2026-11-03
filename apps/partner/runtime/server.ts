@@ -1,3 +1,5 @@
+import { BackgroundSettingsError, MAX_BACKGROUND_BYTES, backgroundMediaType } from './background-settings.ts';
+import { VoiceSettingsError } from './voice-settings.ts';
 import { ModelPreferenceError } from './model-preference.ts';
 import { APPEARANCE_PATH, WORKSPACE_IMAGE_PATH } from '@lamplit/contracts';
 import { imageHttp, stickerHttp } from '@lamplit/contracts/server';
@@ -12,7 +14,6 @@ import { processLog } from './logging.ts';
 import { keetEvent } from './keet.ts';
 import sirv from 'sirv';
 import { z } from 'zod';
-import { MAX_VOICE_DATA_URL_BYTES, normalizeVoiceMediaType } from './voice-contract.ts';
 import type { Partner } from './partner.ts';
 import { PET_ACTIVITIES } from './pet.ts';
 import type { ConversationSearch } from './conversation-search.ts';
@@ -61,18 +62,16 @@ export function createWebServer(partner: Partner, assets: string, options: { aut
   };
   const streams = new Map<ServerResponse, IncomingMessage>();
   const activeSockets = new Map<import('ws').WebSocket, IncomingMessage>();
-  const transcriptions = new Map<AbortController, IncomingMessage>();
   const stillAuthorized = (request: IncomingMessage) => {
     try { return options.auth.authorize(request); } catch { return false; }
   };
   const revokeConnections = () => {
     for (const [socket, request] of activeSockets) if (!stillAuthorized(request)) socket.terminate();
     for (const [response, request] of streams) if (!stillAuthorized(request)) response.end();
-    for (const [controller, request] of transcriptions) if (!stillAuthorized(request)) controller.abort();
   };
   const revocationTimer = setInterval(revokeConnections, 1000);
   revocationTimer.unref();
-  const voice = createVoiceHost(() => partner.voiceCredential(), options.voice);
+  const voice = createVoiceHost(() => partner.voiceSettings ? partner.voiceSettings.selection() : partner.voiceCredential(), options.voice);
   const server = createServer(async (request, response) => {
     response.setHeader('x-content-type-options', 'nosniff');
     response.setHeader('referrer-policy', 'no-referrer');
@@ -138,6 +137,44 @@ export function createWebServer(partner: Partner, assets: string, options: { aut
         if (!await authorize(request)) return unauthorized();
         if ((request.method !== 'GET' && request.method !== 'HEAD') || request.headers.origin || request.headers['sec-fetch-site'] === 'cross-site') {
           if (!options.auth.sameOrigin(request)) return json(response, { error: { code: 'forbidden_origin', message: 'Open the configured site origin and try again.' } }, 403);
+        }
+      }
+      if (path === '/api/background-settings' || path.startsWith('/api/background-settings/')) {
+        const fail = (code: string, status: number) => json(response,{error:{code,message:'Background could not be confirmed. Refresh settings before trying again.'}},status);
+        if (path === '/api/background-settings') {
+          if (request.method !== 'GET') return fail('method_not_allowed',405);
+          return humanJson(partner.backgroundSettings());
+        }
+        const kind = path.slice('/api/background-settings/'.length);
+        if (kind !== 'landscape' && kind !== 'portrait') return fail('invalid_background',400);
+        if (request.method !== 'POST') return fail('method_not_allowed',405);
+        const mediaType = backgroundMediaType(request.headers['content-type']);
+        if (!mediaType) { request.resume(); return fail('invalid_background_type',415); }
+        if (Number(request.headers['content-length']) > MAX_BACKGROUND_BYTES) { request.resume(); return fail('background_too_large',413); }
+        try {
+          let size = 0; const chunks: Buffer[] = [];
+          for await (const chunk of request.iterator({destroyOnReturn:false})) {
+            size += chunk.length;
+            if (size > MAX_BACKGROUND_BYTES) { request.resume(); return fail('background_too_large',413); }
+            chunks.push(chunk);
+          }
+          if (!stillAuthorized(request)) return unauthorized();
+          return humanJson(await partner.saveBackground(kind,Buffer.concat(chunks),mediaType,() => stillAuthorized(request)));
+        } catch (error) {
+          return fail(error instanceof BackgroundSettingsError ? error.code : 'background_settings_unavailable',error instanceof BackgroundSettingsError ? error.status : 503);
+        }
+      }
+      if (path === '/api/voice/settings') {
+        const fail = (code: string, status: number) => json(response, { error: { code, message: 'Voice settings could not be confirmed. Refresh settings before trying again.' } }, status);
+        if (request.method !== 'GET' && request.method !== 'POST') return fail('method_not_allowed', 405);
+        try {
+          if (request.method === 'GET') return humanJson(await partner.voiceSettings.snapshot());
+          if (request.headers['content-type']?.split(';')[0].trim().toLowerCase() !== 'application/json') return fail('invalid_voice_settings', 400);
+          let input: unknown;
+          try { input = await body(request, 4096); } catch { return fail('invalid_voice_settings', 400); }
+          return humanJson(await partner.voiceSettings.save(input, () => stillAuthorized(request)));
+        } catch (error) {
+          return fail(error instanceof VoiceSettingsError ? error.code : 'voice_settings_unavailable', error instanceof VoiceSettingsError ? error.status : 503);
         }
       }
       if (path === '/api/chat/models') {
@@ -212,7 +249,7 @@ export function createWebServer(partner: Partner, assets: string, options: { aut
         response.writeHead(result!.status, Object.fromEntries(result!.headers));
         response.end(bytes); return;
       }
-      if (path === VOICE_CAPABILITY_PATH) return json(response, request.method === 'GET' ? { available: voice.available() } : { code: 'method_not_allowed' }, request.method === 'GET' ? 200 : 405);
+      if (path === VOICE_CAPABILITY_PATH) return json(response, request.method === 'GET' ? { available: await voice.available() } : { code: 'method_not_allowed' }, request.method === 'GET' ? 200 : 405);
       if (path === VOICE_STREAM_PATH) return json(response, { code: 'upgrade_required' }, 426);
       if (path === '/api/post/events' && request.method === 'POST') {
         if (!partner.postEnabled) return json(response, { error: 'Post ingress unavailable' }, 404);
@@ -248,29 +285,6 @@ export function createWebServer(partner: Partner, assets: string, options: { aut
         try { await partner.ingestKeet(parsed.data); }
         catch { return json(response, { error: 'Keet admission unavailable' }, 503); }
         return json(response, { accepted: true }, 202);
-      }
-      if (path === '/api/voice/transcribe' && request.method === 'POST') {
-        const mediaType = normalizeVoiceMediaType(request.headers['content-type']);
-        if (!mediaType) return json(response, { error: '不支持的录音格式' }, 415);
-        const abort = new AbortController();
-        const onClose = () => abort.abort(); response.once('close', onClose);
-        const signal = AbortSignal.any([abort.signal, AbortSignal.timeout(60000)]);
-        const onAbort = () => { if (!response.writableEnded) response.destroy(); };
-        signal.addEventListener('abort', onAbort, { once: true });
-        try {
-          let size = 0; const chunks: Buffer[] = [];
-          for await (const chunk of request) {
-            size += chunk.length;
-            if (Math.ceil(size / 3) * 4 + mediaType.length + 13 > MAX_VOICE_DATA_URL_BYTES) {
-              json(response, { error: '录音过大，请缩短后重试' }, 413); return;
-            }
-            chunks.push(chunk);
-          }
-          if (!stillAuthorized(request)) return unauthorized();
-          transcriptions.set(abort, request);
-          const result = await partner.transcribe(Buffer.concat(chunks), mediaType, signal);
-          humanJson(result); return;
-        } finally { transcriptions.delete(abort); response.off('close', onClose); signal.removeEventListener('abort', onAbort); }
       }
       if (path === '/api/session' && request.method === 'GET') {
         const params = Object.fromEntries(new URL(request.url!, 'http://localhost').searchParams);
@@ -420,7 +434,6 @@ export function createWebServer(partner: Partner, assets: string, options: { aut
   return { server, chatSockets: chat.sockets, close() {
     return closePromise ??= (async () => {
       clearInterval(revocationTimer);
-      for (const controller of transcriptions.keys()) controller.abort();
       try {
         voice.close();
         await chat.close();

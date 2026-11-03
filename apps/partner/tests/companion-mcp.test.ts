@@ -69,7 +69,7 @@ test('Companion returns the existing Voice projection for cached ElevenLabs audi
   const bytes = Buffer.alloc(417); bytes.set([0xff, 0xfb, 0x90, 0]);
   await mkdir(join(workspace, '.lamplit/audio'), { recursive: true });
   await writeFile(join(workspace, '.lamplit/audio', `${id}.mp3`), bytes);
-  await writeFile(config, 'name = "test"\nprompts = { persona = "persona.md" }\nstate = "state"\n[speech.tts]\nprovider = "elevenlabs"\nvoice = "fake-voice"\n');
+  await writeFile(config, 'name = "test"\nprompts = { persona = "persona.md" }\nstate = "state"\n[speech]\nendpoint = false\n[speech.tts]\nprovider = "elevenlabs"\nvoice = "fake-voice"\n');
   const client = new Client({ name: 'test', version: '1' });
   await client.connect(new StdioClientTransport({ command: process.execPath, args: [script, workspace, config], stderr: 'ignore' }));
   try {

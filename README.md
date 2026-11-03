@@ -176,7 +176,8 @@ no manual edit, automatic rewrite, or migration.
 
 On N5, Shio is the only CFL instance: Neil’s user systemd unit `codex-for-love-shio.service`, serving port 3084. Orc manually promotes a verified Forgejo npm snapshot and its exact pinned native dependency from npmjs. The fixed installation prefix permits later updates with the service stopped, without a per-version unit change; rollback requires reinstalling the old package. Mac is a build/smoke host with no CFL service. See [Host-local Partner environments](docs/development-environments.md) for current state, preparation, promotion and rollback.
 
-Optional chat backgrounds are configured in the Partner TOML, separately from browser appearance preferences:
+Chat backgrounds can be uploaded independently in Appearance settings, separately
+from browser appearance preferences. Optional legacy TOML remains supported:
 
 ```toml
 [backgrounds]
@@ -184,7 +185,45 @@ landscape = "./workspace/.lamplit/profile/background-landscape.jpg"
 portrait = "./workspace/.lamplit/profile/background-portrait.jpg"
 ```
 
-Supply both images or omit `[backgrounds]` to keep the default appearance. Paths resolve relative to the TOML file and must stay inside the workspace. Supported formats are PNG, JPEG, WebP and GIF, up to 20 MiB per file; invalid or missing configured files prevent startup. Restart Partner after changing paths or replacing images. Companion selects the composition from the window shape before the keyboard opens (square windows use portrait), scales it to fill the chat area and crops centrally. The background stays stationary as messages scroll, with a theme-colored soft overlay; message bubbles, attachments, header, composer and drawers retain their own surfaces. Background images do not enter conversation history or the Chat Image Library.
+Legacy `[backgrounds]` still requires both paths, resolved relative to TOML and
+contained in the workspace. Supported legacy formats are PNG, JPEG, WebP and GIF,
+up to 20 MiB per file; files are safely decoded before serving. A saved upload
+supersedes only its matching TOML slot; that legacy path is then neither opened
+nor validated. Invalid or missing unsuperseded legacy files prevent startup.
+No legacy file or TOML is migrated, rewritten or deleted. Restart after changing
+legacy files or paths; settings uploads apply immediately and survive restart.
+
+Authenticated same-origin `GET /api/background-settings` returns
+`{landscape: boolean, portrait: boolean}` for the actual configured slots,
+including unsuperseded TOML slots. `POST /api/background-settings/landscape` or
+`/api/background-settings/portrait` accepts a raw image body with its matching
+PNG/JPEG/WebP/GIF content type and returns the same confirmed status. No filename
+or filesystem path is accepted. Uploads are limited to 20 MiB and 40 million
+pixels; animated images are rejected. Sharp applies EXIF orientation, preserves
+aspect ratio, downsizes without enlargement to fit 2560×2560, strips metadata
+and produces WebP at quality 80 (maximum 20 MiB output).
+
+Saved files have fixed names
+`workspace/.lamplit/profile/background-settings/{landscape,portrait}.webp`
+inside a private 0700 directory, with 0600 files. Each slot uses a nonblocking OS
+lock and fsynced temporary file before atomic replacement. Different slots can
+save independently; overlapping saves to the same slot receive 409. Decoding,
+staging or authorization failure leaves the previous image visible. A failure
+after replacement may leave the complete new image visible with uncertain
+durability: refresh settings/appearance before any explicit retry, without
+automatic re-upload. Filesystem errors return sanitized 503 responses.
+
+`GET /api/backgrounds/{landscape|portrait}` serves the effective image; if only
+one slot exists, both directions use it. With neither slot, appearance omits
+backgrounds and these asset routes return 404. Settings and asset responses,
+including errors, are private and `no-store`. After upload, refetch appearance
+and recreate image elements; a preview query such as `?v=...` is also accepted.
+Appearance and native snapshot retain the existing pair of background URLs.
+
+Companion selects the composition from the window shape before the keyboard
+opens (square windows use portrait), fills the chat area and crops centrally.
+Backgrounds remain stationary as messages scroll. They never enter message
+history or the Chat Image Library and do not interrupt voice recordings.
 
 The shared lamplit-app frontend uses Svelte 5, Vite and Framework7 9.2.0.
 Voice recording starts when local PCM arrives while recognition connects. Early
@@ -683,12 +722,36 @@ they are not the current route or build workflow.
 ### Streaming voice input
 
 The shared app reads `/api/voice/capability` and records through the same-origin
-`/api/voice/stream` WebSocket. Enable the existing `[speech]` configuration and
-CLI-managed `speech` credential; no new credential is required. Missing speech
-configuration or credentials disables recording while text chat remains usable.
-The existing `speech.endpoint` configures the retained batch transcription API;
-streaming uses DashScope's fixed WebSocket endpoint with
-`qwen-audio-3.1-asr-flash-streaming` instead.
+`/api/voice/stream` WebSocket. Authenticated owners can configure streaming voice
+through same-origin `GET /api/voice/settings` and `POST /api/voice/settings`.
+GET returns `{region: "beijing" | "singapore", configured: boolean}`; POST takes
+strict JSON `{region, apiKey}` and returns the confirmed public snapshot. Keys
+are never returned. Responses are `no-store`. An empty key retains the current
+key only when the region is unchanged and already configured; switching regions
+requires a new matching key. Key validity at the provider is checked on recording,
+not on save. Settings support is independent of recording availability.
+
+UI settings work without `[speech]` and persist region/key together in private
+`state/voice-settings.json` (0600), separate from CLI credentials. Before the first
+UI save, `[speech]` plus the CLI `speech` credential continues to enable Beijing
+streaming. Legacy `speech.endpoint` values are accepted and ignored, regardless
+of their type or contents; no configuration rewrite is needed. Alibaba TTS and
+CLI credential behavior remain independent. Streaming uses only the fixed
+Beijing or Singapore DashScope endpoint with `qwen-audio-3.1-asr-flash-streaming`. The fixed regional
+origins remain documented as [legacy general endpoints](https://help.aliyun.com/zh/model-studio/sdk-selection-and-download).
+
+Each recording captures one region/key pair; saves affect future connections.
+Concurrent writers receive 409; storage errors receive 503. After an ambiguous
+save failure, refresh settings before explicitly retrying; do not replay writes.
+Updates use a nonblocking OS lock on `voice-settings.json.lock`, a private
+temporary file, fsync and atomic rename. Process exit releases the lock
+automatically; the persistent lock file must not be removed while writers run.
+The lock binding resolves the host process C runtime only when saving, without
+a glibc library-name requirement. If binding initialization fails, saves return
+503 while settings reads and existing voice selection remain usable.
+An interrupted write leaves either the prior or complete new record; a private
+orphan temporary file can be removed after stopping writers. Invalid or permissive
+saved state fails closed rather than resetting to CLI credentials. No secret validation request is sent during configuration.
 
 Audio streams as mono PCM16 LE at 16 kHz, up to five minutes/9,600,000 bytes,
 with frames up to 16 KiB and bounded provider buffering. Only finalized sentences
@@ -696,8 +759,8 @@ are returned after Finish, ordered by sentence ID with replacement of duplicate
 finals. The result enters an editable draft; it creates no Codex turn until Send.
 Cancel, disconnect, errors, timeouts and server shutdown release the provider
 connection. Audio and unsent transcripts are transient. Shared runtime validation
-comes from `@lamplit/contracts/voice`. The retained native UI's batch transcription
-endpoint remains independent.
+comes from `@lamplit/contracts/voice`. Voice input uses streaming exclusively;
+the former whole-audio transcription endpoint has been removed.
 
 ### Workspace images in Partner replies
 

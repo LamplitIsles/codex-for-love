@@ -1,3 +1,4 @@
+import { voiceRegions, type VoiceSelection } from './voice-settings.ts';
 import { randomUUID } from 'node:crypto';
 import WebSocket, { WebSocketServer, type RawData } from 'ws';
 import {
@@ -7,11 +8,11 @@ import {
   type VoiceServerEvent, type VoiceErrorCode,
 } from '@lamplit/contracts/voice';
 
-// DashScope streaming address is independent of the existing batch HTTP endpoint.
+// Fixed DashScope streaming origin; UI preferences choose only allowlisted regions.
 export const VOICE_PROVIDER_URL = 'https://dashscope.aliyuncs.com/api-ws/v1/inference';
 export const VOICE_MODEL = 'qwen-audio-3.1-asr-flash-streaming';
 export type VoiceDependencies = {
-  connect?: (key: string) => WebSocket;
+  connect?: (key: string, region: VoiceSelection['region']) => WebSocket;
   timeouts?: { setup: number; lifetime: number; finish: number };
   /** Test-owned transport observation; never replaces native admission or relay. */
   observe?: (client: WebSocket) => void;
@@ -21,16 +22,16 @@ function validKey(key: string | null): key is string {
 }
 
 /** Node adaptation of Lamplit's bounded final-only Qwen relay. */
-export function createVoiceHost(credential: () => string | null, dependencies: VoiceDependencies = {}) {
+export function createVoiceHost(credential: () => string | null | VoiceSelection | Promise<VoiceSelection>, dependencies: VoiceDependencies = {}) {
   const sockets = new WebSocketServer({ noServer: true, maxPayload: MAX_VOICE_FRAME_BYTES });
   const sessions = new Set<() => void>();
   const timeouts = dependencies.timeouts ?? { setup: 15_000, lifetime: MAX_VOICE_DURATION_MS + 20_000, finish: 20_000 };
-  const connect = dependencies.connect ?? (key => new WebSocket(VOICE_PROVIDER_URL, {
+  const connect = dependencies.connect ?? ((key, region) => new WebSocket(voiceRegions[region], {
     headers: { Authorization: `Bearer ${key}` }, maxPayload: MAX_VOICE_EVENT_BYTES,
     handshakeTimeout: timeouts.setup, followRedirects: false,
   }));
-  const available = () => validKey(credential());
-  sockets.on('connection', client => {
+  const available = async () => { try { const value = await credential(); return validKey(typeof value === 'object' && value ? value.apiKey : value); } catch { return false; } };
+  sockets.on('connection', async client => {
     dependencies.observe?.(client);
     const taskId = randomUUID();
     let upstream: WebSocket | undefined;
@@ -136,9 +137,12 @@ export function createVoiceHost(credential: () => string | null, dependencies: V
     sessions.add(shutdown);
     setupTimer = setTimeout(() => fail('timeout'), timeouts.setup);
     try {
-      const key = credential();
+      const value = await credential();
+      if (terminal) return;
+      const key = typeof value === 'object' && value ? value.apiKey : value;
+      const region = typeof value === 'object' && value ? value.region : 'beijing';
       if (!validKey(key)) { fail('voice_disabled'); return; }
-      upstream = connect(key);
+      upstream = connect(key, region);
       upstream.on('open', opened); upstream.on('message', providerMessage);
       upstream.on('close', providerClosed); upstream.on('error', providerClosed);
       upstream.on('unexpected-response', rejected);

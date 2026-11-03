@@ -67,7 +67,7 @@ context_round_limit = 10
 #endpoint = "http://127.0.0.1:8787" # Bare loopback HTTP or HTTPS origin.
 #agent_id = "cfl" # Must match the Post agent binding; both platforms share one thread.
 
-# Optional DashScope STT and tool-delivered Voice messages.
+# Optional legacy Beijing streaming input and tool-delivered Voice messages.
 [speech]
 [speech.tts]
 provider = "minimax" # or "alibaba", "bytedance", "elevenlabs"

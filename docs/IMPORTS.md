@@ -13,9 +13,8 @@ external executable and is not vendored into this repository.
 
 CFL retains the host-used relationship validation and state types in
 `apps/partner/runtime/relationship-domain.ts`, compaction boundary/projection
-rules in `runtime/continuity.ts`, the message limit in `runtime/message-input.ts`
-and short-audio admission rules in `runtime/voice-contract.ts`. These came from
-`LamplitIsles/dsh-plugins` revision `29ed11a`, primarily
+rules in `runtime/continuity.ts` and the message limit in `runtime/message-input.ts`.
+These came from `LamplitIsles/dsh-plugins` revision `29ed11a`, primarily
 `packages/dsh-companion/src`. The retained rules keep their existing semantics;
 unused browser presentation and validation helpers have been removed.
 The persistence layer in `runtime/store.ts` contains native presentation/domain
@@ -50,9 +49,8 @@ with the configured persona. Local compaction receives the selected compaction
 prompt; remote-v2 uses base instructions plus `CompactionTrigger`/history and
 does not consume the independent compaction prompt.
 
-`apps/partner/runtime/speech.ts` adapts the Qwen3-ASR-Flash request/response
-shape and retained Alibaba/ByteDance short-audio transport contracts from
-`packages/dsh-speech/src/gateway.ts` and `constants.ts` at `29ed11a`.
+`apps/partner/runtime/speech.ts` adapts the retained Alibaba/ByteDance speech
+synthesis transport contracts from `packages/dsh-speech/src/gateway.ts` and `constants.ts` at `29ed11a`.
 CFL owns MiniMax CLI dispatch, TOML credential boundaries, same-origin MP3
 cache and HTTP routes. No DSH
 lifecycle, settings UI, connection RPC or external messaging integration is
@@ -620,3 +618,23 @@ model/Fast preferences plus source-span and retained-cursor pagination protectio
 The same native execution owner and PR #119 persistence remain authoritative.
 Acceptance uses the exact published frontend with test-owned native/auth fixtures;
 no production/provider/device acceptance is implied.
+
+## Settings, regional voice and background uploads (FlickNote #33)
+
+CFL selects merged App PR #46 main revision
+`ff0cb209fbd81cefe8eadb82dc9d1bbc2e684fad`. Its public contracts archive SHA-256 is
+`ac853ffbc5c17ff399e513ace7f72619b929c2f3c4c7e78d442b6b4d97e22781`;
+the frontend archive SHA-256 is
+`e72aa89bafd5bec26d6b989ffd59a64e37cf19c11f939f4edd21d0a60c859ae0`.
+Downloaded bytes match the published GitHub asset sizes and digests, and both
+archives identify that exact merged revision. All 265 browser, 32 compiled
+contract and 189 license manifest entries were verified. The separate contracts
+package matches the frontend's compiled contracts; compared with the previous
+`9f5821a` pin, only package source-revision metadata changes. Contract source,
+exports, dependencies, compiled bytes and license payloads are unchanged.
+Retained App IMPORTS and Noto Sans SC OFL notices remain byte-identical.
+
+This publication exposes the settings screens consumed by CFL's voice settings
+and background upload APIs. Acceptance uses these exact published browser bytes
+with test-owned fake-native CFL fixtures; it does not imply provider, production,
+or macOS acceptance. Earlier licenses and unchanged contract provenance apply.

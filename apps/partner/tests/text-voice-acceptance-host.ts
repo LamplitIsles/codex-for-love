@@ -24,7 +24,7 @@ export async function textVoiceHost(assets: string, sentenceEvidence?: string) {
     off(); await f.close(); f = await fixture();
     speech = { text: 'recognized final', hold: false, holdReady: false, availability: 'enabled' };
     takes.length = pending.length = 0;
-    f.config.speech = { endpoint: 'http://127.0.0.1/unused-batch' }; f.credentials.speech = 'synthetic-fixture-key';
+    f.config.speech = {}; f.credentials.speech = 'synthetic-fixture-key';
     control.hold = true; control.completedText = '完整回复'; await writeControl();
     if (sentenceEvidence) {
       f.appServer.env.FAKE_STREAM_FIXTURE = 'true';
@@ -163,7 +163,7 @@ export async function textVoiceHost(assets: string, sentenceEvidence?: string) {
       if (input.text !== undefined) speech.text = input.text;
       if (input.hold !== undefined) speech.hold = input.hold;
       if (input.holdReady !== undefined) speech.holdReady = input.holdReady;
-      if (input.availability !== undefined) { speech.availability = input.availability; f.config.speech = input.availability === 'disabled' ? undefined : { endpoint: 'http://127.0.0.1/unused-batch' }; }
+      if (input.availability !== undefined) { speech.availability = input.availability; f.config.speech = input.availability === 'disabled' ? undefined : {}; }
     } else if (input.action === 'ready') ready(takes.find(t => t.id === input.takeId)!);
     else if (input.action === 'disconnect') for (const socket of chats) socket.destroy();
     else if (input.action === 'result') result(takes.find(t => t.id === input.takeId)!, input.text!);

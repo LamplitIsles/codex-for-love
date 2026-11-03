@@ -199,3 +199,26 @@ test('Partner config discards only legacy model and Fast without relaxing unknow
     await assert.rejects(loadConfig(path), /model/);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
+
+test('retired speech endpoint values are ignored while TTS and unrelated config remain strict', async () => {
+  const directory = await mkdtemp(join(tmpdir(),'lamplit-legacy-speech-'));
+  const path = join(directory,'partner.toml');
+  const base = 'name = "Mica"\nprompts = { persona = "persona.md" }\n';
+  try {
+    for (const value of ['"https://old.invalid/anything"','"not a URL"','""','false','123','[1,2]','{ legacy = true }']) {
+      const source = `${base}[speech]\nendpoint = ${value}\n[speech.tts]\nprovider = "alibaba"\nvoice = "Cherry"\n`;
+      await writeFile(path,source);
+      const config = await loadConfig(path);
+      assert.deepEqual(config.speech,{tts:{provider:'alibaba',voice:'Cherry'}});
+      assert.equal(await readFile(path,'utf8'),source);
+    }
+    await writeFile(path,`${base}[speech]\nendpoint = false\n`);
+    assert.deepEqual((await loadConfig(path)).speech,{});
+    for (const extra of ['unknown = true','endpoint_typo = "ignored?"']) {
+      await writeFile(path,`${base}[speech]\nendpoint = false\n${extra}\n`);
+      await assert.rejects(loadConfig(path));
+    }
+    await writeFile(path,`${base}[speech]\nendpoint = false\n[speech.tts]\nprovider = "alibaba"\nvoice = "Cherry"\nspeed = 1\n`);
+    await assert.rejects(loadConfig(path));
+  } finally { await rm(directory,{recursive:true,force:true}); }
+});

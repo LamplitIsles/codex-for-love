@@ -44,3 +44,23 @@ test('selected frontend static resources use immutable asset caching', async () 
     assert.equal((await fetch(`${url}/chat`)).headers.get('cache-control'), 'no-cache');
   } finally { await app?.close(); await rm(assets, { recursive: true, force: true }); }
 });
+
+test('synthetic auth status follows default and async owner authorization', async () => {
+  for (const custom of [false,true]) {
+    const assets = await mkdtemp(join(tmpdir(),'partner-auth-status-'));
+    const app = createWebServer({close:async()=>{}} as Partner,assets,custom ? {
+      authorize:async request => request.headers.cookie === 'fixture-owner=1',
+    } : {});
+    app.server.listen(0,'127.0.0.1'); await once(app.server,'listening');
+    const base = `http://127.0.0.1:${(app.server.address() as {port:number}).port}`;
+    try {
+      for (const signedIn of [false,true]) {
+        const response = await fetch(`${base}/api/auth/status`,{headers:signedIn ? {cookie:'fixture-owner=1'} : {}});
+        assert.equal(response.status,200);
+        assert.equal(response.headers.get('cache-control'),'no-store');
+        assert.deepEqual(await response.json(),{mode:'passkey',state:!custom || signedIn ? 'signed_in' : 'signed_out'});
+      }
+      assert.equal((await fetch(`${base}/api/auth/status`,{method:'POST'})).status,405);
+    } finally { await app.close(); await rm(assets,{recursive:true,force:true}); }
+  }
+});

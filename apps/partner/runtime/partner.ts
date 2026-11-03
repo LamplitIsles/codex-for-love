@@ -1,3 +1,5 @@
+import { createBackgroundSettings } from './background-settings.ts';
+import { createVoiceSettings } from './voice-settings.ts';
 import { ModelSelection, ModelPreferenceError, WRITABLE_MODELS, modelUnavailable, readModelPreference, saveModelPreference } from './model-preference.ts';
 import { startManagedAppServer } from './managed-app-server.ts';
 import { postInput, postConversationName, discoverPost, receiverAuthorized, validatePost } from './post.ts';
@@ -43,7 +45,6 @@ import {
   type ImageInput,
   imageInputSchema,
 } from './images.ts';
-import { transcribeAudio } from './speech.ts';
 import { Store, type MessageMeta, type MessagePageOptions, type StoredImage, type StoredInput, type StoredInputSegment } from './store.ts';
 import { classifyKeetTrigger, type KeetEventBody } from './keet.ts';
 import { materializeKeetImages } from './keet-images.ts';
@@ -497,6 +498,7 @@ function versionFromUserAgent(value: unknown): string | undefined {
  * ordinary resume safe without a second model journal.
  */
 export async function createPartner(config: Config, credentials: Credentials, dependencies: PartnerDependencies = {}) {
+  const voiceSettings = createVoiceSettings(config.state, () => config.speech ? credentials.speech ?? null : null);
   const prompts = await loadPrompts(config);
   if (config.speech?.tts?.provider === 'alibaba' && !credentials.speech) throw new Error('Alibaba Voice requires a CLI-managed speech credential');
   if (config.speech?.tts?.provider === 'bytedance' && !credentials.tts) throw new Error('ByteDance Voice requires a CLI-managed tts credential');
@@ -531,10 +533,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
     companion: await loadProfileImage(config.avatars?.companion, 'Avatar', 5 * 1024 * 1024),
     user: await loadProfileImage(config.avatars?.user, 'Avatar', 5 * 1024 * 1024),
   };
-  const backgrounds = {
-    landscape: await loadProfileImage(config.backgrounds?.landscape, 'Background', 20 * 1024 * 1024),
-    portrait: await loadProfileImage(config.backgrounds?.portrait, 'Background', 20 * 1024 * 1024),
-  };
+  const backgroundSettings = await createBackgroundSettings(config.workspace!,config.backgrounds);
   await mkdir(paths.managedRoot, { recursive: true, mode: 0o700 });
   await mkdir(paths.attachments, { recursive: true, mode: 0o700 });
   const catalogue = new Map<string, ConversationImage>((await readConversationImages(paths.conversationImages)).map((image) => [image.id, image]));
@@ -2003,11 +2002,8 @@ export async function createPartner(config: Config, credentials: Credentials, de
     readDiary(name: string) { return readDiary(paths.workspaceRoot, name); },
     async diaryEntry(name: string) { const entry = await readDiary(paths.workspaceRoot, name); return entry.status === 'found' ? entry.text : entry.status === 'missing' ? undefined : 'too-large' as const; },
     async audio(id: string) { try { return await readFile(join(paths.audio, `${id}.mp3`)); } catch { return undefined; } },
+    voiceSettings,
     voiceCredential() { return config.speech ? credentials.speech ?? null : null; },
-    async transcribe(data: Uint8Array, mediaType: string, signal: AbortSignal) {
-      if (!config.speech || !credentials.speech) throw new Error('Speech is unavailable');
-      return transcribeAudio(config.speech.endpoint, credentials.speech, data, mediaType, signal);
-    },
     workspaceImage(path: string | null) { return readWorkspaceImage(paths.workspaceRoot, path); },
     stickerBackend(authorize: () => Promise<boolean>, authorizeCommit: () => boolean): StickerBackend {
       const guard = () => mutationGuard(threadId, authorize);
@@ -2214,11 +2210,13 @@ export async function createPartner(config: Config, credentials: Credentials, de
       return { companionName: config.name, userName: '',
         ...(avatars.companion ? { companionAvatar: '/api/avatars/companion' } : {}),
         ...(avatars.user ? { userAvatar: '/api/avatars/user' } : {}),
-        ...(backgrounds.landscape && backgrounds.portrait ? { backgrounds: { landscape: '/api/backgrounds/landscape', portrait: '/api/backgrounds/portrait' } } : {}),
+        ...(backgroundSettings.effective('landscape') ? { backgrounds: { landscape: '/api/backgrounds/landscape', portrait: '/api/backgrounds/portrait' } } : {}),
       };
     },
     avatar: (kind: 'companion' | 'user') => avatars[kind],
-    background: (kind: 'landscape' | 'portrait') => backgrounds[kind],
+    backgroundSettings: () => backgroundSettings.snapshot(),
+    saveBackground: (kind: 'landscape' | 'portrait', data: Buffer, mediaType: string, authorized: () => boolean) => backgroundSettings.save(kind,data,mediaType,authorized,() => notify()),
+    background: (kind: 'landscape' | 'portrait') => backgroundSettings.effective(kind),
     async petAsset(activity: import('./pet.ts').PetActivity) { return pet ? localPetClip(config.state, activity) : undefined; },
     async snapshot(options: MessagePageOptions = {}, settled = true) {
       if (settled) await eventChain;
@@ -2349,9 +2347,8 @@ export async function createPartner(config: Config, credentials: Credentials, de
           ...(avatars.companion ? { companion: '/api/avatars/companion' } : {}),
           ...(avatars.user ? { user: '/api/avatars/user' } : {}),
         },
-        ...(config.backgrounds ? { backgrounds: { landscape: '/api/backgrounds/landscape', portrait: '/api/backgrounds/portrait' } } : {}),
+        ...(backgroundSettings.effective('landscape') ? { backgrounds: { landscape: '/api/backgrounds/landscape', portrait: '/api/backgrounds/portrait' } } : {}),
         imageLimits,
-        speech: Boolean(config.speech && credentials.speech),
         storageError,
         context,
         ...continuity,

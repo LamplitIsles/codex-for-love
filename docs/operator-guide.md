@@ -421,12 +421,13 @@ the path passed to it:
 - `avatars.companion` and `avatars.user` point to image files inside the
   workspace. The browser receives application URLs, never host filesystem
   paths or embedded base64 configuration.
-- The optional `speech` section enables DashScope transcription. Successful
-  nonempty recordings are admitted as one independent voice-marked message;
-  typed text and pending images remain in the composer. Store its credential
-  with `pnpm --filter @lamplitisles/partner cli credential
-  /path/to/partner.toml speech --stdin`, supplying the value on stdin; do not put the
-  key in TOML or command arguments.
+- The optional `speech` section plus a CLI-managed `speech` credential enables
+  legacy Beijing streaming voice input; UI voice settings can configure input
+  independently. Final recordings enter an editable draft, with no model turn
+  until Send. Store a shared CLI credential using `pnpm --filter
+  @lamplitisles/partner cli credential /path/to/partner.toml speech --stdin`;
+  never put the key in TOML or command arguments. Legacy `speech.endpoint` is
+  accepted and ignored regardless of value; whole-audio transcription is removed.
 - `speech.tts` enables deliberate Companion MCP `send_voice` messages. Its
   choices are `provider` (`minimax`, `alibaba`, `bytedance`, or `elevenlabs`), `voice`, and
   optional `speed` (a 0.5–2.0 multiplier). A successful tool call produces one

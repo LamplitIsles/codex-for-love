@@ -52,9 +52,10 @@ const schema = z.object({
     context_round_limit: z.number().int().min(0).default(DEFAULT_CONTEXT_ROUND_LIMIT),
   }).strict().transform(({ model: _model, fast: _fast, ...codex }) => codex).default({ command: 'codex-app-server', local_compaction: true, context_round_limit: DEFAULT_CONTEXT_ROUND_LIMIT }),
   speech: z.object({
-    endpoint: z.url().default('https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation'),
+    // Retired whole-audio endpoint: accept any legacy value, then discard it.
+    endpoint: z.unknown().optional(),
     tts: ttsSchema.optional(),
-  }).strict().optional(),
+  }).strict().transform(({ endpoint: _endpoint, ...speech }) => speech).optional(),
   keet: z.object({
     endpoint: z.string().min(1).optional(),
     trusted_groups: keetNames.optional(),
@@ -121,7 +122,7 @@ export function postEndpoint(value: string): string {
   return url.origin;
 }
 
-/** Alibaba STT/TTS reuses speech; ByteDance TTS keeps its separate secret. */
+/** Alibaba streaming input/TTS reuses speech; ByteDance TTS keeps its separate secret. */
 export const credentialSchema = z.object({ speech: z.string().min(1).optional(), tts: z.string().min(1).optional(), keet: z.string().min(1).optional(), keet_receiver: z.string().min(1).optional(), post: z.string().min(1).optional(), post_receiver: z.string().min(1).optional() }).strict();
 export type Credentials = z.infer<typeof credentialSchema>;
 
