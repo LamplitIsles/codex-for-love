@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import { open, readFile } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
-import type { Submission, ImageRef } from '@lamplit/contracts';
+import type { Submission, ImageRef, FileRef } from '@lamplit/contracts';
 import type { MaterializedInputImage } from './images.ts';
 import type { CompactBoundary, ContextObservation } from './continuity.ts';
 
@@ -28,6 +28,8 @@ export type LocalOutcome = { status: LocalOutcomeStatus; error: string | null };
 export type MessagePageOptions = { before?: number; after?: number };
 export type StoredImage = Omit<MaterializedInputImage, 'data'>;
 export type StoredGeneratedImage = StoredImage;
+export type StoredFile = { id: string; operation_id: string; owner_id: string; session_id: string; position: number; name: string; media_type: string; size: number; path: string };
+export type StagedFiles = { files: StoredFile[]; refs: FileRef[] };
 export type StagedImages = { images: StoredImage[]; refs: ImageRef[]; variants: Array<({ preview: string; model: string } | { previewPath: string; modelPath: string }) & { stickerTags?: string[] }> };
 export type KeetDestination = { groupName: string; kind: 'group' | 'broadcast' | 'dm' };
 export type KeetGroupRecord = { senderLabel: string; text: string; replyTo?: { deviceId: string; seq: number } };
@@ -73,6 +75,7 @@ export class Store {
       this.db.exec('PRAGMA locking_mode=EXCLUSIVE; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;');
       this.db.exec(`
         CREATE TABLE IF NOT EXISTS staged_images (operation_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, fingerprint TEXT NOT NULL, payload TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS staged_files (operation_id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, session_id TEXT NOT NULL, fingerprint TEXT NOT NULL, payload TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS failed_submissions (operation_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, fingerprint TEXT NOT NULL, payload TEXT NOT NULL, error TEXT NOT NULL, replaced_by TEXT);
         CREATE TABLE IF NOT EXISTS deleted_failures (operation_id TEXT PRIMARY KEY);
         CREATE TABLE IF NOT EXISTS retry_attempts (attempt_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, source_id TEXT NOT NULL, payload TEXT);
@@ -128,6 +131,18 @@ export class Store {
           name TEXT NOT NULL,
           media_type TEXT NOT NULL,
           path TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS input_files (
+          id TEXT PRIMARY KEY,
+          operation_id TEXT NOT NULL,
+          owner_id TEXT NOT NULL,
+          session_id TEXT NOT NULL,
+          position INTEGER NOT NULL CHECK(position >= 0 AND position < 6),
+          name TEXT NOT NULL,
+          media_type TEXT NOT NULL,
+          size INTEGER NOT NULL CHECK(size >= 0 AND size <= 8000000),
+          path TEXT NOT NULL,
+          UNIQUE(operation_id, position)
         );
         CREATE TABLE IF NOT EXISTS generated_images (
           id TEXT NOT NULL,
@@ -206,7 +221,7 @@ export class Store {
     return this.transaction(() => Number((this.db.prepare('SELECT COALESCE(MAX(revision), 0) AS value FROM message_revisions').get() as { value: number }).value));
   }
 
-  async admit(id: string, input: string, images: readonly StoredImage[] = [], shared?: { sessionId: string; input: Submission }, authorize?: () => Promise<void>, beforeCommit?: () => void): Promise<MessageMeta> {
+  async admit(id: string, input: string, images: readonly StoredImage[] = [], shared?: { sessionId: string; input: Submission }, authorize?: () => Promise<void>, beforeCommit?: () => void, fileScope?: { ownerId: string; sessionId: string; files: StoredFile[] }): Promise<MessageMeta> {
     return this.transaction(async () => {
       // The transaction may have waited behind other writes after admission began.
       if (authorize) await authorize();
@@ -222,6 +237,17 @@ export class Store {
         const newImages = images.map((image) => image.id).sort();
         if (JSON.stringify(oldImages) !== JSON.stringify(newImages)) throw identityConflict();
         return this.meta(existing);
+      }
+      if (shared) {
+        const row = this.db.prepare('SELECT owner_id,session_id,payload FROM staged_files WHERE operation_id=?').get(id) as { owner_id: string; session_id: string; payload: string } | undefined;
+        const staged = row ? JSON.parse(row.payload) as StagedFiles : undefined;
+        if (fileScope) {
+          if (!row || row.owner_id !== fileScope.ownerId || row.session_id !== shared.sessionId || fileScope.sessionId !== shared.sessionId || JSON.stringify(staged?.files) !== JSON.stringify(fileScope.files) || JSON.stringify(staged?.refs) !== JSON.stringify(shared.input.files)) throw identityConflict();
+          if (fileScope.files.length > 6 || fileScope.files.reduce((sum, file) => sum + file.size, 0) > 24_000_000 || fileScope.files.some((file, index) => {
+            const ref = staged!.refs[index];
+            return file.operation_id !== id || file.owner_id !== fileScope.ownerId || file.session_id !== fileScope.sessionId || file.position !== index || file.size < 0 || file.size > 8_000_000 || !ref || ref.attachmentId !== file.id || ref.name !== file.name || ref.mediaType !== file.media_type || ref.size !== file.size || ref.availability !== 'available';
+          })) throw identityConflict();
+        } else if (row || shared.input.files?.length) throw identityConflict();
       }
       if (shared) {
         for (const sourceId of shared.input.replacementSourceIds ?? []) {
@@ -245,9 +271,43 @@ export class Store {
         this.db.prepare('INSERT INTO input_images(id,operation_id,name,media_type,path) VALUES(?,?,?,?,?)')
           .run(image.id, id, image.name, image.media_type, image.path);
       }
+      // JSON strings preserve even isolated surrogate code units through SQLite UTF-8.
+      for (const file of fileScope?.files ?? []) this.db.prepare('INSERT INTO input_files(id,operation_id,owner_id,session_id,position,name,media_type,size,path) VALUES(?,?,?,?,?,?,?,?,?)').run(file.id,id,file.owner_id,file.session_id,file.position,JSON.stringify(file.name),JSON.stringify(file.media_type),file.size,file.path);
       this.addRevision(id);
       return this.meta(this.db.prepare('SELECT sequence,id,created FROM message_meta WHERE id=?').get(id) as { sequence: number; id: string; created: number });
     }, beforeCommit);
+  }
+
+  async checkStagedFiles(operationId: string, ownerId: string, sessionId: string, fingerprint: string): Promise<StagedFiles | undefined> {
+    return this.transaction(() => {
+      const row = this.db.prepare('SELECT owner_id,session_id,fingerprint,payload FROM staged_files WHERE operation_id=?').get(operationId) as { owner_id: string; session_id: string; fingerprint: string; payload: string } | undefined;
+      if (!row) return undefined;
+      if (row.owner_id !== ownerId || row.session_id !== sessionId || row.fingerprint !== fingerprint) throw identityConflict();
+      return JSON.parse(row.payload) as StagedFiles;
+    });
+  }
+  async stageFiles(operationId: string, ownerId: string, sessionId: string, fingerprint: string, payload: StagedFiles, beforeCommit?: () => void): Promise<void> {
+    await this.transaction(() => {
+      const old = this.db.prepare('SELECT owner_id,session_id,fingerprint FROM staged_files WHERE operation_id=?').get(operationId) as { owner_id: string; session_id: string; fingerprint: string } | undefined;
+      if (old) { if (old.owner_id !== ownerId || old.session_id !== sessionId || old.fingerprint !== fingerprint) throw identityConflict(); return; }
+      if (this.db.prepare('SELECT 1 FROM message_meta WHERE id=?').get(operationId)) throw identityConflict();
+      this.db.prepare('INSERT INTO staged_files(operation_id,owner_id,session_id,fingerprint,payload) VALUES(?,?,?,?,?)').run(operationId,ownerId,sessionId,fingerprint,JSON.stringify(payload));
+    }, beforeCommit);
+  }
+  async stagedFiles(operationId: string, ownerId: string, sessionId: string): Promise<StagedFiles | undefined> {
+    return this.transaction(() => { const row = this.db.prepare('SELECT payload FROM staged_files WHERE operation_id=? AND owner_id=? AND session_id=?').get(operationId,ownerId,sessionId) as { payload: string } | undefined; return row ? JSON.parse(row.payload) : undefined; });
+  }
+  async file(id: string, ownerId: string, sessionId: string): Promise<StoredFile | undefined> {
+    return this.transaction(() => {
+      const row = this.db.prepare('SELECT * FROM input_files WHERE id=? AND owner_id=? AND session_id=?').get(id,ownerId,sessionId) as StoredFile | undefined;
+      if (row) return { ...row, name: JSON.parse(row.name), media_type: JSON.parse(row.media_type) };
+      const staged = this.db.prepare('SELECT payload FROM staged_files WHERE owner_id=? AND session_id=?').all(ownerId,sessionId) as Array<{ payload: string }>;
+      for (const entry of staged) { const file = (JSON.parse(entry.payload) as StagedFiles).files.find(item => item.id === id); if (file) return file; }
+      return undefined;
+    });
+  }
+  async inputFiles(operationId: string, ownerId: string, sessionId: string): Promise<StoredFile[]> {
+    return this.transaction(() => (this.db.prepare('SELECT * FROM input_files WHERE operation_id=? AND owner_id=? AND session_id=? ORDER BY position').all(operationId,ownerId,sessionId) as StoredFile[]).map(row => ({ ...row, name: JSON.parse(row.name), media_type: JSON.parse(row.media_type) })));
   }
 
   async stageImages(operationId: string, sessionId: string, fingerprint: string, payload: StagedImages, beforeCommit?: () => void): Promise<void> {

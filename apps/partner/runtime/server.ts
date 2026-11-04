@@ -4,7 +4,7 @@ import { BackgroundSettingsError, MAX_BACKGROUND_BYTES, backgroundMediaType } fr
 import { VoiceSettingsError } from './voice-settings.ts';
 import { ModelPreferenceError } from './model-preference.ts';
 import { APPEARANCE_PATH, WORKSPACE_IMAGE_PATH } from '@lamplit/contracts';
-import { imageHttp, stickerHttp } from '@lamplit/contracts/server';
+import { fileHttp, imageHttp, stickerHttp } from '@lamplit/contracts/server';
 import { createChatSocket } from './chat.ts';
 import { createVoiceHost, type VoiceDependencies } from './voice.ts';
 import { VOICE_CAPABILITY_PATH, VOICE_STREAM_PATH } from '@lamplit/contracts/voice';
@@ -19,7 +19,7 @@ import { z } from 'zod';
 import type { Partner } from './partner.ts';
 import { PET_ACTIVITIES } from './pet.ts';
 import type { ConversationSearch } from './conversation-search.ts';
-import { AuthFailure, type AuthStore } from './auth.ts';
+import { AuthFailure, ownerId, type AuthStore } from './auth.ts';
 import { receiverAuthorized } from './post.ts';
 
 const keetEventBodyLimit = 128 * 1024;
@@ -228,6 +228,21 @@ export function createWebServer(partner: Partner, assets: string, options: { aut
         if (!image) return json(response, { error: 'Workspace image unavailable' }, 404);
         response.writeHead(200, { 'content-type': image.mediaType, 'cache-control': 'no-store' });
         response.end(image.bytes); return;
+      }
+      if (path === '/api/chat/files' || path.startsWith('/api/chat/files/')) {
+        const origin = options.auth.origin;
+        const webRequest = new Request(`${origin}${request.url}`, {
+          method: request.method,
+          headers: new Headers(Object.entries(request.headers).flatMap(([key, value]) => value === undefined ? [] : [[key, Array.isArray(value) ? value.join(',') : value] as [string,string]])),
+          ...(request.method === 'POST' ? { body: requestBody(request), duplex: 'half' } : {}),
+        } as RequestInit);
+        const result = await fileHttp(webRequest, { upload: (value, owner) => partner.uploadFiles(value, owner, () => authorize(request), () => stillAuthorized(request)), file: (id, owner) => partner.sharedFile(id, owner) }, async () => {
+          if (!await authorize(request)) return null;
+          return { ownerId, sessionId: (await partner.snapshot()).sessionId, limits: await partner.sharedFileLimits() };
+        });
+        const bytes = Buffer.from(await result!.arrayBuffer());
+        if (!stillAuthorized(request)) return unauthorized();
+        response.writeHead(result!.status, Object.fromEntries(result!.headers)); response.end(bytes); return;
       }
       if (path === '/api/chat/images' || path.startsWith('/api/chat/media/')) {
         // The same-host Origin above is validated before reconstructing the external POST URL.

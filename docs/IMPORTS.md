@@ -682,3 +682,17 @@ archive and the previously pinned compiled contracts. Existing App Apache,
 Chord, Noto Sans and App IMPORTS notices are unchanged. App owns the voice
 settings UI and its browser acceptance; CFL implements the corresponding host
 API and consumes the published frontend and contracts.
+
+## Chat file attachments — FlickNote #51
+
+CFL pins published App PR #51 merge commit
+`41f234a8f5c4327e38a610c9354be62b3bc1116b`. The downloaded Forgejo contracts
+archive is 36,406 bytes, SHA-256
+`4305a4c3569feacc14032b239eede99b0c1daf02b780b861d68141884df92830`;
+the frontend archive is 7,065,382 bytes, SHA-256
+`e626d18dc9dde01701e1b837e6069293cff3c8cdab9a5f4100163fd86acb2413`.
+GitHub release metadata for the same commit reports both digests. CFL's existing
+verification checked 265 browser, 36 compiled-contract and 189 license manifest
+entries, and all frontend compiled contracts match the separate archive. The
+contract package dependencies are unchanged. App owns the attachment UI and its
+browser acceptance; CFL owns the host file and execution integration.

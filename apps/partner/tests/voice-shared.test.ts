@@ -19,7 +19,7 @@ test('voice messages keep identity across edits, history windows and recovery', 
     ...result.completedMessages.map(message => ({ itemId: message.id, kind: 'text', text: message.text, textState: 'complete', sourceIds: [] })),
     ...result.images.map(item => ({ itemId: item.id, kind: 'image', imageId: item.id, imageState: 'ready', sourceIds: [] })),
     ...result.voices.map(item => ({ itemId: item.itemId, kind: 'voice', voiceId: item.id, sourceIds: [] })),
-  ].map((item, position) => ({ ...item, position })) }] }), chatReceipt: async () => ({ state: 'submitted' }), sharedImageRef: async () => image, sharedRecovery: async () => [], sharedImageLimits: async () => false, streamingReply: () => undefined, replyCompletion: () => undefined } as unknown as Partner;
+  ].map((item, position) => ({ ...item, position })) }] }), chatReceipt: async () => ({ state: 'submitted' }), sharedImageRef: async () => image, sharedRecovery: async () => [], sharedImageLimits: async () => false, sharedFileLimits: async () => false, streamingReply: () => undefined, replyCompletion: () => undefined } as unknown as Partner;
   const backend = createCodexChatBackend(partner);
   const collect = async () => {
     const latest = await backend.read();

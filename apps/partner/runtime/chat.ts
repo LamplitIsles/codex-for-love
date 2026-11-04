@@ -1,4 +1,4 @@
-import { capabilities, mediaUrl, PAGE_SIZE, type ImageRef, type ChatMessage, type ChatView } from '@lamplit/contracts';
+import { capabilities, mediaUrl, PAGE_SIZE, type ImageRef, type FileRef, type ChatMessage, type ChatView } from '@lamplit/contracts';
 import { createChatHost, type ChatBackend } from '@lamplit/contracts/server';
 import { panelCursors } from './panel-cursor.ts';
 import type { Partner } from './partner.ts';
@@ -15,7 +15,7 @@ export function createCodexChatBackend(partner: Partner, authorize: () => Promis
     // for native history; known activity and durable receipts are independent.
     const snapshot = await partner.snapshot(options.before === undefined ? {} : { before: options.before }, false);
     const receipts = new Map(await Promise.all(snapshot.messages.map(async m => [m.id, await partner.chatReceipt(m.id)] as const)));
-    const ordered: Array<{ order: number; position?: number; message: ChatMessage }> = [];
+    const ordered: Array<{ order: number; position?: number; message: ChatMessage; fileIds?: string[] }> = [];
     for (const m of snapshot.messages) {
       if (m.delivery === 'replaced' || receipts.get(m.id)?.state !== 'submitted') continue;
       const images = (await Promise.all(m.inputImages.map(image => partner.sharedImageRef(image.id)))).filter((ref): ref is ImageRef => !!ref);
@@ -35,7 +35,7 @@ export function createCodexChatBackend(partner: Partner, authorize: () => Promis
       const owner = snapshot.results.find(result => result.sourceIds.includes(m.id));
       const slot = owner?.timeline.find(entry => entry.kind === 'user' && entry.sourceIds.includes(m.id));
       const position = slot ? slot.position + slot.sourceIds.indexOf(m.id) / (slot.sourceIds.length + 1) : undefined;
-      ordered.push({ order: owner ? owner.anchorSequence * 2 : m.sequence * 2, ...(owner ? { position: position ?? -1 } : {}), message: {
+      ordered.push({ order: owner ? owner.anchorSequence * 2 : m.sequence * 2, ...(owner ? { position: position ?? -1 } : {}), fileIds: m.inputFiles, message: {
         id: m.id, role: 'user', text: m.keet ? `${m.keet.text}${m.keet.imageNote ?? ''}` : m.matrix ? m.matrix.body : post ? postText! : m.input,
         ...(images.length ? { images } : {}), createdAt: m.matrix?.timestamp ?? m.post?.timestamp ?? m.created,
         operationId: m.id, turnId: m.turnId, ...(source ? { source } : {}),
@@ -66,7 +66,15 @@ export function createCodexChatBackend(partner: Partner, authorize: () => Promis
     // An anchor belongs to this native window, not whichever window is latest
     // when the Human next requests history. Freeze its exclusive upper bound.
     const before = start > 0 ? JSON.stringify({ before: options.before ?? snapshot.messages.at(-1)!.sequence + 1, anchor: all[start]!.id }) : snapshot.hasMore && snapshot.before !== null ? JSON.stringify({ before: snapshot.before }) : null;
-    return { snapshot, messages: all.slice(start, end), before };
+    // Check file bytes only for the messages actually returned on this page.
+    // Do not retain results across reads: files can change or disappear.
+    const messages: ChatMessage[] = [];
+    for (const { message, fileIds } of ordered.slice(start, end)) {
+      // Bound concurrent buffers to one message's files (at most six).
+      const files = (await Promise.all((fileIds ?? []).map(id => partner.sharedFileRef(id)))).filter((ref): ref is FileRef => !!ref);
+      messages.push(files.length ? { ...message, files } : message);
+    }
+    return { snapshot, messages, before };
   }
   return {
     async search({ query }) {
@@ -103,7 +111,7 @@ export function createCodexChatBackend(partner: Partner, authorize: () => Promis
         ...(streamingReply && !replyCompletedTurnId && !p.messages.some(m => m.id === streamingReply.id) ? { streamingReply } : {}),
         contextUsage: { tokens: p.snapshot.context?.activeTokens ?? null, capacity: p.snapshot.context?.windowTokens ?? null },
         compaction: p.snapshot.lifecycle.latest ? { id: p.snapshot.lifecycle.latest.nativeId ?? null, status: p.snapshot.lifecycle.latest.status } : null,
-        messages: p.messages, before: p.before, capabilities: { ...capabilities, images, workspaceImages: true }, recovery };
+        messages: p.messages, before: p.before, capabilities: { ...capabilities, images, files: await partner.sharedFileLimits(), workspaceImages: true }, recovery };
     },
     async history(before) { const p = await page(before); return { messages: p.messages, before: p.before }; },
     compact: input => partner.compact({ ...input, authorize }),

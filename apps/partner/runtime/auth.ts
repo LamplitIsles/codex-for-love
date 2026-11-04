@@ -12,7 +12,7 @@ import { initializeBetterAuthSchema, pairingSchema } from './better-auth-schema.
 
 const pairingLifetime = 10 * 60_000;
 const sessionLifetime = 30 * 24 * 60 * 60;
-const ownerId = 'owner';
+export const ownerId = 'owner';
 const clientId = 'etos';
 const redirectUri = 'etosllmstudio://auth/callback';
 const scopes = ['cfl', 'offline_access'];

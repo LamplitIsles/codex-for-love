@@ -54,10 +54,28 @@ The transcript remains the evidence. Relationship state is explicit and append-o
 A companion's life should not disappear into an opaque service. CFL keeps its application-owned state inside the workspace you choose:
 
 - `.lamplit/relationship.jsonl` for append-only relationship history
-- `.lamplit/attachments/` for stable image attachments
+- `.lamplit/attachments/` for stable image and chat file attachments
 - `.lamplit/audio/` for generated speech cache
 - `.lamplit/alarms.sqlite` for the Partner's current alarms
 - `memory/YYYY-MM-DD.md` for optional, human-readable diary entries
+
+Chat file attachments use private, authenticated `/api/chat/files` staging and
+reads. A message may include up to six files, each at most 8,000,000 bytes and
+24,000,000 bytes in total, independently of image limits. Empty files and
+unknown media types are accepted. Original bytes are kept under opaque names in
+`.lamplit/attachments/`; the supplied filename is metadata, never a storage
+path or download header. Downloads are served as private, non-cacheable binary
+attachments. Files remain associated with their operation across history,
+recovery and explicit failed retries; an uncertain submission must be inspected
+or finalized rather than automatically resent. Files do not enter the image
+library. Partner receives one untrusted fact per file containing its
+workspace-relative path and complete name. A local file check that fails
+before native submission is recoverable; an uncertain dispatched request still
+requires inspection. Temporary upload files can remain after a process is
+interrupted; remove stale `.tmp` files only when no Partner process is using
+the workspace. A corrupt or symlinked content-addressed target is left untouched
+and a verified copy uses a separate opaque path. Protect and back up the
+workspace and its SQLite database together.
 
 The official Codex thread remains the conversation authority. CFL does not duplicate model transcripts, reasoning, or tool payloads into its own database. The workspace can be read, backed up, searched, corrected, and moved with ordinary local tools.
 
