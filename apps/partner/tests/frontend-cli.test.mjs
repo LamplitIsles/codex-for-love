@@ -20,7 +20,7 @@ test('source CLI serves selected cache by default and fails when latest is unava
     await seedSmokeFrontend(cache);
     const bin = join(root, 'bin'); await mkdir(bin);
     const curl = join(bin, 'curl');
-    await writeFile(curl, `#!/bin/sh\nprintf '%s' '{"sha":"${smokeRevision}"}'\n`, { mode: 0o755 });
+    await writeFile(curl, `#!/bin/sh\nprintf '%s' '{"commit":{"id":"${smokeRevision}"}}'\n`, { mode: 0o755 });
     const reserve = createServer(); reserve.listen(0, '127.0.0.1'); await once(reserve, 'listening');
     const port = reserve.address().port; await new Promise(done => reserve.close(done));
     const marker = `CFL_SMOKE_HTTP_OK_${randomUUID()}`;
