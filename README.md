@@ -401,12 +401,13 @@ The browser receives only one of seven coarse activity labels, never model text,
 
 ### Optional ecosystem MCPs
 
-For deliberate ElevenLabs Voice messages, select the `elevenlabs` provider and
-an ElevenLabs voice ID in `speech.tts`. The fixed model is `eleven_v4` and
-speed is unavailable. Register and authorize the hosted MCP separately in the
-same Codex home as Partner; plugin installation alone is insufficient. See the
-[operator guide](docs/operator-guide.md) for the verified CIMD login, scopes,
-credit and failure behavior.
+Voice output settings select MiniMax, Alibaba, ByteDance, or ElevenLabs and
+retain each provider's voice ID. MiniMax uses an authenticated local `mmx`
+CLI; the other providers use separately saved output keys. ElevenLabs accepts a
+manual voice ID or a paginated selection of voices saved to the account. Its
+API key needs speech generation and voices-read permissions; usage may consume
+account credits. The official SDK uses the fixed `eleven_v4` model and does not
+retry generation automatically. See the [operator guide](docs/operator-guide.md).
 
 On its first start, CFL creates the minimal workspace configuration: its bundled
 Companion MCP and the relationship-context hook. No external MCP is needed to

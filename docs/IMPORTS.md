@@ -657,3 +657,28 @@ and required license notices also passed CFL's frontend verification. The
 contract package metadata and Apache/Chord notices are unchanged from the
 previous pin, so its locked dependencies remain unchanged. App owns the picker
 and browser acceptance; CFL consumes the published HTTP adapter.
+
+## ElevenLabs TypeScript SDK
+
+CFL uses the official [ElevenLabs TypeScript SDK](https://github.com/elevenlabs/elevenlabs-js) 2.75.0 (MIT) for speech generation and saved-voice discovery. Its license is retained in `licenses/elevenlabs-js-2.75.0-MIT.txt`; release preparation also retains SDK and transitive dependency notices under `vendor/licenses/elevenlabs/`.
+
+SDK dependency `tr46` 0.0.3 declares MIT in its published metadata but its npm
+tarball and [0.0.3 source tag](https://github.com/jsdom/tr46/tree/a8009f9ce80ff5dbe71dd71e203afe4e4c878d28) omit a license file. The same author's MIT notice is retained from [upstream](https://github.com/jsdom/tr46/blob/bd303c13dc7ebc716c232f03cb80c79071e7a7f7/LICENSE.md) in `licenses/tr46-0.0.3-MIT.txt`.
+
+## Voice output settings App pin — FlickNote #46 / #47
+
+CFL selects merged App PR #50 main revision
+`eadcfa8bc8a8bd3bc667e01c208e08125d8267cf`, with tree
+`e558c702e241b4e4be591133af8739a05ecd9f69` identical to reviewed App HEAD
+`c5fbabff4b83b656cbfa8c70c5cec691b66a6a3f`. The published contracts archive
+is 33,760 bytes, SHA-256
+`72406abd48a9c13d526c9c7b2b75d6666820742ee40c20f029c066380722b278`;
+the frontend archive is 7,055,861 bytes, SHA-256
+`710071991b56b993357e944153a82ccbd1f748d3846788781d5a90a48f90e251`.
+GitHub release metadata reports these digests; GitHub and Forgejo downloads
+matched byte-for-byte. Orc verified all 265 browser, 32 compiled-contract and
+189 license manifest entries; the frontend contracts matched the separate
+archive and the previously pinned compiled contracts. Existing App Apache,
+Chord, Noto Sans and App IMPORTS notices are unchanged. App owns the voice
+settings UI and its browser acceptance; CFL implements the corresponding host
+API and consumes the published frontend and contracts.

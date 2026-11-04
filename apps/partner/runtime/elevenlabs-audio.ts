@@ -1,15 +1,6 @@
-const MAX_BYTES = 10 * 1024 * 1024;
-const HOST = 'elevenlabsusercontent.com';
-
-function safeUrl(value: string, base?: string): URL {
-  const url = new URL(value, base);
-  if (url.protocol !== 'https:' || url.hostname !== HOST || url.username || url.password || url.port || url.hash) throw new Error('Invalid audio URL');
-  return url;
-}
-
 // Validate the complete bounded MPEG Layer III frame sequence, allowing common
 // leading ID3v2 and trailing ID3v1 metadata. Frame payload decoding is separate.
-function hasMp3Frames(bytes: Uint8Array): boolean {
+export function hasMp3Frames(bytes: Uint8Array): boolean {
   let offset = 0;
   if (bytes.length >= 3 && bytes[0] === 0x49 && bytes[1] === 0x44 && bytes[2] === 0x33) {
     if (bytes.length < 10) return false;
@@ -42,37 +33,4 @@ function hasMp3Frames(bytes: Uint8Array): boolean {
     frameCount++;
   }
   return frameCount > 0;
-}
-
-export async function receiveElevenLabsAudio(value: string, signal: AbortSignal, fetchImpl: typeof fetch = fetch): Promise<Uint8Array> {
-  let url = safeUrl(value);
-  for (let redirects = 0; redirects <= 3; redirects++) {
-    signal.throwIfAborted();
-    const response = await fetchImpl(url, { signal, redirect: 'manual' });
-    if ([301, 302, 303, 307, 308].includes(response.status)) {
-      const location = response.headers.get('location');
-      await response.body?.cancel();
-      if (!location || redirects === 3) throw new Error('Invalid audio redirect');
-      url = safeUrl(location, url.href);
-      continue;
-    }
-    if (!response.ok || !response.body) { await response.body?.cancel(); throw new Error('Invalid audio response'); }
-    const declared = response.headers.get('content-length');
-    if (declared && (!/^\d+$/u.test(declared) || Number(declared) > MAX_BYTES)) { await response.body.cancel(); throw new Error('Audio too large'); }
-    const reader = response.body.getReader(); const parts: Uint8Array[] = []; let size = 0;
-    try {
-      for (;;) {
-        const { done, value: chunk } = await reader.read();
-        if (done) break;
-        size += chunk.byteLength;
-        if (size > MAX_BYTES) throw new Error('Audio too large');
-        parts.push(chunk);
-      }
-    } finally { await reader.cancel(); reader.releaseLock(); }
-    signal.throwIfAborted();
-    const bytes = Buffer.concat(parts);
-    if (!hasMp3Frames(bytes)) throw new Error('Invalid MP3');
-    return bytes;
-  }
-  throw new Error('Invalid audio redirect');
 }

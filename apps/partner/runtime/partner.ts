@@ -1,3 +1,4 @@
+import { createTtsSettings, loadTtsSettings } from './tts-settings.ts';
 import { createBackgroundSettings } from './background-settings.ts';
 import { createVoiceSettings } from './voice-settings.ts';
 import { ModelSelection, ModelPreferenceError, WRITABLE_MODELS, modelUnavailable, readModelPreference, saveModelPreference } from './model-preference.ts';
@@ -499,9 +500,14 @@ function versionFromUserAgent(value: unknown): string | undefined {
  */
 export async function createPartner(config: Config, credentials: Credentials, dependencies: PartnerDependencies = {}) {
   const voiceSettings = createVoiceSettings(config.state, () => config.speech ? credentials.speech ?? null : null);
+  const currentTtsSettings = () => config.configPath ? loadTtsSettings(config.configPath) : Promise.resolve(createTtsSettings(config.state, () => ({ tts: config.speech?.tts, credentials })));
+  const ttsSettings = {
+    async snapshot() { return (await currentTtsSettings()).snapshot(); },
+    async selection() { return (await currentTtsSettings()).selection(); },
+    async save(input: unknown, authorized: () => boolean) { return (await currentTtsSettings()).save(input, authorized); },
+    async saveKey(input: unknown, authorized: () => boolean) { return (await currentTtsSettings()).saveKey(input, authorized); },
+  };
   const prompts = await loadPrompts(config);
-  if (config.speech?.tts?.provider === 'alibaba' && !credentials.speech) throw new Error('Alibaba Voice requires a CLI-managed speech credential');
-  if (config.speech?.tts?.provider === 'bytedance' && !credentials.tts) throw new Error('ByteDance Voice requires a CLI-managed tts credential');
   const postEnabled = Boolean(config.post && credentials.post && credentials.post_receiver);
   if ((config.post || credentials.post || credentials.post_receiver) && !postEnabled) throw new Error('Post requires endpoint, agent identity and distinct private API/receiver credentials');
   if (postEnabled && credentials.post === credentials.post_receiver) throw new Error('Post API and receiver credentials must differ');
@@ -2003,6 +2009,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
     async diaryEntry(name: string) { const entry = await readDiary(paths.workspaceRoot, name); return entry.status === 'found' ? entry.text : entry.status === 'missing' ? undefined : 'too-large' as const; },
     async audio(id: string) { try { return await readFile(join(paths.audio, `${id}.mp3`)); } catch { return undefined; } },
     voiceSettings,
+    ttsSettings,
     voiceCredential() { return config.speech ? credentials.speech ?? null : null; },
     workspaceImage(path: string | null) { return readWorkspaceImage(paths.workspaceRoot, path); },
     stickerBackend(authorize: () => Promise<boolean>, authorizeCommit: () => boolean): StickerBackend {

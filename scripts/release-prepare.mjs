@@ -51,6 +51,13 @@ async function copyDependencyLicenses(name, parent, category = 'auth') {
   if (visited.has(visitKey)) return;
   visited.add(visitKey);
   const names = (await readdir(directory)).filter(file => /^(license|licence|copying|notice)(\.|$)/iu.test(file));
+  // tr46 0.0.3 declares MIT but its original npm tarball and tag omit a license file.
+  if (!names.length && category === 'elevenlabs' && key === 'tr46@0.0.3') {
+    const destination = join(vendor, 'licenses', category, key);
+    await mkdir(destination, { recursive: true });
+    await cp(join(root, 'licenses/tr46-0.0.3-MIT.txt'), join(destination, 'LICENSE'));
+    return;
+  }
   if (!names.length) throw new Error(`Missing license notice for ${key}`);
   const destination = join(vendor, 'licenses', category, key.replaceAll('/', '__'));
   await mkdir(destination, { recursive: true });
@@ -61,6 +68,7 @@ for (const name of ['better-auth', '@better-auth/passkey', '@better-auth/oauth-p
   await copyDependencyLicenses(name, join(root, 'apps/partner/package.json'));
 }
 await copyDependencyLicenses('typebox', join(prepared, 'contracts/package.json'), 'contracts');
+await copyDependencyLicenses('@elevenlabs/elevenlabs-js', join(root, 'apps/partner/package.json'), 'elevenlabs');
 await writeFile(join(vendor, 'source.json'), JSON.stringify(manifest, null, 2) + '\n');
 const packed = Object.values(JSON.parse(execFileSync('npm', ['pack', '--json', '--pack-destination', output], { cwd: mainPackage, encoding: 'utf8' })))[0];
 console.log(JSON.stringify({ artifact: join(output, packed.filename), mainPackage, version: packed.version }, null, 2));

@@ -1,3 +1,5 @@
+import { TtsSettingsError } from './tts-settings.ts';
+import { elevenLabsVoices } from './elevenlabs-voice.ts';
 import { BackgroundSettingsError, MAX_BACKGROUND_BYTES, backgroundMediaType } from './background-settings.ts';
 import { VoiceSettingsError } from './voice-settings.ts';
 import { ModelPreferenceError } from './model-preference.ts';
@@ -162,6 +164,29 @@ export function createWebServer(partner: Partner, assets: string, options: { aut
           return humanJson(await partner.saveBackground(kind,Buffer.concat(chunks),mediaType,() => stillAuthorized(request)));
         } catch (error) {
           return fail(error instanceof BackgroundSettingsError ? error.code : 'background_settings_unavailable',error instanceof BackgroundSettingsError ? error.status : 503);
+        }
+      }
+      if (path === '/api/tts/settings' || path === '/api/tts/settings/key' || path === '/api/tts/elevenlabs/voices') {
+        const fail = (code: string, status: number) => json(response, { error: { code, message: 'Voice output settings could not be confirmed. Refresh before trying again.' } }, status);
+        const isSettings = path === '/api/tts/settings';
+        const isKey = path === '/api/tts/settings/key';
+        if (isSettings ? request.method !== 'GET' && request.method !== 'POST' : isKey ? request.method !== 'POST' : request.method !== 'GET') return fail('method_not_allowed', 405);
+        try {
+          if (!isSettings && !isKey) {
+            const params = new URL(request.url!, 'http://localhost').searchParams;
+            const cursors = params.getAll('cursor');
+            if ([...params.keys()].some(key => key !== 'cursor') || cursors.length > 1 || (cursors.length && (!cursors[0] || cursors[0].length > 2048 || /[\x00-\x1f\x7f]/u.test(cursors[0])))) return fail('invalid_cursor', 400);
+            const { keys } = await partner.ttsSettings.selection();
+            if (!keys.elevenlabs) return fail('tts_key_required', 400);
+            return humanJson(await elevenLabsVoices(keys.elevenlabs, cursors[0]));
+          }
+          if (request.method === 'GET') return humanJson(await partner.ttsSettings.snapshot());
+          if (request.headers['content-type']?.split(';')[0].trim().toLowerCase() !== 'application/json') return fail('invalid_tts_settings', 400);
+          let input: unknown;
+          try { input = await body(request, 4096); } catch { return fail('invalid_tts_settings', 400); }
+          return humanJson(isKey ? await partner.ttsSettings.saveKey(input, () => stillAuthorized(request)) : await partner.ttsSettings.save(input, () => stillAuthorized(request)));
+        } catch (error) {
+          return fail(error instanceof TtsSettingsError ? error.code : 'tts_settings_unavailable', error instanceof TtsSettingsError ? error.status : 503);
         }
       }
       if (path === '/api/voice/settings') {

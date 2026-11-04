@@ -428,37 +428,21 @@ the path passed to it:
   @lamplitisles/partner cli credential /path/to/partner.toml speech --stdin`;
   never put the key in TOML or command arguments. Legacy `speech.endpoint` is
   accepted and ignored regardless of value; whole-audio transcription is removed.
-- `speech.tts` enables deliberate Companion MCP `send_voice` messages. Its
-  choices are `provider` (`minimax`, `alibaba`, `bytedance`, or `elevenlabs`), `voice`, and
-  optional `speed` (a 0.5–2.0 multiplier). A successful tool call produces one
-  standalone playable Voice message with no text transcript; ordinary final
-  text remains separate. MiniMax uses the operator-installed,
-  already-authenticated `mmx` CLI and ByteDance maps the multiplier to its
-  native speech-rate value. Alibaba's configured non-realtime API has no speed
-  control and rejects that setting. Alibaba reuses `speech`; ByteDance uses
-  `tts`. ElevenLabs uses its voice ID with fixed `eleven_v4` and rejects speed.
-  Cached MP3s live under `<workspace>/.lamplit/audio/` and are served through
-  same-origin URLs.
+- Voice output settings select `minimax`, `alibaba`, `bytedance`, or
+  `elevenlabs` and retain each provider's voice ID and supported speed. Saving
+  a selection activates it; saving a key does not verify it or switch providers.
+  `speech.tts` supplies the initial fallback without changing TOML. MiniMax
+  requires the locally installed, authenticated `mmx` CLI. Alibaba and ByteDance
+  retain their legacy `speech` and `tts` CLI credentials as fallbacks; an output
+  key saved in settings is independent of speech input and other providers.
+  ElevenLabs uses the official SDK with fixed `eleven_v4`, MP3 output and no
+  automatic generation retries. Configure an API key with speech generation and
+  voices-read permissions. Choose from the account's saved voices in pages or
+  enter any voice ID manually. Generation may consume subscription credits.
+  Alibaba and ElevenLabs do not support speed; MiniMax and ByteDance accept
+  0.5–2.0. Companion `send_voice` delivers a standalone playable message with
+  no transcript. Cached MP3s live under `<workspace>/.lamplit/audio/`.
 
-  For ElevenLabs, separately register the hosted MCP as `elevenlabs` and log
-  in using the same OS user and `CODEX_HOME` as the CFL app-server. First check
-  for an existing server with that name and avoid overwriting it:
-
-  ```sh
-  codex mcp add elevenlabs --url https://api.us.elevenlabs.io/v1/mcp
-  codex mcp login elevenlabs --oauth-client-registration cimd --scopes text_to_speech,flows,speech_history_read
-  ```
-
-  The three scopes together were verified; their individual necessity was not.
-  This is a separate ElevenLabs account authorization and generation may consume
-  credits. Plugin 0.4.0's MCP configuration fails to parse in the pinned
-  app-server 0.164.0; installing the plugin alone does not connect the service.
-  Do not copy a plugin client ID into this standalone configuration. Remote
-  `--no-browser` manual pasting encountered duplicate parameters; a local
-  browser callback or secure SSH forwarding may be needed and remains unverified.
-  Failed or uncertain generation is not automatically repeated. Only completed
-  MP3 from the fixed official distribution host is accepted; failures do not
-  publish a Voice message. Cached audio remains until removed by the operator.
 - The Companion MCP tools are `update_relationship`, `set_signature`,
   `read_relationship_history`, `list_photos`, `roll_dice`, and `send_voice`; Codex supplies
   the `mcp__companion__` namespace.
