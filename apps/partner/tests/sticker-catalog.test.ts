@@ -63,6 +63,8 @@ test('catalog preserves actor favorites and immutable prior media across reimpor
     await catalog.importPack(manifest, files(first));
     const stickerId = packStickerId('cats', 'hello');
     const old = (await catalog.get(stickerId))!;
+    const oldThumbnail = await catalog.media(old.version, 'thumbnail');
+    assert.equal(oldThumbnail?.mediaType, 'image/webp');
     assert.equal(old.available, true);
     assert.deepEqual((await catalog.listStickers({ cursor: null, limit: 1, query: '开心' })).stickers.map(s => s.id), [stickerId]);
     await catalog.favorite('human', stickerId, true);
@@ -73,6 +75,7 @@ test('catalog preserves actor favorites and immutable prior media across reimpor
     const next = (await catalog.get(stickerId))!;
     assert.notEqual(next.version, old.version);
     assert.deepEqual((await catalog.media(old.version, 'original'))?.bytes, first);
+    assert.deepEqual((await catalog.media(old.version, 'thumbnail'))?.bytes, oldThumbnail?.bytes);
     assert.deepEqual((await catalog.media(next.version, 'original'))?.bytes, second);
     await assert.rejects(catalog.asset(stickerId, old.version));
     catalog.close(); catalog = await StickerCatalog.open(workspace);
@@ -82,9 +85,17 @@ test('catalog preserves actor favorites and immutable prior media across reimpor
     assert.equal((await catalog.get(stickerId))?.version, next.version);
     const asset = await catalog.asset(stickerId, next.version);
     await writeFile(asset.previewPath, Buffer.from('corrupted'));
-    assert.equal(await catalog.media(next.version, 'preview'), null);
+    const thumbnail = await catalog.media(next.version, 'thumbnail');
+    assert.equal(thumbnail?.mediaType, 'image/webp');
+    assert.equal((await sharp(thumbnail!.bytes).metadata()).format, 'webp');
     await assert.rejects(catalog.asset(stickerId, next.version));
     assert.deepEqual((await catalog.media(next.version, 'original'))?.bytes, second);
+    const originalPath = join(workspace, '.lamplit', 'stickers', 'assets', `${next.version}.png`);
+    await writeFile(originalPath, Buffer.from('corrupted'));
+    assert.equal(await catalog.media(next.version, 'thumbnail'), null);
+    assert.equal(await catalog.media(next.version, 'original'), null);
+    await rm(originalPath);
+    assert.equal(await catalog.media(next.version, 'thumbnail'), null);
   } finally { catalog.close(); await rm(workspace, { recursive: true, force: true }); }
 });
 

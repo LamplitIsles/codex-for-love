@@ -2065,7 +2065,12 @@ export async function createPartner(config: Config, credentials: Credentials, de
           await store.stageImages(input.operationId, input.sessionId, createHash('sha256').update(JSON.stringify({ sticker: input.sticker, image })).digest('hex'), { images, refs: [image], variants: [{ previewPath: asset.previewPath, modelPath: asset.modelPath, stickerTags: asset.sticker.tags }] }, beforeCommit);
           return { sessionId: input.sessionId, operationId: input.operationId, image };
         }); },
-        async media(version, variant) { await guard(); return stickers.media(version, variant); },
+        async media(version, variant: 'original' | 'thumbnail') {
+          await guard();
+          const result = await stickers.media(version, variant);
+          await guard();
+          return result;
+        },
       };
     },
     async models() {

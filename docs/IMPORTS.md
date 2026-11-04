@@ -638,3 +638,20 @@ This publication exposes the settings screens consumed by CFL's voice settings
 and background upload APIs. Acceptance uses these exact published browser bytes
 with test-owned fake-native CFL fixtures; it does not imply provider, production,
 or macOS acceptance. Earlier licenses and unchanged contract provenance apply.
+
+## Sticker thumbnails and picker — FlickNote #38 / #39
+
+CFL pins App main `163d28f8ad01c6a7bc9f0e2ab688840583e5c940` (tree
+`7b540b1d7035c0e736c01e6231544d7a3e71f37d`), containing merged App #47 and
+#48. The public GitHub release tag points to that commit. The downloaded
+`lamplit-contracts-163d28f8ad01c6a7bc9f0e2ab688840583e5c940.tar.gz` is
+33,761 bytes, SHA-256
+`14ab0690ecb1e31e5352e125497c1d7b670711fccc3858abd973bb669091e805`.
+The corresponding frontend archive is 7,043,940 bytes, SHA-256
+`73795ec0f23c309baa783057850ae28aed7310d2d10f7ecc167170dee921a0db`.
+Both hashes were calculated from downloaded release bytes. The frontend's
+32 compiled contract files match the contract archive exactly; its manifest
+and required license notices also passed CFL's frontend verification. The
+contract package metadata and Apache/Chord notices are unchanged from the
+previous pin, so its locked dependencies remain unchanged. App owns the picker
+and browser acceptance; CFL consumes the published HTTP adapter.

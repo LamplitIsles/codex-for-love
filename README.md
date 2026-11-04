@@ -849,8 +849,7 @@ workspace/device scope and context limits remain unchanged.
 ## Sticker library
 
 CFL's authenticated sticker backend supplies a shared library with separate
-Human and Partner favorites. The current shared App does not yet include a
-sticker picker. The public HTTP contract is defined by the App source identified
+Human and Partner favorites. The public HTTP contract is defined by the App source identified
 in `lamplit-app.sha`; the frontend must be published before an installed runtime can select it.
 
 Import an administrator-selected directory with the installed CLI:
@@ -883,7 +882,7 @@ duplicate paths or undeclared entries; at most 500 images, 32 MiB compressed,
 per image. ZIP reading has a 15-second limit, individual image operations a
 5-second limit, and pack validation checks a 30-second deadline between images. Import errors distinguish invalid content, limits, processing timeout,
 and storage failure without exposing local paths. JPEG, PNG, WebP and GIF
-signatures and decoded contents must match. Preview and model representations are static JPEGs; GIF originals remain
+signatures and decoded contents must match. Internal staged preview and model representations are static JPEGs; GIF originals remain
 animated. An identical member ID may acquire a new immutable content version on
 reimport. Concurrent conflicting imports reject the stale change; identical
 retries are idempotent. Existing favorites follow the member; already sent
@@ -894,8 +893,17 @@ its historical asset or the other participant's favorites.
 bounded pages; `/favorites`, `/favorites/image`, and `/favorites/upload`
 modify the authenticated Human's collection. `/stage` binds a sticker ID and
 version to a session and operation, returning the existing image reference for
-the normal durable chat submission. `/media/{version}/preview` and `/original`
-require owner authentication and use private, revalidated ETags. The Partner
+the normal durable chat submission. `/media/{version}/thumbnail` returns a static
+WebP first frame, preserving alpha, at most 512 pixels on its longest side without
+enlargement and at most 160,000 bytes. It is generated on demand from the
+hash-verified original, including for existing assets. Each catalog instance reuses a
+bounded in-memory thumbnail cache, with no thumbnail files stored; every request
+still reads and verifies the original before using a cached result. `/thumbnail`
+and `/original` require owner authentication and use private,
+revalidated ETags based on the response bytes. Clients may show an identity-isolated
+cached thumbnail while revalidating, and must discard it on authentication failure,
+forbidden or missing responses. The selected App frontend must match the pinned
+public contracts. The Partner
 uses the separate Companion MCP sticker tools. A conversation image can be
 favorited only after it belongs to that conversation; imports and favorites do
 not themselves create chat messages or photo-library membership.

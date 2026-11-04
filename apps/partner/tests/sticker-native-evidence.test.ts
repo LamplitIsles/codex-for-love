@@ -59,6 +59,22 @@ test('authenticated Human ID staging submits a static native model frame and res
     const response = await fetch(origin + '/api/stickers/stage', { method: 'POST', headers, body: JSON.stringify(stage) });
     assert.equal(response.status, 200); const staged = await response.json();
     assert.deepEqual(staged.image.sticker, stage.sticker);
+    const backend = partner.stickerBackend(async () => true, () => true);
+    const [thumbnail, concurrent] = await Promise.all([
+      backend.media(sticker.version, 'thumbnail'), backend.media(sticker.version, 'thumbnail'),
+    ]);
+    assert.equal(thumbnail?.mediaType, 'image/webp');
+    assert.equal((await sharp(thumbnail!.bytes).metadata()).format, 'webp');
+    assert.deepEqual(concurrent?.bytes, thumbnail?.bytes);
+    assert.deepEqual((await backend.media(sticker.version, 'thumbnail'))?.bytes, thumbnail?.bytes);
+    const preview = await partner.sharedMedia(staged.image.attachmentId, 'preview');
+    assert.equal(preview?.mediaType, 'image/jpeg');
+    assert.equal((await sharp(preview!.bytes).metadata()).format, 'jpeg');
+    let checks = 0;
+    const revoked = partner.stickerBackend(async () => ++checks === 1, () => false);
+    await assert.rejects(revoked.media(sticker.version, 'thumbnail'), /Unauthorized/u);
+    await assert.rejects(partner.stickerBackend(async () => false, () => false).media(sticker.version, 'thumbnail'), /Unauthorized/u);
+    assert.deepEqual((await backend.stage(stage, async () => true)).image, staged.image);
     assert.equal((await partner.conversationImages()).images.length, 0);
     const submission = { operationId, text: '', images: [staged.image] };
     await partner.submitShared(submission); await partner.submitShared(submission);

@@ -45,6 +45,23 @@ export async function validateStickerImage(bytes: Buffer, mediaType: ImageInput[
   return { hash: createHash('sha256').update(bytes).digest('hex'), mediaType, original: bytes, preview, model, width, height, frames };
 }
 
+/** Generate a bounded, static first frame without flattening transparent pixels. */
+export async function stickerThumbnail(bytes: Buffer, mediaType: ImageInput['mediaType']): Promise<Buffer> {
+  await validateAndDecode(bytes, mediaType);
+  // Lossless alpha can itself exceed the byte budget; shrink as well as lowering
+  // quality so even highly detailed transparent inputs have a bounded result.
+  for (const size of [512, 384, 256, 128, 64]) {
+    for (const quality of [80, 60, 40, 25]) {
+      const result = await sharp(bytes, { page: 0, pages: 1, limitInputPixels: MAX_PIXELS })
+        .timeout({ seconds: PROCESSING_SECONDS }).rotate()
+        .resize(size, size, { fit: 'inside', withoutEnlargement: true })
+        .webp({ quality }).toBuffer();
+      if (result.length <= 160_000) return result;
+    }
+  }
+  throw new Error('Sticker thumbnail exceeds its size limit');
+}
+
 /** Decode and sample at most six frames in playback order, without retaining variants. */
 export async function inspectStickerImage(bytes: Buffer, mediaType: ImageInput['mediaType']): Promise<{ frames: number; sampledFrames: number[]; images: Buffer[] }> {
   const { frames } = await validateAndDecode(bytes, mediaType);

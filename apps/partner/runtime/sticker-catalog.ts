@@ -5,7 +5,8 @@ import { constants } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { z } from 'zod';
 import { initializeStickerSchema } from './sticker-schema.ts';
-import { validateStickerImage, type StickerImage } from './sticker-image.ts';
+import { stickerThumbnail, validateStickerImage, type StickerImage } from './sticker-image.ts';
+import { StickerThumbnailCache } from './sticker-thumbnail-cache.ts';
 import type { ImageInput } from './images.ts';
 
 const id = z.string().regex(/^[A-Za-z0-9_-]{1,100}$/u);
@@ -57,6 +58,7 @@ async function putImmutable(path: string, bytes: Buffer): Promise<void> {
 export class StickerCatalog {
   private readonly db: DatabaseSync;
   private readonly root: string;
+  private readonly thumbnails = new StickerThumbnailCache();
   private constructor(db: DatabaseSync, root: string) { this.db = db; this.root = root; }
   static async open(workspace: string): Promise<StickerCatalog> {
     const managed = join(workspace, '.lamplit');
@@ -72,7 +74,7 @@ export class StickerCatalog {
     try { db.exec('PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;'); initializeStickerSchema(db); return new StickerCatalog(db, root); }
     catch (error) { db.close(); throw error; }
   }
-  close(): void { this.db.close(); }
+  close(): void { this.thumbnails.clear(); this.db.close(); }
   private async saveAsset(image: StickerImage): Promise<AssetRow> {
     const extension = image.mediaType === 'image/jpeg' ? 'jpg' : image.mediaType.slice(6);
     const root = join(this.root, 'assets', image.hash);
@@ -159,16 +161,17 @@ export class StickerCatalog {
     if (createHash('sha256').update(bytes).digest('hex') !== version) throw new Error('Sticker original changed');
     return { path: row.original_path, mediaType: row.media_type };
   }
-  async media(version: string, variant: 'original' | 'preview'): Promise<{ bytes: Buffer; mediaType: string } | null> {
+  async media(version: string, variant: 'original' | 'thumbnail'): Promise<{ bytes: Buffer; mediaType: string } | null> {
     if (!/^[a-f0-9]{64}$/u.test(version)) throw new Error('Invalid version');
+    if (variant !== 'original' && variant !== 'thumbnail') return null;
     const row = this.db.prepare('SELECT * FROM sticker_assets WHERE hash=?').get(version) as AssetRow | undefined;
     if (!row) return null;
-    try {
-      const bytes = await readOwned(variant === 'original' ? row.original_path : row.preview_path, variant === 'original' ? 5 * 1024 * 1024 : 160_000);
-      if (variant === 'original' && createHash('sha256').update(bytes).digest('hex') !== version) return null;
-      if (variant === 'preview') checkVariant(row.preview_path, bytes, 'preview');
-      return { bytes, mediaType: variant === 'original' ? row.media_type : 'image/jpeg' };
-    } catch { return null; }
+    let bytes: Buffer;
+    try { bytes = await readOwned(row.original_path, 5 * 1024 * 1024); }
+    catch { return null; }
+    if (createHash('sha256').update(bytes).digest('hex') !== version) return null;
+    if (variant === 'original') return { bytes, mediaType: row.media_type };
+    return { bytes: await this.thumbnails.get(version, () => stickerThumbnail(bytes, row.media_type)), mediaType: 'image/webp' };
   }
   async listStickers(input: { cursor: string | null; limit: number; query?: string; packId?: string; participant?: 'human' | 'agent' }): Promise<{ stickers: StickerView[]; nextCursor: string | null }> {
     const start = offset(input.cursor), limit = pageLimit(input.limit), query = (input.query ?? '').trim();

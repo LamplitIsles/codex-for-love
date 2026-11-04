@@ -5,6 +5,7 @@ import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { crc32 } from 'node:zlib';
+import { createHash } from 'node:crypto';
 import sharp from 'sharp';
 import { readStickerDirectory, readStickerZip } from '../runtime/sticker-import.ts';
 import { StickerCatalog } from '../runtime/sticker-catalog.ts';
@@ -86,8 +87,22 @@ test('authenticated ZIP import, bounded discovery, independent favorites and pri
     assert.equal(original.headers.get('cache-control'), 'private, no-cache');
     const etag = original.headers.get('etag')!; assert.deepEqual(Buffer.from(await original.arrayBuffer()), png);
     assert.equal((await fetch(mediaUrl, { headers: { authorization: 'owner', 'if-none-match': etag } })).status, 304);
+    const thumbnailUrl = `${origin}/api/stickers/media/${pack.cover.version}/thumbnail`;
+    assert.equal((await fetch(thumbnailUrl)).status, 401);
+    const thumbnail = await fetch(thumbnailUrl, { headers: { authorization: 'owner' } });
+    assert.equal(thumbnail.status, 200); assert.equal(thumbnail.headers.get('content-type'), 'image/webp');
+    assert.equal(thumbnail.headers.get('cache-control'), 'private, no-cache');
+    const thumbnailBytes = Buffer.from(await thumbnail.arrayBuffer());
+    assert.ok(thumbnailBytes.length <= 160_000);
+    const thumbnailTag = thumbnail.headers.get('etag')!;
+    assert.ok(thumbnailTag.includes(createHash('sha256').update(thumbnailBytes).digest('hex')));
+    assert.equal((await fetch(thumbnailUrl, { headers: { authorization: 'owner', 'if-none-match': thumbnailTag } })).status, 304);
+    const retired = await fetch(`${origin}/api/stickers/media/${pack.cover.version}/preview`, { headers: { authorization: 'owner', 'if-none-match': thumbnailTag } });
+    assert.ok([400, 404].includes(retired.status));
+    assert.ok(!retired.headers.get('content-type')?.startsWith('image/'));
     authorized = false;
     assert.equal((await fetch(mediaUrl, { headers: { authorization: 'owner', 'if-none-match': etag } })).status, 401);
+    assert.equal((await fetch(thumbnailUrl, { headers: { authorization: 'owner', 'if-none-match': thumbnailTag } })).status, 401);
   } finally { await app.close(); await f.close(); }
 });
 
