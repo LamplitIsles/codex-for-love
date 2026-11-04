@@ -21,14 +21,17 @@ test('startup downloads and verifies the selected App, reuses cache offline, and
   const cache = join(root, 'cache'); let latest = one; let downloads = 0; let fail = '';
   const execute = async (command: string, args: string[], cwd: string) => {
     assert.equal(command, 'curl');
-    if (args.at(-1)!.endsWith('/commits/main')) {
+    if (args.at(-1)!.endsWith('/branches/main')) {
+      assert.equal(args.at(-1), 'https://forgejo.n5.guion.io/api/v1/repos/LamplitIsles/lamplit-app/branches/main');
       if (fail === 'resolve') throw new Error('offline');
-      return JSON.stringify({ sha: latest });
+      if (fail === 'json') return '{';
+      if (fail === 'missing-id') return JSON.stringify({ sha: latest });
+      return JSON.stringify({ commit: { id: latest } });
     }
     downloads++;
-    const revision = /app-([a-f0-9]{40})\/lamplit-app-\1\.tar\.gz$/u.exec(args.at(-1)!)?.[1];
-    assert.ok(revision, 'exact public GitHub release URL');
-    assert.equal(args.at(-1), `https://github.com/LamplitIsles/lamplit-app/releases/download/app-${revision}/lamplit-app-${revision}.tar.gz`);
+    const revision = /\/([a-f0-9]{40})\/lamplit-app-\1\.tar\.gz$/u.exec(args.at(-1)!)?.[1];
+    assert.ok(revision, 'exact public Forgejo generic package URL');
+    assert.equal(args.at(-1), `https://forgejo.n5.guion.io/api/packages/LamplitIsles/generic/lamplit-app/${revision}/lamplit-app-${revision}.tar.gz`);
     if (fail === 'download') throw new Error('404');
     const archive = args[args.indexOf('--output') + 1]!;
     if (fail === 'corrupt') { await writeFile(archive, 'not gzip'); return ''; }
@@ -71,7 +74,17 @@ test('startup downloads and verifies the selected App, reuses cache offline, and
     const second = await prepareFrontend('latest', import.meta.url, opts);
     assert.equal(await readFile(join(second, 'index.html'), 'utf8'), two);
     fail = 'resolve'; await assert.rejects(prepareFrontend('latest', import.meta.url, opts), /offline/);
-    for (const [failure, pattern] of [['download', /release may still be publishing/], ['corrupt', /incorrect header|unknown compression/i], ['revision', /invalid revision/], ['integrity', /browser integrity mismatch/], ['contracts', /contracts differ/], ['marker', /protocol marker/i], ['link', /Unsupported frontend archive entry/], ['traversal', /Unsafe frontend archive path/]] as const) {
+    assert.equal(await prepareFrontend(one, import.meta.url, opts), first);
+    for (const failure of ['json', 'missing-id']) {
+      fail = failure; await assert.rejects(prepareFrontend('latest', import.meta.url, opts));
+    }
+    fail = ''; latest = 'A'.repeat(40);
+    await assert.rejects(prepareFrontend('latest', import.meta.url, opts), /full lowercase commit SHA/);
+    latest = three; fail = 'download';
+    await assert.rejects(prepareFrontend('latest', import.meta.url, opts), /package may still be publishing/);
+    assert.equal((await readdir(cache)).includes(three), false);
+    for (const invalid of ['main', 'a'.repeat(39), 'A'.repeat(40)]) await assert.rejects(prepareFrontend(invalid, import.meta.url, opts), /full lowercase commit SHA/);
+    for (const [failure, pattern] of [['download', /package may still be publishing/], ['corrupt', /incorrect header|unknown compression/i], ['revision', /invalid revision/], ['integrity', /browser integrity mismatch/], ['contracts', /contracts differ/], ['marker', /protocol marker/i], ['link', /Unsupported frontend archive entry/], ['traversal', /Unsafe frontend archive path/]] as const) {
       fail = failure; await assert.rejects(prepareFrontend(three, import.meta.url, opts), pattern);
     }
     for (const missing of ['no-notices', ...notices.map(notice => `missing:${notice}`)]) {
@@ -110,7 +123,7 @@ test('a signal between preparation steps prevents every subsequent subprocess', 
     const execute = async (command: string, args: string[]) => {
       calls.push(`${command} ${args.slice(0, 2).join(' ')}`);
       if (calls.length === stopAfter) process.emit(stopAfter % 2 ? 'SIGTERM' : 'SIGINT');
-      if (command === 'curl' && args.at(-1)!.endsWith('/commits/main')) return JSON.stringify({ sha: one });
+      if (command === 'curl' && args.at(-1)!.endsWith('/branches/main')) return JSON.stringify({ commit: { id: one } });
       return '';
     };
     try {

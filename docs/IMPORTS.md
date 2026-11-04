@@ -299,8 +299,10 @@ original integration work. FlickLog itself and prompt semantics are unchanged.
 
 ### Independently selected App at startup
 
-The startup selector downloads prebuilt releases from public canonical
-`https://github.com/LamplitIsles/lamplit-app` at the resolved exact commit.
+The startup selector resolves public canonical App main through
+`https://forgejo.n5.guion.io/LamplitIsles/lamplit-app` and downloads its prebuilt
+Forgejo generic package at the resolved exact commit. Build-time contracts use
+the same package source at the independently pinned commit and archive digest.
 The cache records the commit and complete browser, compiled-contract and license
 hashes, and retains App's Apache-2.0 license, imports and Noto Sans SC OFL.
 The running CFL contracts remain those of its packaged or prepared source;

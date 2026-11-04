@@ -137,8 +137,8 @@ A restart of that checkout cannot restore the former `84ff` process's in-memory
 state. An independent checkout or build cache also requires its own concrete
 approval before creation.
 
-The reviewed unit must expose curl on PATH and allow the documented GitHub
-network access for uncached App releases. An omitted `frontend` selects `latest`; an explicit
+The reviewed unit must expose curl on PATH and allow the documented Forgejo
+network access for uncached App packages. An omitted `frontend` selects `latest`; an explicit
 full SHA pins the App. After restart, record
 the resolved SHA from startup output and compare every served resource with that
 revision’s cache manifest; `latest` may have advanced since review. Reload browser

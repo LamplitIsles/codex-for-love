@@ -1,15 +1,13 @@
-import { execFileSync } from 'node:child_process';
 import { cp, mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { root, prepared, readPin, readDigest, cflIdentity, hashes, unpackContracts } from './shared-source.mjs';
+import { root, prepared, readPin, readDigest, cflIdentity, hashes, unpackContracts, downloadContracts } from './shared-source.mjs';
 
 const pin = await readPin(); const digest = await readDigest();
-const url = `https://github.com/LamplitIsles/lamplit-app/releases/download/app-${pin}/lamplit-contracts-${pin}.tar.gz`;
 await mkdir(join(root, '.generated'), { recursive: true });
 const stage = await mkdtemp(join(root, '.generated/prepare-contracts-'));
 try {
   const archive = join(stage, 'contracts.tar.gz');
-  execFileSync('curl', ['--fail', '--silent', '--show-error', '--location', '--proto', '=https', '--proto-redir', '=https', '--max-time', '120', '--max-filesize', '134217728', '--output', archive, url], { stdio: 'inherit' });
+  downloadContracts(pin, archive);
   const extracted = join(stage, 'extract'); await mkdir(extracted);
   const contracts = await unpackContracts(archive, extracted, pin, digest);
   await rename(join(extracted, 'package'), join(stage, 'contracts')); await rm(extracted, { recursive: true });

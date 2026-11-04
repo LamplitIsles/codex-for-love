@@ -11,7 +11,9 @@ unchanged. No migration, alias, old UI fallback or asset override is supported.
 
 CFL uses Node 24 and its pinned pnpm. `lamplit-app.sha` identifies the full App
 commit; `lamplit-contracts.sha256` independently pins the SHA-256 of the public
-`lamplit-contracts-<SHA>.tar.gz` release asset. The commit identifies origin;
+`lamplit-contracts-<SHA>.tar.gz` Forgejo generic package file at
+`https://forgejo.n5.guion.io/api/packages/LamplitIsles/generic/lamplit-app/<SHA>/lamplit-contracts-<SHA>.tar.gz`.
+The commit identifies origin;
 the digest authenticates the downloaded bytes. Preparation verifies both before
 materializing the package into ignored `.generated/shared-app`. It checks exports,
 metadata, required licenses and the Better Auth marker. The build and packaging
@@ -29,8 +31,8 @@ pnpm test
 The initial command disables pnpm's automatic install because the contracts
 workspace must exist before frozen installation. `--strict` remains accepted;
 all preparations now require the exact published pin and digest. Update both
-pins only after reviewing the App commit and independently verifying the release
-asset digest; compare the published frontend's contracts, retain attribution and
+pins only after reviewing the App commit and independently verifying the package
+file digest; compare the published frontend's contracts, retain attribution and
 licenses, and update `pnpm-lock.yaml` deliberately if package dependencies change.
 Frozen installation must pass without rewriting the lock.
 
@@ -241,7 +243,7 @@ AudioWorklet release, and supplies its existing backpressure control. No physica
 microphone, real provider or service state participates. Current preparation uses the published contract archive; frozen acceptance
 identities in IMPORTS remain separate from current resource hashes.
 
-Public GitHub exact-SHA reachability remains a hosted CI prerequisite. Local
+Public Forgejo package reachability for the pinned SHA is a hosted CI prerequisite. Local
 isolated source acceptance does not establish that reachability or hosted CI
 success. The 2026-10-13 Owner authorization in spec #3739 supersedes the
 historical deployment hold. Workers prepare artifacts; Orc owns current-head

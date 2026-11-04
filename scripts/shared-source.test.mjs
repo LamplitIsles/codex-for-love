@@ -2,10 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { mkdtemp, writeFile, readFile, rm, mkdir } from 'node:fs/promises';
+import { copyFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readPin, readDigest, hashes, unpackContracts } from './shared-source.mjs';
+import { readPin, readDigest, hashes, unpackContracts, downloadContracts } from './shared-source.mjs';
 
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 test('source and independently recorded archive digest have distinct strict formats', async () => {
@@ -33,6 +34,18 @@ test('published contracts require trusted bytes, matching source, exports and no
     const unpack = async (expectedPin = pin, digest) => { await rm(dest, { recursive: true, force: true }); await mkdir(dest); return unpackContracts(archive, dest, expectedPin, digest ?? sha(await readFile(archive))); };
     pack(); const digest = sha(await readFile(archive));
     const first = await unpack(pin, digest); assert.deepEqual(first, await hashes(pkg)); assert.deepEqual(await unpack(pin, digest), first);
+    const downloaded = join(root, 'downloaded.tgz');
+    downloadContracts(pin, downloaded, (command, args) => {
+      assert.equal(command, 'curl');
+      assert.equal(args.at(-1), `https://forgejo.n5.guion.io/api/packages/LamplitIsles/generic/lamplit-app/${pin}/lamplit-contracts-${pin}.tar.gz`);
+      assert.deepEqual(args.slice(args.indexOf('--proto'), args.indexOf('--proto') + 4), ['--proto', '=https', '--proto-redir', '=https']);
+      assert.equal(args[args.indexOf('--max-filesize') + 1], '134217728');
+      copyFileSync(archive, args[args.indexOf('--output') + 1]);
+    });
+    await rm(dest, { recursive: true, force: true }); await mkdir(dest);
+    assert.deepEqual(await unpackContracts(downloaded, dest, pin, digest), first);
+    await assert.rejects(unpackContracts(downloaded, dest, pin, 'b'.repeat(64)), /SHA-256 mismatch/);
+    assert.throws(() => downloadContracts(pin, downloaded, () => { throw new Error('404'); }), /404/);
     await assert.rejects(unpack(pin, 'b'.repeat(64)), /SHA-256 mismatch/);
     await assert.rejects(unpack('b'.repeat(40), digest), /source revision mismatch/);
     await rm(join(pkg, 'dist/index.d.ts')); pack(); await assert.rejects(unpack(), /ENOENT/);

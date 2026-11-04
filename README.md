@@ -569,7 +569,8 @@ There is no `/slice` entry, UI fallback or asset-directory environment override.
 Platform owns hosted authentication, manifest, service worker and management;
 CFL does not register a service worker or serve management routes.
 
-CFL pins the published App commit in `lamplit-app.sha` and independently pins
+CFL obtains App archives from Forgejo generic packages. It pins the published
+App commit in `lamplit-app.sha` and independently pins
 its public contract archive digest in `lamplit-contracts.sha256`. Preparation
 verifies both, exports, licenses and the protocol marker before frozen CFL
 installation. App owns its own build and tests; CFL needs neither an App checkout
@@ -580,7 +581,9 @@ update the dependency lock deliberately if its metadata changes.
 the runtime and contracts using its explicit Rolldown dependency, licenses and
 `vendor/source.json` (contracts and prepared license hashes), but no browser
 resources. At startup CFL prepares the selected App separately and verifies its
-compiled contracts against the runtime. A complete pinned cache can be used offline.
+compiled contracts against the runtime. `latest` resolves Forgejo App `main` at
+each startup and fails if that revision's package is unavailable; a complete
+verified cache selected by full SHA can be used offline.
 See [source preparation and isolated acceptance](docs/default-shared-frontend.md)
 for complete artifacts and the verification boundary.
 

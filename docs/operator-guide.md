@@ -704,17 +704,17 @@ frontend = "latest"
 # Or set frontend to a compatible full 40-character lowercase commit SHA.
 ```
 
-`latest` resolves public GitHub `main` at every startup, so it trusts future
+`latest` resolves public Forgejo App `main` at every startup, so it trusts future
 main commits and requires network even when that revision is cached. A full
 lowercase 40-character SHA fixes the version and can reuse an intact cache
 offline. Other values fail configuration validation. CFL logs the resolved SHA
 before listening. To roll back, select a previously known SHA and restart; reload
 old browser pages after restart so their HTML and assets are from the same version.
 
-First preparation needs Node 24, `curl`, and access to GitHub. CFL downloads
-`lamplit-app-<SHA>.tar.gz` from the public `app-<SHA>` GitHub Release; it never
+First preparation needs Node 24, `curl`, and access to Forgejo. CFL downloads
+`lamplit-app-<SHA>.tar.gz` from the public `lamplit-app/<SHA>` generic package; it never
 builds App on the service host. A freshly merged `main` may resolve before the
-release is published: wait for App CI and retry, or select a known compatible
+package is published: wait for App CI and retry, or select a known compatible
 full SHA. Prepared resources, source revision, compiled contract hashes and
 licenses live in `$XDG_CACHE_HOME/lamplitisles/codex-for-love/frontend` (or
 `~/.cache/lamplitisles/codex-for-love/frontend`). Protect this cache like the
