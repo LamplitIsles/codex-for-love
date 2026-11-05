@@ -90,7 +90,7 @@ test('sentence controls exercise native ingress, held execution, privacy, sessio
     // The runner may start a reply before the browser has reconnected.
     const immediate = await control('start', 'immediate line\n');
     client = await connect();
-    await eventually(async () => view?.sessionId === immediateSession.sessionId && view.messages.some(m => m.id === immediate.itemId && m.text === 'immediate line\n'));
+    await eventually(async () => !!view && view.sessionId === immediateSession.sessionId && view.messages.some(m => m.id === immediate.itemId && m.text === 'immediate line\n'));
     assert.equal(view!.messages.some(m => m.text === 'fresh session line\n'), false);
     await control('complete', 'immediate line\n');
     await eventually(async () => view?.messages.some(m => m.id === immediate.itemId && m.textState === 'complete') === true);
@@ -98,7 +98,7 @@ test('sentence controls exercise native ingress, held execution, privacy, sessio
     assert.notEqual(reset.sessionId, immediateSession.sessionId);
     await eventually(async () => replacedSocket.readyState === WS.CLOSED);
     client.close(); view = undefined; client = await connect();
-    await eventually(async () => view?.sessionId === reset.sessionId && !!view.before);
+    await eventually(async () => !!view && view.sessionId === reset.sessionId && !!view.before);
     assert.equal(view!.messages.some(m => m.id === immediate.itemId || m.text === 'immediate line\n'), false);
     const afterReset = await control('start', 'reset line\n');
     await eventually(async () => view?.messages.some(m => m.id === afterReset.itemId && m.text === 'reset line\n') === true);
