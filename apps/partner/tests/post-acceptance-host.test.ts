@@ -83,7 +83,9 @@ test('Post native browser history control puts the retained older source in one 
       client = await openChat(new WebSocket(host.origin.replace('http:', 'ws:') + '/api/chat/socket', { headers: { Cookie: 'post-test-owner=1' } }) as unknown as globalThis.WebSocket, value => { view = value; }, () => {});
       for (let n = 0; n < 7; n++) await incoming(`later-${n}`);
       await client.submit({ operationId: crypto.randomUUID(), text: 'owned ordinary web input' });
-      await host.action({ action: 'complete' }); await host.action({ action: 'reminder' }); await incoming('reconnect');
+      await host.action({ action: 'complete' });
+      await eventually(async () => !!view?.messages.some(m => m.role === 'agent' && m.text === '普通回复' && m.textState === 'complete' && !!m.ends?.length));
+      await host.action({ action: 'reminder' }); await incoming('reconnect');
       await eventually(async () => !!view?.messages.some(m => m.text === 'reconnect original') && !!view?.before);
       assert(!view!.messages.some(m => m.text === 'older original'), 'older source is actually outside the live public page');
       const page = await client.history(view!.before!);

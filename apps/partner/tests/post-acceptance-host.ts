@@ -1,5 +1,6 @@
 // Owned actual CFL ingress/storage/socket host; no shared DTO seeding or providers.
 import { once } from 'node:events';
+import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { mkdir, rename, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
@@ -79,7 +80,26 @@ async function initializePostAcceptanceHost(assets: string, evidence: string | u
   }
   await observe();
   async function settled() {
-    await eventually(async () => JSON.stringify(published) === JSON.stringify(await createCodexChatBackend(partner).read()));
+    await eventually(async () => {
+      if (!published) return false;
+      const withoutEnds = <T extends { text: string; ends?: number[] }>(source: T) => {
+        assert.ok(Array.isArray(source.ends), 'public reply has segment boundaries');
+        let previous = 0;
+        for (const end of source.ends) {
+          assert.ok(Number.isSafeInteger(end) && end > previous && end <= source.text.length, 'segment boundary is in order and within the source');
+          const before = source.text.charCodeAt(end - 1), after = source.text.charCodeAt(end);
+          assert.ok(!(before >= 0xd800 && before <= 0xdbff && after >= 0xdc00 && after <= 0xdfff), 'segment boundary does not split a surrogate pair');
+          previous = end;
+        }
+        const { ends: _ends, ...rest } = source;
+        return rest;
+      };
+      const projected = { ...published, messages: published.messages.map(message =>
+        message.role === 'agent' && message.source === undefined && message.imageState === undefined && message.voice === undefined
+          ? withoutEnds(message) : message),
+        ...(published.streamingReply ? { streamingReply: withoutEnds(published.streamingReply) } : {}) };
+      return JSON.stringify(projected) === JSON.stringify(await createCodexChatBackend(partner).read());
+    });
   }
   async function incoming(input: Incoming) {
     if (input.source.conversationName && input.source.conversationName.length > 256) throw new Error('Native conversation name exceeds canonical UTF-16 bound');

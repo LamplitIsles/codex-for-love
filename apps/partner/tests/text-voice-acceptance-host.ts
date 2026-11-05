@@ -15,6 +15,7 @@ export async function textVoiceHost(assets: string, sentenceEvidence?: string) {
   let speech = { text: 'recognized final', hold: false, holdReady: false, availability: 'enabled' };
   const takes: Take[] = [], pending: Take[] = [];
   const listeners = new Set<() => void>(); let off = () => {};
+  const chats = new Set<import('node:stream').Duplex>();
   const control = { hold: true, completedText: '完整回复' };
   async function writeControl() {
     const path = f.appServer.env.FAKE_SERVER_CONTROL!;
@@ -40,6 +41,9 @@ export async function textVoiceHost(assets: string, sentenceEvidence?: string) {
     }
     partner = await f.createPartner(); off = partner.subscribe(() => { for (const listener of listeners) listener(); });
     for (const listener of listeners) listener();
+    // Replacing the Partner also replaces its chat subscriptions. Reconnect
+    // existing clients only after the new instance is ready.
+    for (const socket of chats) socket.destroy();
   }
   await reset();
   const facade = new Proxy({} as Partner, { get(_target, key) {
@@ -108,7 +112,6 @@ export async function textVoiceHost(assets: string, sentenceEvidence?: string) {
     if (request.url === '/api/voice/capability' && owner(request) && speech.availability === 'unreachable') { response.writeHead(503); response.end(); return; }
     requestHandler.call(app.server, request, response);
   });
-  const chats = new Set<import('node:stream').Duplex>();
   app.server.on('upgrade', (request, socket) => { if (request.url === '/api/chat/socket') { chats.add(socket); socket.on('close', () => chats.delete(socket)); } });
   app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening');
   async function sentenceState(completed = false) {
