@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fixture, eventually } from './fixture.ts';
 import { createCodexChatBackend } from '../runtime/chat.ts';
+import { stageTestFiles } from './file-fixture.ts';
 
 function upload(sessionId: string, operationId: string, bytes: Buffer) {
-  return { sessionId, operationId, files: [{ id: 'client', order: 0, name: 'original', mediaType: '', size: bytes.length, data: bytes.toString('base64') }] };
+  return [{ id: 'client', name: 'original', mediaType: '', bytes }];
 }
 function attempts(requests: Record<string, unknown>[], id: string) {
   return requests.filter(request => (request.method === 'turn/start' || request.method === 'turn/steer') && (request.params as { clientUserMessageId?: string }).clientUserMessageId === id);
@@ -21,8 +21,10 @@ for (const mode of ['start', 'steer'] as const) test(`known local ${mode} file f
     const sessionId = (await partner.snapshot()).sessionId, owner = { ownerId: 'owner', sessionId };
     if (mode === 'steer') { const first = crypto.randomUUID(); await partner.submitShared({ operationId: first, text: 'active' }); await eventually(async () => f.consumed(first)); }
     const operationId = crypto.randomUUID(), bytes = Buffer.from(`local-${mode}`);
-    const staged = await partner.uploadFiles(upload(sessionId, operationId, bytes), owner, async () => true);
-    target = join(f.workspace, '.lamplit', 'attachments', `${createHash('sha256').update(bytes).digest('hex')}.file`);
+    const staged = await stageTestFiles(partner, sessionId, operationId, upload(sessionId, operationId, bytes));
+    const attachments = join(f.workspace, '.lamplit', 'attachments', '.file-operations');
+    const directory = join(attachments, (await fs.readdir(attachments))[0]!);
+    target = join(directory, (await fs.readdir(directory)).find(name => name.startsWith('p0-'))!);
     fs.open = async (...args: Parameters<typeof fs.open>) => {
       if (enabled && args[0] === target && ++checks === 2) {
         enabled = false;
@@ -45,7 +47,7 @@ for (const mode of ['start', 'steer'] as const) test(`known local ${mode} file f
     assert.ok((await partner.chatReceipt(operationId))?.error);
     assert.equal((await partner.sharedRecovery()).find(item => item.operationId === operationId)?.files?.[0]?.availability, 'missing');
     const replacementId = crypto.randomUUID(), replacementBytes = Buffer.from('reselected');
-    const next = await partner.uploadFiles(upload(sessionId, replacementId, replacementBytes), owner, async () => true);
+    const next = await stageTestFiles(partner, sessionId, replacementId, upload(sessionId, replacementId, replacementBytes));
     const replaced = await createCodexChatBackend(partner).submit({ operationId: replacementId, text: 'reselected', files: next.files.map(item => item.ref), replacementSourceIds: [operationId] });
     assert.equal(replaced.state, 'submitted');
     assert.equal((await partner.sharedRecovery()).some(item => item.operationId === operationId), false);
@@ -59,7 +61,7 @@ for (const mode of ['start', 'steer'] as const) test(`dispatched ${mode} RPC unc
     const sessionId = (await partner.snapshot()).sessionId, owner = { ownerId: 'owner', sessionId };
     if (mode === 'steer') { const first = crypto.randomUUID(); await partner.submitShared({ operationId: first, text: 'active' }); await eventually(async () => f.consumed(first)); }
     await fs.writeFile(f.appServer.env.FAKE_SERVER_CONTROL!, JSON.stringify({ hold: true, mode: 'uncertain' }));
-    const operationId = crypto.randomUUID(), staged = await partner.uploadFiles(upload(sessionId, operationId, Buffer.from('bytes')), owner, async () => true);
+    const operationId = crypto.randomUUID(), staged = await stageTestFiles(partner, sessionId, operationId, upload(sessionId, operationId, Buffer.from('bytes')));
     const submission = { operationId, text: 'uncertain', files: staged.files.map(item => item.ref) };
     assert.equal((await partner.submitShared(submission)).state, 'submitted');
     await eventually(async () => (await partner.snapshot({}, false)).messages.some(message => message.id === operationId && message.delivery === 'unresolved'));

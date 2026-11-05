@@ -6,6 +6,30 @@ import { fixture, eventually } from './fixture.ts';
 import { StickerCatalog, packStickerId } from '../runtime/sticker-catalog.ts';
 import { createCodexChatBackend } from '../runtime/chat.ts';
 
+test('a retired mixed file operation cannot restage its preserved sticker', async () => {
+  const f = await fixture(); const realNow = Date.now;
+  const png = await sharp({ create: { width: 2, height: 2, channels: 3, background: 'blue' } }).png().toBuffer();
+  const catalog = await StickerCatalog.open(f.workspace);
+  await catalog.importPack({ id: 'cats', name: 'cats', description: '', stickers: [{ id: 'one', file: 'one.png', name: 'cat', tags: [] }] }, new Map([['one.png', { bytes: png, mediaType: 'image/png' }]]));
+  const sticker = (await catalog.get(packStickerId('cats', 'one')))!;
+  const partner = await f.createPartner();
+  try {
+    const sessionId = (await partner.snapshot()).sessionId, operationId = crypto.randomUUID(), owner = { ownerId: 'owner', sessionId };
+    const backend = partner.stickerBackend(async () => true, () => true);
+    const stage = { sessionId, operationId, sticker: { id: sticker.id, version: sticker.version } };
+    const staged = await backend.stage(stage, async () => true);
+    const manifest = { sessionId, operationId, files: [{ id: 'f', name: 'f', mediaType: '', size: 0 }] };
+    await partner.fileOperationReserve(manifest, owner, async () => true, () => true);
+    await partner.fileOperationReceive(operationId, 'f', (async function* () {})(), owner, async () => true, () => true);
+    await partner.fileOperationComplete(operationId, owner, async () => true, () => true);
+    Date.now = () => realNow() + 25 * 60 * 60 * 1000;
+    await partner.fileOperationReserve({ ...manifest, operationId: crypto.randomUUID() }, owner, async () => true, () => true);
+    await assert.rejects(backend.stage(stage, async () => true), /different content/);
+    assert.deepEqual((await partner.sharedMedia(staged.image.attachmentId, 'original'))?.bytes, png);
+    assert.ok(await partner.sharedMedia(staged.image.attachmentId, 'preview'));
+  } finally { Date.now = realNow; await partner.close(); catalog.close(); await f.close(); }
+});
+
 test('completed Companion sticker call projects one GIF image and retains it after reimport and native restart', async () => {
   const f = await fixture();
   const pixels = Buffer.from([255,0,0,255, 0,255,0,255]);

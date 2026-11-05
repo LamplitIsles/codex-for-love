@@ -713,3 +713,19 @@ license is included with the bundled runtime. The Forgejo frontend archive is
 Its 265 browser, 42 contract and 189 license manifest entries were verified;
 all compiled contracts match the separate archive. App owns the shared host
 projection and UI; CFL supplies native messages and receipts.
+
+## Streaming chat files — FlickNote #75
+
+CFL pins merged App PR #53 at `7cad90ca5fcf59206a318040ee850233e3848b5e`,
+tree `1d2f4e00b79d4d05148d454df1298aa8a0990cd0`. The Forgejo and GitHub
+contracts archives are byte-identical, 46,013 bytes, with SHA-256
+`d67358cf64bb4806e1311cef6c01a794b610235f12bd356677d1f6cb9efd43bd`.
+The corresponding frontend archives are byte-identical, 7,073,320 bytes, with
+SHA-256 `35c496a145e73a736645955f2cf71996620aba72c2e874d5597a57edb33a424e`.
+Their source metadata identifies the pinned revision; the frontend's 265 browser,
+44 compiled-contract and 189 license entries match its manifest, and all
+compiled contracts match the separate archive. The license manifest is unchanged
+from the previous pin, and contract dependencies and package export entry points
+are unchanged.
+App owns the streaming attachment UI and public contracts; CFL owns the host
+file storage and execution integration.

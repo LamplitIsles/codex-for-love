@@ -4,7 +4,7 @@ import { BackgroundSettingsError, MAX_BACKGROUND_BYTES, backgroundMediaType } fr
 import { VoiceSettingsError } from './voice-settings.ts';
 import { ModelPreferenceError } from './model-preference.ts';
 import { APPEARANCE_PATH, WORKSPACE_IMAGE_PATH } from '@lamplit/contracts';
-import { fileHttp, imageHttp, stickerHttp } from '@lamplit/contracts/server';
+import { imageHttp, stickerHttp } from '@lamplit/contracts/server';
 import { createChatSocket } from './chat.ts';
 import { createVoiceHost, type VoiceDependencies } from './voice.ts';
 import { VOICE_CAPABILITY_PATH, VOICE_STREAM_PATH } from '@lamplit/contracts/voice';
@@ -21,14 +21,16 @@ import { PET_ACTIVITIES } from './pet.ts';
 import type { ConversationSearch } from './conversation-search.ts';
 import { AuthFailure, ownerId, type AuthStore } from './auth.ts';
 import { receiverAuthorized } from './post.ts';
+import { FileOperationNotFound, FileOperationRetired } from './store.ts';
+import { validateManifest } from './file-operations.ts';
 
 const keetEventBodyLimit = 128 * 1024;
 
 async function body(request: IncomingMessage, limit = 65536): Promise<unknown> {
   let size = 0; const chunks: Buffer[] = [];
-  for await (const chunk of request) {
+  for await (const chunk of request.iterator({ destroyOnReturn: false })) {
     size += chunk.length;
-    if (size > limit) throw new Error('Request is too large');
+    if (size > limit) { request.resume(); throw new Error('Request is too large'); }
     chunks.push(chunk);
   }
   return JSON.parse(Buffer.concat(chunks).toString());
@@ -64,6 +66,23 @@ export function createWebServer(partner: Partner, assets: string, options: { aut
   };
   const streams = new Map<ServerResponse, IncomingMessage>();
   const activeSockets = new Map<import('ws').WebSocket, IncomingMessage>();
+  let activeFileDownloads = 0;
+  function holdFileDownload(response: ServerResponse): () => void {
+    activeFileDownloads++;
+    let handlerDone = false, responseDone = response.writableFinished || response.destroyed, released = false;
+    const release = () => {
+      if (released || !handlerDone || !responseDone) return;
+      released = true;
+      response.off('finish', terminal); response.off('close', terminal); response.off('error', terminal);
+      activeFileDownloads--;
+    };
+    const terminal = () => { responseDone = true; release(); };
+    response.once('finish', terminal); response.once('close', terminal); response.once('error', terminal);
+    return () => {
+      handlerDone = true;
+      release();
+    };
+  }
   const stillAuthorized = (request: IncomingMessage) => {
     try { return options.auth.authorize(request); } catch { return false; }
   };
@@ -229,20 +248,102 @@ export function createWebServer(partner: Partner, assets: string, options: { aut
         response.writeHead(200, { 'content-type': image.mediaType, 'cache-control': 'no-store' });
         response.end(image.bytes); return;
       }
-      if (path === '/api/chat/files' || path.startsWith('/api/chat/files/')) {
-        const origin = options.auth.origin;
-        const webRequest = new Request(`${origin}${request.url}`, {
-          method: request.method,
-          headers: new Headers(Object.entries(request.headers).flatMap(([key, value]) => value === undefined ? [] : [[key, Array.isArray(value) ? value.join(',') : value] as [string,string]])),
-          ...(request.method === 'POST' ? { body: requestBody(request), duplex: 'half' } : {}),
-        } as RequestInit);
-        const result = await fileHttp(webRequest, { upload: (value, owner) => partner.uploadFiles(value, owner, () => authorize(request), () => stillAuthorized(request)), file: (id, owner) => partner.sharedFile(id, owner) }, async () => {
-          if (!await authorize(request)) return null;
-          return { ownerId, sessionId: (await partner.snapshot()).sessionId, limits: await partner.sharedFileLimits() };
-        });
-        const bytes = Buffer.from(await result!.arrayBuffer());
-        if (!stillAuthorized(request)) return unauthorized();
-        response.writeHead(result!.status, Object.fromEntries(result!.headers)); response.end(bytes); return;
+      if (path === '/api/chat/file-operations' || path.startsWith('/api/chat/file-operations/')) {
+        response.setHeader('cache-control', 'private, no-store');
+        response.setHeader('content-security-policy', "sandbox; default-src 'none'");
+        const owner = { ownerId, sessionId: (await partner.snapshot()).sessionId };
+        const check = () => authorize(request), commit = () => stillAuthorized(request);
+        const scopeError = async () => {
+          if (!stillAuthorized(request) || (await partner.snapshot()).sessionId !== owner.sessionId) return 403;
+          return partner.fileReadAllowed(owner.sessionId, () => stillAuthorized(request)) ? undefined : 403;
+        };
+        const intakeAllowed = async (manifest: ReturnType<typeof validateManifest>) => {
+          const limits = await partner.sharedFileLimits();
+          if (!limits) return false;
+          return manifest.files.length <= limits.maxFilesPerMessage && manifest.files.every(file => file.size <= limits.maxFileBytes) && manifest.files.reduce((sum, file) => sum + file.size, 0) <= limits.maxMessageFileBytes;
+        };
+        try {
+          if (request.method !== 'GET' && !await partner.sharedFileLimits()) { request.resume(); return json(response, { error: 'File intake unavailable' }, 503); }
+          if (path === '/api/chat/file-operations') {
+            if (request.method !== 'POST') return json(response, { error: 'Method not allowed' }, 405);
+            if (request.headers['content-type'] !== 'application/json') return json(response, { error: 'Invalid content type' }, 415);
+            if (Number(request.headers['content-length']) > 32_768) { request.resume(); return json(response, { error: 'Manifest too large' }, 413); }
+            const manifest = validateManifest(await body(request, 32_768));
+            if (!await intakeAllowed(manifest)) return json(response, { error: 'File intake unavailable' }, 503);
+            return humanJson(await partner.fileOperationReserve(manifest, owner, check, commit));
+          }
+          const parts = path.slice('/api/chat/file-operations/'.length).split('/');
+          const operationId = parts[0]!;
+          if (!/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/u.test(operationId)) throw new Error('Invalid operation');
+          const current = await partner.fileOperationStatus(operationId, owner, check);
+          if (!current) {
+            const scope = await scopeError(); if (scope) { response.writeHead(scope); response.end(); return; }
+            response.writeHead(404); response.end(); return;
+          }
+          if (parts.length === 1 && request.method === 'GET') {
+            const scope = await scopeError(); if (scope) { response.writeHead(scope); response.end(); return; }
+            return humanJson(current);
+          }
+          if (!await intakeAllowed(current.manifest)) { request.resume(); return json(response, { error: 'File intake unavailable' }, 503); }
+          if (parts.length === 2 && parts[1] === 'complete' && request.method === 'POST') return humanJson(await partner.fileOperationComplete(operationId, owner, check, commit));
+          if (parts.length === 3 && parts[1] === 'files' && request.method === 'PUT') {
+            if (request.headers['content-type'] !== 'application/octet-stream') return json(response, { error: 'Invalid content type' }, 415);
+            const file = current.manifest.files.find(item => item.id === parts[2]);
+            if (!file) throw new Error('Unknown file');
+            const length = request.headers['content-length'];
+            if (length !== undefined && (!/^\d+$/u.test(length) || Number(length) !== file.size)) throw new Error('File size mismatch');
+            await partner.fileOperationReceive(operationId, file.id, request.iterator({ destroyOnReturn: false }), owner, check, commit);
+            if (!stillAuthorized(request)) return unauthorized();
+            response.writeHead(204); response.end(); return;
+          }
+          return json(response, { error: 'Method not allowed' }, 405);
+        } catch (error) {
+          request.resume();
+          if (error instanceof FileOperationRetired || error instanceof FileOperationNotFound) {
+            const scope = await scopeError(); if (scope) { response.writeHead(scope); response.end(); return; }
+            if (error instanceof FileOperationNotFound) { response.writeHead(404); response.end(); return; }
+            return json(response, { error: { code: 'file_operation_retired', message: error.message } }, 410);
+          }
+          if (!stillAuthorized(request)) return unauthorized();
+          return json(response, { error: 'File operation failed' }, 400);
+        }
+      }
+      if (path.startsWith('/api/chat/files/')) {
+        if (request.method === 'GET') {
+          response.setHeader('cache-control', 'private, no-store');
+          const id = path.slice('/api/chat/files/'.length);
+          if (!/^[A-Za-z0-9_-]{1,100}$/u.test(id)) return json(response, { error: 'Invalid file' }, 400);
+          if (activeFileDownloads >= 4) return json(response, { error: 'File downloads busy' }, 503);
+          const finishDownload = holdFileDownload(response);
+          try {
+            const owner = { ownerId, sessionId: (await partner.snapshot()).sessionId };
+            const file = await partner.openSharedFile(id, owner);
+            if (!file) return json(response, { error: 'Missing file' }, 404);
+            try {
+              if (!partner.fileReadAllowed(owner.sessionId, () => stillAuthorized(request))) return unauthorized();
+              response.writeHead(200, { 'content-type': 'application/octet-stream', 'content-disposition': 'attachment', 'content-length': file.size, 'cache-control': 'private, no-store', 'content-security-policy': "sandbox; default-src 'none'", 'x-content-type-options': 'nosniff' });
+              if (file.size === 0) { response.end(); return; }
+              const stream = file.handle.createReadStream({ start: 0, end: file.size - 1, autoClose: false, highWaterMark: 64 * 1024 });
+              try {
+                let sent = 0;
+                for await (const chunk of stream) {
+                  if (!partner.fileReadAllowed(owner.sessionId, () => stillAuthorized(request)) || response.destroyed) { response.destroy(); break; }
+                  sent += chunk.length;
+                  if (sent > file.size) { response.destroy(); break; }
+                  if (!response.write(chunk)) await new Promise<void>((resolve, reject) => {
+                    const done = () => { response.off('close', closed); response.off('error', failed); resolve(); };
+                    const closed = () => { response.off('drain', done); response.off('error', failed); reject(new Error('Download closed')); };
+                    const failed = (error: Error) => { response.off('drain', done); response.off('close', closed); reject(error); };
+                    response.once('drain', done); response.once('close', closed); response.once('error', failed);
+                  });
+                }
+                if (!response.destroyed) { if (sent === file.size) response.end(); else response.destroy(); }
+              } finally { stream.destroy(); }
+            } finally { await file.handle.close(); }
+            return;
+          } finally { finishDownload(); }
+        }
+        return json(response, { error: 'Method not allowed' }, 405);
       }
       if (path === '/api/chat/images' || path.startsWith('/api/chat/media/')) {
         // The same-host Origin above is validated before reconstructing the external POST URL.

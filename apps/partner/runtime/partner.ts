@@ -12,7 +12,9 @@ import { StickerCatalog } from './sticker-catalog.ts';
 import { readStickerZip } from './sticker-import.ts';
 import { listDiary, readDiary } from './diary.ts';
 export { MAX_DIARY_ENTRY_BYTES } from './diary.ts';
-import { validateUpload, validateSubmission, validateRecovery, validateRetryImageMapping, validateRetryFileMapping, validateFileUpload, type FileUpload, type FileRef, type Receipt, type Submission, type ImageUpload, type ImageRef, type InputRecovery, type ChatAppearance, type FinalizeSubmission, type RetryFailed, type DeleteFailed, type StickerBackend, validate, FinalizeSubmissionSchema, RetryFailedSchema, DeleteFailedSchema } from '@lamplit/contracts';
+import { validateUpload, validateSubmission, validateRecovery, validateRetryImageMapping, validateRetryFileMapping, type FileRef, type Receipt, type Submission, type ImageUpload, type ImageRef, type InputRecovery, type ChatAppearance, type FinalizeSubmission, type RetryFailed, type DeleteFailed, type StickerBackend, validate, FileLimitsSchema, FileRefSchema, FinalizeSubmissionSchema, RetryFailedSchema, DeleteFailedSchema } from '@lamplit/contracts';
+import * as contracts from '@lamplit/contracts';
+import * as contractServer from '@lamplit/contracts/server';
 import { createHash, randomUUID } from 'node:crypto';
 import { access, lstat, mkdir, open, readFile, writeFile, unlink } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
@@ -46,7 +48,8 @@ import {
   type ImageInput,
   imageInputSchema,
 } from './images.ts';
-import { fileLimits, fileOwner, fileRef, materializeFiles, readStoredFile } from './files.ts';
+import { fileLimits, fileOwner, fileRef, openVerifiedFile, retryStoredFiles, verifyStoredFile } from './files.ts';
+import { createFileOperations, validateManifest } from './file-operations.ts';
 import { Store, type StoredFile, type MessageMeta, type MessagePageOptions, type StoredImage, type StoredInput, type StoredInputSegment } from './store.ts';
 import { classifyKeetTrigger, type KeetEventBody } from './keet.ts';
 import { materializeKeetImages } from './keet-images.ts';
@@ -391,13 +394,14 @@ async function nativeInput(input: string, images: readonly StoredImage[], store:
   }
   const files = (await Promise.all(operationIds.map(id => store.inputFiles(id, fileOwner, sessionId)))).flat();
   for (const file of files) {
-    try { await readStoredFile(file, attachments); }
+    try { await verifyStoredFile(file, attachments); }
     catch (error) { throw new LocalFilePreparationError(error); }
   }
   if (!values.length && files.length) values.push({ type: 'text', text: '', text_elements: [] });
   if (!values.length) throw new Error('A native turn needs text or an image');
   const fileContext = files.length ? Object.fromEntries(files.map((file, index) => {
-    const value = JSON.stringify({ path: `.lamplit/attachments/${basename(file.path)}`, fileIndex: index, operationId: file.operation_id, name: file.name, size: file.size }).replaceAll('<', '\\u003c').replaceAll('>', '\\u003e');
+    const path = join('.lamplit', 'attachments', relative(resolve(attachments), resolve(file.path)));
+    const value = JSON.stringify({ path, fileIndex: index, operationId: file.operation_id, name: file.name, size: file.size }).replaceAll('<', '\\u003c').replaceAll('>', '\\u003e');
     return [`codex-for-love.file-${index}`, { kind: 'untrusted' as const, value }];
   })) : undefined;
   return { values, ...(fileContext ? { fileContext } : {}), ...(metadata.length ? { stickerContext: { kind: 'application' as const, value: JSON.stringify(metadata) } } : {}) };
@@ -519,6 +523,13 @@ function versionFromUserAgent(value: unknown): string | undefined {
  * ordinary resume safe without a second model journal.
  */
 export async function createPartner(config: Config, credentials: Credentials, dependencies: PartnerDependencies = {}) {
+  try {
+    const exports = contracts as Record<string, unknown>;
+    const serverExports = contractServer as Record<string, unknown>;
+    if (exports.FILE_OPERATIONS_PATH !== '/api/chat/file-operations' || exports.FILE_DOWNLOAD_PATH !== '/api/chat/files/' || exports.MAX_FILE_MANIFEST_BYTES !== 32_768 || exports.FILE_OPERATION_RETIRED_CODE !== 'file_operation_retired' || exports.FILE_OPERATION_RETIRED_MESSAGE !== 'File operation retired; start a new attempt explicitly.' || ['FileOperationRetiredError', 'FileOperationNotFoundError'].some(name => typeof serverExports[name] !== 'function' || serverExports[name] !== exports[name]) || ['validateFileManifest', 'validateFileUploadResult', 'fileOperationUrl', 'fileOperationFileUrl'].some(name => typeof exports[name] !== 'function') || ['FILE_UPLOAD_PATH', 'MAX_FILE_UPLOAD_BODY_BYTES', 'FileUploadSchema', 'validateFileUpload'].some(name => name in exports)) throw new Error('Missing streaming contract');
+    validate(FileLimitsSchema, fileLimits);
+    validate(FileRefSchema, { attachmentId: 'probe', name: 'probe', mediaType: '', size: fileLimits.maxFileBytes, availability: 'available' });
+  } catch { throw new Error('Matching streaming file contracts are required'); }
   const voiceSettings = createVoiceSettings(config.state, () => config.speech ? credentials.speech ?? null : null);
   const currentTtsSettings = () => config.configPath ? loadTtsSettings(config.configPath) : Promise.resolve(createTtsSettings(config.state, () => ({ tts: config.speech?.tts, credentials })));
   const ttsSettings = {
@@ -573,6 +584,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
     if (!reconcilingCatalogue) await writeConversationImages(paths.conversationImages, await withAvailability([...catalogue.values()]));
   }
   const store = new Store(paths.database);
+  const fileOperations = createFileOperations(store, paths.attachments);
   let stickers: StickerCatalog;
   try { stickers = await StickerCatalog.open(paths.workspaceRoot); }
   catch (error) { await store.close(); throw error; }
@@ -1931,7 +1943,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
         const staged = await store.stagedFiles(id, fileOwner, threadId);
         if (shared.files?.length) {
           if (!staged || JSON.stringify(staged.refs) !== JSON.stringify(shared.files)) throw new Error('Files do not belong to this operation');
-          for (const file of staged.files) await readStoredFile(file, paths.attachments);
+          for (const file of staged.files) await verifyStoredFile(file, paths.attachments);
           fileScope = { ownerId: fileOwner, sessionId: threadId, files: staged.files };
         } else if (staged?.refs.length) throw new Error('Incomplete file submission');
       }
@@ -2120,6 +2132,8 @@ export async function createPartner(config: Config, credentials: Credentials, de
             const checked = inputImages(input.operationId, [{ type: 'image', name: image.name, mediaType: image.media_type, data: bytes.toString('base64') }]);
             if (checked[0]?.id !== ref.attachmentId || !await store.stagedMedia(ref.attachmentId, input.sessionId)) throw new Error('Staged sticker changed');
             if (!await allowed()) throw new Error('Unauthorized');
+            await store.assertImageStageActive(input.operationId);
+            await mutationGuard(input.sessionId, authorize); if (!await allowed()) throw new Error('Unauthorized');
             return { sessionId: input.sessionId, operationId: input.operationId, image: ref };
           }
           const asset = await stickers.asset(input.sticker.id, input.sticker.version);
@@ -2177,33 +2191,44 @@ export async function createPartner(config: Config, credentials: Credentials, de
       });
     },
     async sharedFileLimits() { return storageError || closing ? false as const : fileLimits; },
-    async uploadFiles(value: FileUpload, owner: { ownerId: string; sessionId: string }, authorize: () => Promise<boolean>, authorizeCommit?: () => boolean) {
-      const task = admission.then(async () => {
-        await mutationGuard(owner.sessionId, authorize);
-        if (owner.ownerId !== fileOwner) throw new Error('Wrong owner');
-        const input = validateFileUpload(value, fileLimits);
-        if (input.sessionId !== owner.sessionId) throw new Error('Wrong file session');
-        const fingerprint = createHash('sha256').update(JSON.stringify(input)).digest('hex');
-        const existing = await store.checkStagedFiles(input.operationId, owner.ownerId, owner.sessionId, fingerprint);
-        const payload = existing ?? await materializeFiles(input, owner.ownerId, paths.attachments);
-        if (existing) for (const file of existing.files) await readStoredFile(file, paths.attachments);
-        await mutationGuard(owner.sessionId, authorize);
-        await store.stageFiles(input.operationId, owner.ownerId, owner.sessionId, fingerprint, payload, commitGuard(owner.sessionId, authorizeCommit));
-        return { sessionId: input.sessionId, operationId: input.operationId, files: payload.refs.map((ref, order) => ({ id: input.files[order]!.id, order, ref })) };
-      });
-      admission = task.then(() => undefined, () => undefined);
-      return task;
+    async fileOperationReserve(value: unknown, owner: { ownerId: string; sessionId: string }, authorize: () => Promise<boolean>, authorizeCommit: () => boolean) {
+      if (owner.ownerId !== fileOwner) throw new Error('Wrong owner');
+      const manifest = validateManifest(value);
+      return fileOperations.reserve(manifest, owner, { check: () => mutationGuard(owner.sessionId, authorize), commit: commitGuard(owner.sessionId, authorizeCommit)! });
     },
-    async sharedFile(id: string, owner: { ownerId: string; sessionId: string }) {
-      if (owner.ownerId !== fileOwner || owner.sessionId !== threadId) return null;
+    async fileOperationStatus(id: string, owner: { ownerId: string; sessionId: string }, authorize: () => Promise<boolean>) {
+      if (owner.ownerId !== fileOwner) throw new Error('Wrong owner');
+      await mutationGuard(owner.sessionId, authorize);
+      return fileOperations.status(id, owner);
+    },
+    async fileOperationReceive(id: string, fileId: string, source: AsyncIterable<Uint8Array>, owner: { ownerId: string; sessionId: string }, authorize: () => Promise<boolean>, authorizeCommit: () => boolean) {
+      if (owner.ownerId !== fileOwner) throw new Error('Wrong owner');
+      await mutationGuard(owner.sessionId, authorize);
+      return fileOperations.receive(id, fileId, source, owner, { check: () => mutationGuard(owner.sessionId, authorize), commit: commitGuard(owner.sessionId, authorizeCommit)! });
+    },
+    async fileOperationComplete(id: string, owner: { ownerId: string; sessionId: string }, authorize: () => Promise<boolean>, authorizeCommit: () => boolean) {
+      if (owner.ownerId !== fileOwner) throw new Error('Wrong owner');
+      await mutationGuard(owner.sessionId, authorize);
+      return fileOperations.complete(id, owner, { check: () => mutationGuard(owner.sessionId, authorize), commit: commitGuard(owner.sessionId, authorizeCommit)! });
+    },
+    async openSharedFile(id: string, owner: { ownerId: string; sessionId: string }) {
+      if (owner.ownerId !== fileOwner || owner.sessionId !== threadId || closing || storageError) return null;
       const file = await store.file(id, owner.ownerId, owner.sessionId);
       if (!file) return null;
-      return readStoredFile(file, paths.attachments).catch(() => null);
+      return await fileOperations.protectRead(file.operation_id, async () => {
+        const current = await store.file(id, owner.ownerId, owner.sessionId);
+        if (!current || JSON.stringify(current) !== JSON.stringify(file)) return null;
+        const handle = await openVerifiedFile(file, paths.attachments).catch(() => null);
+        if (!handle) return null;
+        if (owner.sessionId !== threadId || closing || storageError) { await handle.close(); return null; }
+        return { handle, size: file.size };
+      }) ?? null;
     },
+    fileReadAllowed(sessionId: string, authorize: () => boolean) { return Boolean(authorize() && !closing && !storageError && sessionId === threadId); },
     async sharedFileRef(id: string): Promise<FileRef | undefined> {
       const file = await store.file(id, fileOwner, threadId);
       if (!file) return undefined;
-      return fileRef(file, await readStoredFile(file, paths.attachments).then(() => 'available' as const, () => 'missing' as const));
+      return fileRef(file, await verifyStoredFile(file, paths.attachments).then(() => 'available' as const, () => 'missing' as const));
     },
     async sharedImageLimits() { return storageError || closing ? false as const : { ...imageLimits, mediaTypes: [...imageLimits.mediaTypes] }; },
     async uploadImages(value: ImageUpload, authorize: () => Promise<boolean> = async () => true, authorizeCommit?: () => boolean) {
@@ -2585,15 +2610,20 @@ export async function createPartner(config: Config, credentials: Credentials, de
       pendingHumanAdmissions += 1;
       try {
         const normalized = normalizeSubmission(value);
-        await submitInput(normalized.operationId, normalized.text, [], normalized.replacementSourceIds ?? [], normalized, { sessionId, authorize, beforeCommit: commitGuard(sessionId, authorizeCommit) });
-        const receipt = await this.chatReceipt(normalized.operationId);
-        if (!receipt) throw new Error('Submission has no durable result');
+        const receipt = await fileOperations.protectRead(normalized.operationId, async () => {
+          await submitInput(normalized.operationId, normalized.text, [], normalized.replacementSourceIds ?? [], normalized, { sessionId, authorize, beforeCommit: commitGuard(sessionId, authorizeCommit) });
+          const result = await this.chatReceipt(normalized.operationId);
+          if (!result) throw new Error('Submission has no durable result');
+          return result;
+        });
+        if (!receipt) throw new Error('Upload busy');
         return receipt;
       } finally { pendingHumanAdmissions -= 1; }
     },
     async finalizeSubmission(value: FinalizeSubmission, authorize: () => Promise<boolean> = async () => true, authorizeCommit?: () => boolean): Promise<Receipt | null> {
       value = validate(FinalizeSubmissionSchema, value);
-      return serializeInput(async () => {
+      const operationId = 'retry' in value ? value.retry.attemptId : value.submission.operationId;
+      const result = await fileOperations.protectRead(operationId, () => serializeInput(async () => {
         await mutationGuard(value.sessionId, authorize);
         let input: Submission;
         if ('retry' in value) {
@@ -2610,7 +2640,9 @@ export async function createPartner(config: Config, credentials: Credentials, de
         if (!accepted && !failed) await store.failSubmission(input, value.sessionId, 'Submission was not received', commitGuard(value.sessionId, authorizeCommit));
         notify();
         return this.chatReceipt(input.operationId);
-      });
+      }));
+      if (result === undefined) throw new Error('Upload busy');
+      return result;
     },
     async retryFailed(value: RetryFailed, authorize: () => Promise<boolean> = async () => true, authorizeCommit?: () => boolean): Promise<Receipt> {
       const { sessionId, operationId, attemptId } = validate(RetryFailedSchema, value);
@@ -2640,12 +2672,14 @@ export async function createPartner(config: Config, credentials: Credentials, de
         if (original.files?.length) {
           const stagedFiles = await store.stagedFiles(operationId, fileOwner, sessionId);
           if (!stagedFiles || JSON.stringify(stagedFiles.refs) !== JSON.stringify(original.files)) throw new Error('Original files are missing');
-          const contents = await Promise.all(stagedFiles.files.map(file => readStoredFile(file, paths.attachments)));
-          const upload: FileUpload = { sessionId, operationId: attemptId, files: stagedFiles.files.map((file, order) => ({ id: file.id, order, name: file.name, mediaType: file.media_type, size: file.size, data: contents[order]!.toString('base64') })) };
-          validateFileUpload(upload, fileLimits);
-          const target = await materializeFiles(upload, fileOwner, paths.attachments, stagedFiles.files);
+          const target = await retryStoredFiles(stagedFiles.files, attemptId, paths.attachments);
           await mutationGuard(sessionId, authorize);
-          await store.stageFiles(attemptId, fileOwner, sessionId, createHash('sha256').update(JSON.stringify(upload)).digest('hex'), target, beforeCommit);
+          const previousFiles = await store.stagedFiles(attemptId, fileOwner, sessionId);
+          if (previousFiles) {
+            if (JSON.stringify(previousFiles) !== JSON.stringify(target)) throw new Error('Retry file staging changed');
+          } else {
+            await store.stageFiles(attemptId, fileOwner, sessionId, createHash('sha256').update(JSON.stringify(target)).digest('hex'), target, beforeCommit);
+          }
           files = target.refs;
         }
         const input = normalizeSubmission({ operationId: attemptId, text: original.text, ...(images ? { images } : {}), ...(files ? { files } : {}), replacementSourceIds: [operationId] });

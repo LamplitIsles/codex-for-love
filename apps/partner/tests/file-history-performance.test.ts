@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { readTestFile, stageTestFiles } from './file-fixture.ts';
 
 test('history checks only returned files, repeating integrity checks after changes and across clients', async () => {
   // Count actual reads in this test process; the fake app-server is a separate process.
@@ -12,12 +12,13 @@ test('history checks only returned files, repeating integrity checks after chang
   fs.open = async (...args: Parameters<typeof fs.open>) => {
     const handle = await originalOpen(...args);
     if (typeof args[0] === 'string' && args[0].endsWith('.file')) {
-      const originalRead = handle.readFile;
-      handle.readFile = (async (...readArgs: Parameters<typeof originalRead>) => {
-        const result = await originalRead.apply(handle, readArgs);
-        reads += 1; bytes += typeof result === 'string' ? Buffer.byteLength(result) : result.byteLength;
+      const originalRead = handle.read.bind(handle);
+      let counted = false;
+      handle.read = (async (...readArgs: Parameters<typeof handle.read>) => {
+        const result = await originalRead(...readArgs);
+        if (result.bytesRead) { if (!counted) { reads += 1; counted = true; } bytes += result.bytesRead; }
         return result;
-      }) as typeof originalRead;
+      }) as typeof handle.read;
     }
     return handle;
   };
@@ -30,9 +31,12 @@ test('history checks only returned files, repeating integrity checks after chang
     const owner = { ownerId: 'owner', sessionId }, payloads: Array<{ id: string; bytes: Buffer; path: string }> = [];
     for (let index = 0; index < 35; index++) {
       const operationId = crypto.randomUUID(), data = Buffer.alloc(64_000, index);
-      const uploaded = await partner.uploadFiles({ sessionId, operationId, files: [{ id: 'client', order: 0, name: `file-${index}`, mediaType: '', size: data.length, data: data.toString('base64') }] }, owner, async () => true);
+      const root = join(f.workspace, '.lamplit', 'attachments', '.file-operations');
+      const before = new Set(await fs.readdir(root).catch(() => []));
+      const uploaded = await stageTestFiles(partner, sessionId, operationId, [{ id: 'client', name: `file-${index}`, mediaType: '', bytes: data }]);
       await backend.submit({ operationId, text: `message ${index}`, files: uploaded.files.map(file => file.ref) });
-      payloads.push({ id: operationId, bytes: data, path: join(f.workspace, '.lamplit', 'attachments', `${createHash('sha256').update(data).digest('hex')}.file`) });
+      const directory = join(root, (await fs.readdir(root)).find(name => !before.has(name))!);
+      payloads.push({ id: operationId, bytes: data, path: join(directory, (await fs.readdir(directory)).find(name => name.startsWith('p0-'))!) });
     }
     await eventually(async () => (await f.requests()).filter(request => request.method === 'turn/start' || request.method === 'turn/steer').length >= 35, 30000);
     const reset = () => { reads = 0; bytes = 0; };
@@ -54,7 +58,7 @@ test('history checks only returned files, repeating integrity checks after chang
     reset(); const after = await backend.read();
     for (const item of [changed, missing, linked]) assert.equal(after.messages.find(message => message.operationId === item.id)?.files?.[0]?.availability, 'missing');
     assert.equal(reads, 28); assert.equal(bytes, 28 * 64_000);
-    assert.equal(await partner.sharedFile(uploadedId(after, changed.id), owner), null);
+    assert.equal(await readTestFile(partner, uploadedId(after, changed.id), owner), null);
   } finally {
     await partner.close(); await f.close();
     fs.open = originalOpen; syncBuiltinESMExports();
@@ -71,18 +75,18 @@ test('a page validates multiple messages in order with at most six concurrent fi
   fs.open = async (...args: Parameters<typeof fs.open>) => {
     const handle = await originalOpen(...args);
     if (typeof args[0] === 'string' && args[0].endsWith('.file')) {
-      const originalRead = handle.readFile;
-      handle.readFile = (async (...readArgs: Parameters<typeof originalRead>) => {
-        if (!measuring) return originalRead.apply(handle, readArgs);
+      const originalRead = handle.read.bind(handle); let counted = false;
+      handle.read = (async (...readArgs: Parameters<typeof handle.read>) => {
+        if (!measuring || counted) return originalRead(...readArgs);
         active++; peak = Math.max(peak, active);
         try {
           // Keep reads in flight long enough to observe overlap deterministically.
           await new Promise(resolve => setTimeout(resolve, 100));
-          const result = await originalRead.apply(handle, readArgs);
-          reads++;
+          const result = await originalRead(...readArgs);
+          if (result.bytesRead) { reads++; counted = true; }
           return result;
         } finally { active--; }
-      }) as typeof originalRead;
+      }) as typeof handle.read;
     }
     return handle;
   };
@@ -97,9 +101,9 @@ test('a page validates multiple messages in order with at most six concurrent fi
       const operationId = crypto.randomUUID(); operations.push(operationId);
       const files = Array.from({ length: 6 }, (_, order) => {
         const bytes = Buffer.alloc(32_000, index * 6 + order);
-        return { id: `client-${order}`, order, name: `file-${index}-${order}`, mediaType: '', size: bytes.length, data: bytes.toString('base64') };
+        return { id: `client-${order}`, name: `file-${index}-${order}`, mediaType: '', bytes };
       });
-      const uploaded = await partner.uploadFiles({ sessionId, operationId, files }, owner, async () => true);
+      const uploaded = await stageTestFiles(partner, sessionId, operationId, files);
       await backend.submit({ operationId, text: `message ${index}`, files: uploaded.files.map(file => file.ref) });
     }
     await eventually(async () => (await f.requests()).filter(request => request.method === 'turn/start' || request.method === 'turn/steer').length >= 4, 30000);

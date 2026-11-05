@@ -59,9 +59,9 @@ A companion's life should not disappear into an opaque service. CFL keeps its ap
 - `.lamplit/alarms.sqlite` for the Partner's current alarms
 - `memory/YYYY-MM-DD.md` for optional, human-readable diary entries
 
-Chat file attachments use private, authenticated `/api/chat/files` staging and
-reads. A message may include up to six files, each at most 8,000,000 bytes and
-24,000,000 bytes in total, independently of image limits. Empty files and
+Chat file attachments use private, authenticated streaming staging and reads.
+A message may include up to six files, each at most 100,000,000 bytes and
+200,000,000 bytes in total, independently of image limits. Empty files and
 unknown media types are accepted. Original bytes are kept under opaque names in
 `.lamplit/attachments/`; the supplied filename is metadata, never a storage
 path or download header. Downloads are served as private, non-cacheable binary
@@ -72,10 +72,38 @@ library. Partner receives one untrusted fact per file containing its
 workspace-relative path and complete name. A local file check that fails
 before native submission is recoverable; an uncertain dispatched request still
 requires inspection. Temporary upload files can remain after a process is
-interrupted; remove stale `.tmp` files only when no Partner process is using
-the workspace. A corrupt or symlinked content-addressed target is left untouched
-and a verified copy uses a separate opaque path. Protect and back up the
+interrupted; an upload may need to be selected again. Protect and back up the
 workspace and its SQLite database together.
+
+The streaming file-operation API reserves a session-scoped ordered manifest at
+`/api/chat/file-operations`, receives raw bytes for each file, and completes the
+operation only after every file has been verified. The JSON manifest body is
+limited to 32,768 bytes. At most 16 unadmitted operations may reserve
+800,000,000 bytes in total; four operations may upload and four files may be
+downloaded concurrently. When a new reservation is created, reservations idle
+for 24 hours may be retired if no admission, failure, retry or other reference
+protects their file paths. Staged images and their bytes are preserved, and any
+image path overlapping a file prevents its retirement. A permanent operation identity fence is
+committed before cleanup. Cleanup resumes after interruption and quota remains
+charged until it completes. Failed, referenced or ambiguous reservations and
+files whose ownership cannot be verified remain charged and need investigation;
+enough of them can block new reservations. When all files from a successful
+retry are referenced by durable history, their original reservation no longer
+counts against the unadmitted quota.
+
+Each upload operation owns a private directory under
+`.lamplit/attachments/.file-operations`. One cooperating Partner owns the
+database and these directories. Workspace writers are trusted and must not
+modify the managed directories during upload or cleanup. Partner does not change
+existing workspace permissions. A crash before a reservation is recorded can
+leave an unregistered empty directory; it is not automatically removed. Partner
+refuses to start with an incompatible upload reservation schema and preserves
+its existing data.
+
+An owner inspecting a retired file operation receives HTTP 410 with error code
+`file_operation_retired`. A new operation requires an explicit user action;
+inspect an uncertain submission before taking that action. Partner requires
+matching published App streaming contracts and refuses to start without them.
 
 The official Codex thread remains the conversation authority. CFL does not duplicate model transcripts, reasoning, or tool payloads into its own database. The workspace can be read, backed up, searched, corrected, and moved with ordinary local tools.
 
