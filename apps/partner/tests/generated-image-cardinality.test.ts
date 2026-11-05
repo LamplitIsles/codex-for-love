@@ -44,7 +44,7 @@ for (const [rounds, count] of [[1, 7], [1, 11], [31, 11]] as const) {
       let view: ChatView | undefined;
       const connect = () => {
         socket = new WebSocket(origin.replace('http:', 'ws:') + '/api/chat/socket');
-        return openChat(socket, value => { view = value; }, () => {}, () => {});
+        return openChat(socket, value => { view = value; }, () => {});
       };
       for (let connection = 0; connection < 2; connection++) {
         client = await connect();

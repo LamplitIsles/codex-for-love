@@ -34,7 +34,7 @@ test('native Keet ingress retains display source, private context, images and re
   }
   await listen();
   let view: ChatView | undefined;
-  const connect = () => openChat(new WebSocket(origin.replace('http:', 'ws:') + '/api/chat/socket'), value => { view = value; }, () => {}, () => {});
+  const connect = () => openChat(new WebSocket(origin.replace('http:', 'ws:') + '/api/chat/socket'), value => { view = value; }, () => {});
   let client = await connect();
   const post = (event: unknown) => fetch(origin + '/api/keet/events', { method: 'POST', headers: { authorization: 'Bearer synthetic-keet-receiver', 'content-type': 'application/json' }, body: JSON.stringify(event) });
   const event = (sequence: number, text: string, channel: 'dm' | 'group', trigger = true) => ({

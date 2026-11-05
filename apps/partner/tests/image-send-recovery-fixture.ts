@@ -49,8 +49,8 @@ export async function imageAcceptanceFixture(assets: string, port = 0, controlPo
     const db = new DatabaseSync(partnerPaths(f.workspace).database);
     db.exec("CREATE TRIGGER fixture_admission_failure BEFORE INSERT ON pending_inputs WHEN NEW.input IN ('明确拒绝文字图片','拒绝输入') AND (SELECT COUNT(*) FROM failed_submissions WHERE json_extract(payload,'$.text')=NEW.input)<2 BEGIN SELECT RAISE(ABORT, 'Test-owned admission rejected'); END"); db.close();
     partner = await f.createPartner();
-    const subscribe = partner.subscribe.bind(partner);
-    partner.subscribe = listener => { listeners.add(listener); const off = subscribe(listener); return () => { listeners.delete(listener); off(); }; };
+    const subscribe = partner.subscribeChat.bind(partner);
+    partner.subscribeChat = listener => { const notify = () => listener({ type: 'change' }); listeners.add(notify); const off = subscribe(listener); return () => { listeners.delete(notify); off(); }; };
     const upload = partner.uploadImages.bind(partner), limits = partner.sharedImageLimits.bind(partner), submit = partner.submitShared.bind(partner);
     partner.sharedImageLimits = async () => disabled ? false : limits();
     partner.uploadImages = async (input, authorize) => { if (uploadFailure) throw new Error('Test-owned storage unavailable'); return upload(input, authorize); };

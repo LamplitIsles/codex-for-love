@@ -80,7 +80,7 @@ test('Post native browser history control puts the retained older source in one 
     const incoming = (id: string, history = false) => host.action({ action: 'incoming', id, source, text: `${id} original`, createdAt: 1791320400000, history });
     try {
       await incoming('initial'); await incoming('older', true);
-      client = await openChat(new WebSocket(host.origin.replace('http:', 'ws:') + '/api/chat/socket', { headers: { Cookie: 'post-test-owner=1' } }) as unknown as globalThis.WebSocket, value => { view = value; }, () => {}, () => {});
+      client = await openChat(new WebSocket(host.origin.replace('http:', 'ws:') + '/api/chat/socket', { headers: { Cookie: 'post-test-owner=1' } }) as unknown as globalThis.WebSocket, value => { view = value; }, () => {});
       for (let n = 0; n < 7; n++) await incoming(`later-${n}`);
       await client.submit({ operationId: crypto.randomUUID(), text: 'owned ordinary web input' });
       await host.action({ action: 'complete' }); await host.action({ action: 'reminder' }); await incoming('reconnect');

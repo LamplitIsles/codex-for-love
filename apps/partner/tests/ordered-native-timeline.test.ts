@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { once } from 'node:events';
 import { createHash } from 'node:crypto';
 import { openChat } from '@lamplit/contracts/client';
-import { validate, TimelineUpdateSchema, type ChatView, type TimelineUpdate } from '@lamplit/contracts';
+import type { ChatView } from '@lamplit/contracts';
 import { fixtureImage } from './panels-seed.ts';
 import { createWebServer } from './web-server.ts';
 import { createCodexChatBackend } from '../runtime/chat.ts';
@@ -56,7 +56,7 @@ for (const count of [0, 35, 70]) test(`native text/image/voice/steering order su
         const app = createWebServer(partner, join(f.directory, 'assets'));
         app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening');
         let socketView: ChatView | undefined;
-        const connect = () => openChat(new WebSocket(`ws://127.0.0.1:${(app.server.address() as { port: number }).port}/api/chat/socket`), value => { socketView = value; }, () => {}, () => {});
+        const connect = () => openChat(new WebSocket(`ws://127.0.0.1:${(app.server.address() as { port: number }).port}/api/chat/socket`), value => { socketView = value; }, () => {});
         let client = await connect();
         try {
           await eventually(async () => !!socketView);
@@ -86,16 +86,19 @@ for (const count of [0, 35, 70]) test(`native text/image/voice/steering order su
   } finally { await f.close(); }
 });
 
-test('compiled socket publishes session-scoped structural invalidation after native input changes', async () => {
+test('shared socket publishes native input changes through the view', async () => {
   const f = await fixture(), partner = await f.createPartner();
   const app = createWebServer(partner, join(f.directory, 'assets'));
   app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening');
-  const updates: TimelineUpdate[] = []; let view: ChatView | undefined;
-  const client = await openChat(new WebSocket(`ws://127.0.0.1:${(app.server.address() as { port: number }).port}/api/chat/socket`), value => { view = value; }, () => {}, event => { if (event.type === 'change') updates.push(validate(TimelineUpdateSchema, event.update)); });
+  const frames: string[] = []; let view: ChatView | undefined;
+  const socket = new WebSocket(`ws://127.0.0.1:${(app.server.address() as { port: number }).port}/api/chat/socket`);
+  socket.addEventListener('message', event => frames.push(String(event.data)));
+  const client = await openChat(socket, value => { view = value; }, () => {});
   try {
-    const operationId = crypto.randomUUID(); await client.submit({ operationId, text: 'native timeline invalidation' });
-    await eventually(async () => updates.length > 0 && view?.messages.some(message => message.role === 'agent') === true);
-    assert.equal(updates.every(update => update.sessionId === view!.sessionId && update.change.type === 'structure'), true);
+    const operationId = crypto.randomUUID(); await client.submit({ operationId, text: 'native view update' });
+    await eventually(async () => view?.messages.some(message => message.role === 'agent') === true);
+    assert.ok(view!.messages.some(message => message.operationId === operationId));
+    assert.equal(frames.some(frame => JSON.parse(frame).type === 'timeline'), false);
   } finally { client.close(); await app.close(); await f.close(); }
 });
 
@@ -124,7 +127,7 @@ for (const [backlog, depth] of [[0, 0], [70, 0], [70, 1]] as const) test(`retain
   const partner = await f.createPartner(); const app = createWebServer(partner, join(f.directory, 'assets'));
   app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening');
   let view: ChatView | undefined;
-  const connect = () => openChat(new WebSocket(`ws://127.0.0.1:${(app.server.address() as { port: number }).port}/api/chat/socket`), value => { view = value; }, () => {}, () => {});
+  const connect = () => openChat(new WebSocket(`ws://127.0.0.1:${(app.server.address() as { port: number }).port}/api/chat/socket`), value => { view = value; }, () => {});
   let client = await connect();
   try {
     await eventually(async () => !!view?.before);

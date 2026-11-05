@@ -696,3 +696,20 @@ verification checked 265 browser, 36 compiled-contract and 189 license manifest
 entries, and all frontend compiled contracts match the separate archive. The
 contract package dependencies are unchanged. App owns the attachment UI and its
 browser acceptance; CFL owns the host file and execution integration.
+
+## Single-view chat — FlickNote #62
+
+CFL pins published App PR #52 merge commit
+`9b30d315453c1dd833b52b7a38b53e6ea4f745e0`, whose tree
+`23795ac06d99e44ace461b505ad413b5fe3bd776` matches the reviewed App
+`3e0d66b3edfa86fac6885a1f80a2f88e644bded6`. The independently downloaded
+Forgejo and GitHub contracts archives are byte-identical, 43,553 bytes, and
+SHA-256 `bfa450d08ae466ce6dc4fca524d3706a20949c8c213313d006fd27c495f78b42`;
+their source metadata identifies the merge commit. The App contracts add the
+MIT-licensed `marked@18.0.14` dependency for shared reply segmentation; its
+license is included with the bundled runtime. The Forgejo frontend archive is
+7,071,087 bytes, SHA-256
+`a7754ba1a6986c41dc80bc840d53822b18e466dbc3992574980e98e7fb87ef90`.
+Its 265 browser, 42 contract and 189 license manifest entries were verified;
+all compiled contracts match the separate archive. App owns the shared host
+projection and UI; CFL supplies native messages and receipts.

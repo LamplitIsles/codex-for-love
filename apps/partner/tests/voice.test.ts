@@ -48,7 +48,7 @@ test('Node voice and chat share one upgrade owner; PCM streams before finish, fi
   try {
     assert.deepEqual(await (await fetch(`${f.origin}/api/voice/capability`)).json(), {available: true});
     assert.equal(f.state.calls, 0);
-    const chat = await openChat(new globalThis.WebSocket(`${f.origin.replace('http', 'ws')}/api/chat/socket`), () => {}, () => {}, () => {});
+    const chat = await openChat(new globalThis.WebSocket(`${f.origin.replace('http', 'ws')}/api/chat/socket`), () => {}, () => {});
     const c = await f.client(); await c.wait('ready');
     c.ws.send(Buffer.alloc(3200), {binary: true});
     await eventually(async () => f.state.frames === 1);
@@ -75,7 +75,7 @@ test('exact voice Origin rejects missing and foreign origins before contacting p
     assert.deepEqual(await (await fetch(`${f.origin}/api/voice/capability`)).json(), {available: false});
     const c = await f.client(); assert.deepEqual(await c.wait('error'), {type:'error', code:'voice_disabled'});
     assert.equal(f.state.calls, 0);
-    const chat = await openChat(new globalThis.WebSocket(`${f.origin.replace('http','ws')}/api/chat/socket`), () => {}, () => {}, () => {});
+    const chat = await openChat(new globalThis.WebSocket(`${f.origin.replace('http','ws')}/api/chat/socket`), () => {}, () => {});
     await chat.submit({operationId:crypto.randomUUID(), text:'speech disabled text'}); chat.close();
     await eventually(async () => (await f.f.requests()).some(r => r.method === 'turn/start'));
     assert.equal((await fetch(`${f.origin}/api/voice/capability`, {method:'POST'})).status, 405);

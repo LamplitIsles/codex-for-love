@@ -77,7 +77,7 @@ test('connection revoked while native authorization awaits never enters the offi
   app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening');
   const socket = new WebSocket(`ws://127.0.0.1:${(app.server.address() as { port: number }).port}/api/chat/socket`);
   let sessionId = '';
-  const client = await openChat(socket, view => { sessionId = view.sessionId; }, () => {}, () => {});
+  const client = await openChat(socket, view => { sessionId = view.sessionId; }, () => {});
   try {
     await new Promise<void>(resolve => setTimeout(resolve, 100));
     armed = true;

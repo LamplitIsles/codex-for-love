@@ -11,9 +11,10 @@ import type { ChatView } from '@lamplit/contracts';
 import { fixture, eventually } from './fixture.ts';
 import { createWebServer } from './web-server.ts';
 
-async function harness(summary = false, failAdmission = false) {
+async function harness(summary = false, failAdmission = false, stream = false) {
   const f = await fixture();
   if (summary) f.appServer.env.FAKE_SUMMARY_START = 'true';
+  if (stream) f.appServer.env.FAKE_STREAM_FIXTURE = 'true';
   if (failAdmission) {
     const paths = partnerPaths(f.workspace);
     await mkdir(paths.managedRoot, { recursive: true });
@@ -34,16 +35,17 @@ async function harness(summary = false, failAdmission = false) {
   const port = (app.server.address() as { port: number }).port;
   let view: ChatView | undefined;
   let dropIncoming = false;
+  let socket: WebSocket;
   const calls: string[] = [];
   const connect = () => {
-    const socket = new WebSocket(`ws://127.0.0.1:${port}/api/chat/socket`);
+    socket = new WebSocket(`ws://127.0.0.1:${port}/api/chat/socket`);
     socket.addEventListener('message', event => { if (dropIncoming) event.stopImmediatePropagation(); });
     const send = socket.send.bind(socket);
     socket.send = data => { calls.push(String(data)); send(data); };
-    return openChat(socket, value => { view = value; }, () => {}, () => {});
+    return openChat(socket, value => { view = value; }, () => {});
   };
   let client = await connect();
-  return { f, partner, control, get client() { return client; }, get view() { return view; }, calls,
+  return { f, partner, control, get client() { return client; }, get view() { return view; }, get socket() { return socket; }, calls,
     dropReplies() { dropIncoming = true; },
     async reconnect() { client.close(); dropIncoming = false; client = await connect(); },
     async close() { await control([], false); client.close(); await app.close(); await f.close(); } };
@@ -151,6 +153,44 @@ test('lost WS acknowledgement resolves by lookup without executing the same oper
     assert.equal((await h.client.lookup(input.operationId))?.state, 'submitted');
     assert.equal((await h.f.requests()).filter(r => r.method === 'turn/start').length, 1);
   } finally { await h.close(); }
+});
+
+test('provider failure reconnects accepted and unacknowledged admissions by lookup without replay', { timeout: 30_000 }, async () => {
+  const h = await harness(false, false, true);
+  const snapshot = h.partner.snapshot.bind(h.partner);
+  let armed = false;
+  h.partner.snapshot = async (...args) => {
+    if (armed && h.partner.streamingReply()?.text === 'first line\n') {
+      armed = false;
+      throw new Error('Test-owned provider failure');
+    }
+    return snapshot(...args);
+  };
+  const originalError = console.error;
+  console.error = (...args: unknown[]) => {
+    if (!(args[0] instanceof Error && args[0].message === 'Test-owned provider failure')) originalError(...args);
+  };
+  try {
+    const accepted = { operationId: crypto.randomUUID(), text: 'accepted' };
+    assert.equal((await h.client.submit(accepted)).state, 'submitted');
+    await eventually(async () => !!(await h.f.nativeState()).streamingItem);
+    const unknown = { operationId: crypto.randomUUID(), text: 'acknowledgement lost' };
+    h.dropReplies();
+    const result = h.client.submit(unknown).then(() => 'acknowledged', () => 'disconnected');
+    await eventually(async () => (await h.partner.chatReceipt(unknown.operationId))?.state === 'submitted');
+    await eventually(async () => await h.f.consumed(unknown.operationId));
+    await snapshot();
+    const before = (await h.f.requests()).filter(request => request.method === 'turn/start' || request.method === 'turn/steer').length;
+    const closed = once(h.socket, 'close');
+    armed = true;
+    await h.f.streamCommand({ action: 'advance', text: 'first line\n' });
+    assert.equal((await closed)[0].code, 1012);
+    assert.equal(await result, 'disconnected');
+    await h.reconnect();
+    assert.equal((await h.client.lookup(accepted.operationId))?.state, 'submitted');
+    assert.equal((await h.client.lookup(unknown.operationId))?.state, 'submitted');
+    assert.equal((await h.f.requests()).filter(request => request.method === 'turn/start' || request.method === 'turn/steer').length, before);
+  } finally { console.error = originalError; await h.close(); }
 });
 
 

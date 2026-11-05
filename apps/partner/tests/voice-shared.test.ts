@@ -112,7 +112,7 @@ test('fake engine publishes voice over the shared socket and recovers it after r
     socket.on('close', () => { channel.close(); channels.delete(socket); });
   });
   let view: ChatView | undefined;
-  const connect = () => openChat(new WebSocket(`ws://127.0.0.1:${(server.address() as { port: number }).port}`), value => { view = value; }, () => {}, () => {});
+  const connect = () => openChat(new WebSocket(`ws://127.0.0.1:${(server.address() as { port: number }).port}`), value => { view = value; }, () => {});
   let client: Awaited<ReturnType<typeof connect>> | undefined;
   try {
     client = await connect();

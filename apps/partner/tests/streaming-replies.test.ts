@@ -6,12 +6,101 @@ import { openChat } from '@lamplit/contracts/client';
 import type { ChatView } from '@lamplit/contracts';
 import { createWebServer } from './web-server.ts';
 import { createCodexChatBackend } from '../runtime/chat.ts';
+import { Store } from '../runtime/store.ts';
 import { fixture, eventually } from './fixture.ts';
 
 function activePreview(view: ChatView | undefined) {
   const message = view?.messages.find(item => item.textState === 'streaming');
   return message ? { id: message.id, turnId: message.turnId!, createdAt: message.createdAt, text: message.text } : view?.streamingReply;
 }
+
+for (const mode of ['read', 'history'] as const) test(`${mode}: native completion during the receipt lookup keeps both messages`, async () => {
+  const f = await fixture(); f.appServer.env.FAKE_STREAM_FIXTURE = 'true';
+  const partner = await f.createPartner(), backend = createCodexChatBackend(partner);
+  const original = partner.chatReceipt;
+  let entered!: () => void, release!: () => void, armed = false;
+  const reading = new Promise<void>(resolve => { entered = resolve; });
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  let pending: Promise<Pick<ChatView, 'messages'>> | undefined;
+  try {
+    const operationId = crypto.randomUUID();
+    await partner.submit(operationId, 'receipt gate input');
+    await eventually(async () => !!(await f.nativeState()).streamingItem);
+    await f.streamCommand({ action: 'advance', text: 'partial' });
+    await eventually(async () => partner.streamingReply()?.text === 'partial');
+    const first = await backend.read();
+    const replyId = activePreview(first)!.id;
+    partner.chatReceipt = async id => {
+      if (armed) { armed = false; entered(); await gate; }
+      return original(id);
+    };
+    armed = true;
+    const read = () => mode === 'read' ? backend.read() : backend.history(JSON.stringify({ before: 2 }));
+    pending = read();
+    await reading;
+    await f.streamCommand({ action: 'complete', text: 'partial and complete' });
+    await eventually(async () => partner.streamingReply() === undefined);
+    release();
+    const middle = await pending;
+    const last = await read();
+    assert.deepEqual([first, middle, last].map(view => view.messages.map(message => message.id)),
+      [[operationId, replyId], [operationId, replyId], [operationId, replyId]]);
+    assert.equal(middle.messages[1]?.text, 'partial and complete');
+    assert.equal(middle.messages[1]?.textState, 'complete');
+  } finally {
+    release();
+    if (pending) await pending.catch(() => {});
+    partner.chatReceipt = original;
+    await f.close();
+  }
+});
+
+for (const mode of ['read', 'history'] as const) test(`${mode}: completion between the snapshot completion ledger and stream sampling preserves the timeline item`, async () => {
+  const f = await fixture(); f.appServer.env.FAKE_STREAM_FIXTURE = 'true';
+  const partner = await f.createPartner(), backend = createCodexChatBackend(partner);
+  const original = Store.prototype.completedChatItems;
+  let release!: () => void, entered!: () => void, armed = false, reads = 0;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const reading = new Promise<void>(resolve => { entered = resolve; });
+  let pending: Promise<Pick<ChatView, 'messages'>> | undefined;
+  try {
+    const operationId = crypto.randomUUID();
+    await partner.submit(operationId, 'Test-owned snapshot race input');
+    await eventually(async () => !!(await f.nativeState()).streamingItem);
+    await f.streamCommand({ action: 'advance', text: 'Partial answer' });
+    await eventually(async () => partner.streamingReply()?.text === 'Partial answer');
+    const first = await backend.read();
+    const preview = activePreview(first)!;
+    assert.deepEqual(first.messages.map(message => message.id), [operationId, preview.id]);
+    Store.prototype.completedChatItems = async function (turnId) {
+      const completed = await original.call(this, turnId);
+      if (armed && turnId === preview.turnId && ++reads === 1) { armed = false; entered(); await gate; }
+      return completed;
+    };
+    armed = true;
+    const read = () => mode === 'read' ? backend.read() : backend.history(JSON.stringify({ before: 2 }));
+    pending = read();
+    await reading;
+    const native = await f.nativeState();
+    await f.streamCommand({ action: 'event', notification: { method: 'item/completed', params: {
+      threadId: native.threadId, turnId: preview.turnId, completedAtMs: Date.now(),
+      item: { type: 'agentMessage', id: preview.id, text: 'Final answer', phase: 'final_answer', memoryCitation: null, delivery: null, questions: null },
+    } } });
+    await eventually(async () => partner.streamingReply() === undefined);
+    release();
+    const middle = await pending;
+    const last = await read();
+    assert.deepEqual([first, middle, last].map(view => view.messages.map(message => message.id)),
+      [[operationId, preview.id], [operationId, preview.id], [operationId, preview.id]]);
+    assert.equal(middle.messages[1]?.text, 'Final answer');
+    assert.equal(middle.messages[1]?.textState, 'complete');
+  } finally {
+    release();
+    if (pending) await pending.catch(() => {});
+    Store.prototype.completedChatItems = original;
+    await f.close();
+  }
+});
 
 test('final native body completes atomically on the shared socket while execution stays cancellable', async () => {
   const f = await fixture(); f.appServer.env.FAKE_STREAM_FIXTURE = 'true';
@@ -21,7 +110,7 @@ test('final native body completes atomically on the shared socket while executio
   const port = (app.server.address() as { port: number }).port;
   let view: ChatView | undefined;
   const observed: ChatView[] = [];
-  const connect = () => openChat(new WebSocket(`ws://127.0.0.1:${port}/api/chat/socket`), v => { view = v; observed.push(v); }, () => {}, () => {});
+  const connect = () => openChat(new WebSocket(`ws://127.0.0.1:${port}/api/chat/socket`), v => { view = v; observed.push(v); }, () => {});
   let client = await connect();
   try {
     await client.submit({ operationId: crypto.randomUUID(), text: 'Test-owned final body input' });
@@ -64,7 +153,7 @@ for (const ending of ['complete', 'stop', 'fail'] as const) test(`held official 
   app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening');
   const port = (app.server.address() as { port: number }).port;
   let view: ChatView | undefined;
-  const connect = () => openChat(new WebSocket(`ws://127.0.0.1:${port}/api/chat/socket`), v => { view = v; }, () => {}, () => {});
+  const connect = () => openChat(new WebSocket(`ws://127.0.0.1:${port}/api/chat/socket`), v => { view = v; }, () => {});
   let client = await connect(); let appClosed = false;
   try {
     const input = { operationId: crypto.randomUUID(), text: 'Test-owned sentence acceptance input' };
@@ -179,7 +268,9 @@ for (const ending of ['complete', 'stop', 'fail'] as const) test(`native body ev
       await eventually(async () => await completion() === turnId);
       release();
       const delayed = await pending;
-      assert.equal(delayed.replyCompletedTurnId, undefined, 'older body snapshot cannot acquire new evidence');
+      assert.equal(delayed.replyCompletedTurnId, turnId, 'a resampled completed body can carry matching completion evidence');
+      assert.equal(delayed.messages.find(m => m.id === final.id)?.text, final.text);
+      assert.notEqual(delayed.messages.find(m => m.id === final.id)?.textState, 'streaming');
     } finally { release(); await pending; }
     const settled = await backend.read();
     assert.equal(settled.replyCompletedTurnId, turnId);
@@ -281,7 +372,7 @@ test('closing the last socket during initial native read releases its eventual s
   let observing = 0;
   const facade = new Proxy(partner, { get(target, key) {
     if (key === 'snapshot') return async (...args: Parameters<typeof partner.snapshot>) => { entered(); await gate; return target.snapshot(...args); };
-    if (key === 'subscribe') return (listener: () => void) => { observing++; const off = target.subscribe(listener); let subscribed = true; return () => { if (subscribed) { subscribed = false; observing--; off(); } }; };
+    if (key === 'subscribeChat') return (listener: Parameters<typeof target.subscribeChat>[0]) => { observing++; const off = target.subscribeChat(listener); let subscribed = true; return () => { if (subscribed) { subscribed = false; observing--; off(); } }; };
     const value = target[key as keyof typeof target]; return typeof value === 'function' ? value.bind(target) : value;
   } });
   const app = createWebServer(facade, join(f.directory, 'assets'));

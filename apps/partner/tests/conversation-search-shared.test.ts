@@ -49,7 +49,7 @@ test('actual socket isolates native failures and oversized reads, retries, and a
   const app = createWebServer(partner, join(f.directory, 'assets'), { conversationSearch: s.search, authorize: async () => authorized });
   app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening');
   const socket = new WebSocket(`ws://127.0.0.1:${(app.server.address() as { port: number }).port}/api/chat/socket`);
-  const client = await openChat(socket, () => {}, () => {}, () => {});
+  const client = await openChat(socket, () => {}, () => {});
   try {
     for (const failure of ['search', 'get', 'context']) {
       await writeFile(s.control, JSON.stringify({ [failure]: true }));

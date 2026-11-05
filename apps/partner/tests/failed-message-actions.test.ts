@@ -121,7 +121,7 @@ test('compiled App socket finalizes delayed originals and retries; deleted failu
   const app = createWebServer(partner, join(f.directory,'assets'));
   app.server.listen(0,'127.0.0.1'); await once(app.server,'listening');
   let view: import('@lamplit/contracts').ChatView | undefined;
-  const connect = () => openChat(new WebSocket(`ws://127.0.0.1:${(app.server.address() as { port: number }).port}/api/chat/socket`), next => { view = next; }, () => {}, () => {});
+  const connect = () => openChat(new WebSocket(`ws://127.0.0.1:${(app.server.address() as { port: number }).port}/api/chat/socket`), next => { view = next; }, () => {});
   let client = await connect();
   const originalClient = client;
   let delayed: ReturnType<typeof client.submit> | undefined;

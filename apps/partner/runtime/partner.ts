@@ -12,7 +12,7 @@ import { StickerCatalog } from './sticker-catalog.ts';
 import { readStickerZip } from './sticker-import.ts';
 import { listDiary, readDiary } from './diary.ts';
 export { MAX_DIARY_ENTRY_BYTES } from './diary.ts';
-import { validateUpload, validateSubmission, validateRecovery, validateRetryImageMapping, validateRetryFileMapping, validateFileUpload, type FileUpload, type FileRef, type Receipt, type Submission, type ImageUpload, type ImageRef, type InputRecovery, type ChatAppearance, type FinalizeSubmission, type RetryFailed, type DeleteFailed, type StickerBackend, type TimelineUpdate, validate, FinalizeSubmissionSchema, RetryFailedSchema, DeleteFailedSchema } from '@lamplit/contracts';
+import { validateUpload, validateSubmission, validateRecovery, validateRetryImageMapping, validateRetryFileMapping, validateFileUpload, type FileUpload, type FileRef, type Receipt, type Submission, type ImageUpload, type ImageRef, type InputRecovery, type ChatAppearance, type FinalizeSubmission, type RetryFailed, type DeleteFailed, type StickerBackend, validate, FinalizeSubmissionSchema, RetryFailedSchema, DeleteFailedSchema } from '@lamplit/contracts';
 import { createHash, randomUUID } from 'node:crypto';
 import { access, lstat, mkdir, open, readFile, writeFile, unlink } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
@@ -164,6 +164,11 @@ export type PartnerDependencies = {
 };
 
 type JsonObject = Record<string, unknown>;
+type ChatObservation =
+  | { type: 'change' }
+  | { type: 'reply-settled' }
+  | { type: 'delta'; reply: { id: string; turnId: string; createdAt: number; text: string } }
+  | { type: 'completed'; id: string; turnId: string; text: string };
 type SupportedNotification =
   | ServerNotificationFor<'thread/tokenUsage/updated'>
   | ServerNotificationFor<'turn/started'>
@@ -573,7 +578,8 @@ export async function createPartner(config: Config, credentials: Credentials, de
   catch (error) { await store.close(); throw error; }
   const stickerImageRefs = new Map<string, { id: string; version: string }>();
   const now = dependencies.now ?? Date.now;
-  const listeners = new Set<(update?: TimelineUpdate) => void>();
+  const listeners = new Set<() => void>();
+  const chatListeners = new Set<(observation: ChatObservation) => void>();
   const storedMessages = await store.allMessages();
   const messageIds = new Set(storedMessages.map((message) => message.id));
   const messagesById = new Map<string, KnownMessage>(
@@ -615,6 +621,11 @@ export async function createPartner(config: Config, credentials: Credentials, de
   const completedStreamItems = new Map<string, Set<string>>();
   let storageError = false;
   let closing = false;
+  const publicStreamingReply = () => {
+    if (closing || !streaming || !streaming.text.trim() || streaming.turnId !== activeTurnId
+      || !isActiveTurn(turns.get(streaming.turnId))) return undefined;
+    return { ...streaming };
+  };
   let unsubscribeAppServer: Array<() => void> = [];
   let startupPending = false;
   let compacting = false;
@@ -630,8 +641,10 @@ export async function createPartner(config: Config, credentials: Credentials, de
   let alarmTimer: ReturnType<typeof setInterval> | undefined;
   const pet = config.pet.enabled ? new PetActivityProjection(() => { if (!closing) notify(); }) : undefined;
 
-  const notify = (update?: TimelineUpdate) => { for (const listener of listeners) listener(update); };
-  const timelineStructure = () => notify({ sessionId: threadId, change: { type: 'structure' } });
+  const notify = (observation: ChatObservation = { type: 'change' }) => {
+    for (const listener of listeners) listener();
+    for (const listener of chatListeners) listener(observation);
+  };
 
   function officialInputIds(turn: OfficialTurn): string[] {
     return userItems(turn).flatMap((item) => {
@@ -1534,7 +1547,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
           || !streaming || streaming.turnId !== turnId || streaming.id !== itemId
           || completedStreamItems.get(turnId)?.has(itemId) || !delta) break;
         streaming = { ...streaming, text: streaming.text + delta };
-        if (!closing) notify({ sessionId: threadId, change: { type: 'item', message: { id: streaming.id, role: 'agent', text: streaming.text, textState: 'streaming', createdAt: messagesById.get(sourceIdsForTurn(turnId)[0] ?? '')?.created ?? streaming.createdAt, operationId: null, turnId } } });
+        if (!closing) notify({ type: 'delta', reply: { ...streaming } });
         break;
       }
       case 'item/started': {
@@ -1550,7 +1563,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
           await store.recordTimelineSlot(threadId, turnId, item.id, kind);
           mergeItem(turnId, item);
           if (kind === 'user' && turn && userItems(turn).length) await projectTurn(turn);
-          if (!closing) timelineStructure();
+          if (!closing) notify();
         }
         if (notification.params.threadId === threadId && activeTurnId === turnId && isActiveTurn(turn)
           && item.type === 'agentMessage' && typeof item.id === 'string'
@@ -1569,7 +1582,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
             streaming = { id: item.id, turnId, text: typeof item.text === 'string' ? item.text : '',
               createdAt: notification.params.startedAtMs };
           }
-          if (!closing) timelineStructure();
+          if (!closing) notify();
         }
         if (item.type === 'contextCompaction') {
           lifecycle = { compactionId: `compact:${typeof item.id === 'string' ? item.id : randomUUID()}`, nativeId: typeof item.id === 'string' ? item.id : undefined, status: 'running', startSeq: eventSequence, startedAt: now() };
@@ -1580,6 +1593,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
       case 'item/completed': {
         const item = record(params.item);
         const turnId = typeof params.turnId === 'string' ? params.turnId : '';
+        const priorResult = turnResults.get(turnId);
         if (turnId && typeof item.id === 'string') {
           const slot = (await store.timelineSlots(threadId, turnId)).find(value => value.itemId === item.id);
           if (slot && slot.kind !== timelineKind(item)) throw projectionError('PROTOCOL_RECONCILE_FAILED', 'Native timeline item changed kind');
@@ -1615,6 +1629,9 @@ export async function createPartner(config: Config, credentials: Credentials, de
           await store.markChatItemCompleted(turnId, item.id);
         }
         if (turnId) mergeItem(turnId, item);
+        if (!closing && isAnswer(item) && typeof item.id === 'string' && typeof item.text === 'string') {
+          for (const listener of chatListeners) listener({ type: 'completed', id: item.id, turnId, text: item.text });
+        }
         // Keep the preview until the completed item is available to history reads.
         if (streaming?.turnId === turnId && streaming.id === item.id) streaming = undefined;
         if (turnId && ['userMessage', 'agentMessage', 'imageGeneration', 'mcpToolCall', 'mcpToolResult'].includes(typeof item.type === 'string' ? item.type : '')) {
@@ -1623,7 +1640,11 @@ export async function createPartner(config: Config, credentials: Credentials, de
           syncActiveTurn();
         }
         if (item.type === 'contextCompaction') await finishCompaction(typeof params.turnId === 'string' ? params.turnId : undefined, typeof item.id === 'string' ? item.id : undefined);
-        if (!closing) timelineStructure();
+        const result = turnResults.get(turnId);
+        const structure = (value: TurnResult) => JSON.stringify([value.sourceIds, value.generatedIds, value.voiceDispatches, value.status, value.error]);
+        const replyOnly = isAnswer(item) && typeof item.id === 'string' && typeof item.text === 'string'
+          && priorResult && result && structure(priorResult) === structure(result);
+        if (!closing) notify(replyOnly ? { type: 'reply-settled' } : { type: 'change' });
         break;
       }
       case 'turn/completed': {
@@ -1655,7 +1676,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
         }
         await refreshBootstrap();
         if (!activeTurnId) { void drainRejectedSteers(); drainExternal(); }
-        if (!closing) timelineStructure();
+        if (!closing) notify();
         break;
       }
       case 'thread/compacted':
@@ -2278,9 +2299,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
       try { return { media_type: image.mediaType, data: await readFile(image.path) }; } catch { return undefined; }
     },
     streamingReply() {
-      if (closing || !streaming || !streaming.text.trim() || streaming.turnId !== activeTurnId
-        || !isActiveTurn(turns.get(streaming.turnId))) return undefined;
-      return { ...streaming };
+      return publicStreamingReply();
     },
     replyCompletion() {
       if (closing || !completedReply || completedReply.turnId !== activeTurnId
@@ -2352,49 +2371,91 @@ export async function createPartner(config: Config, credentials: Credentials, de
           inputImages: delivery === 'replaced' ? [] : inputMeta.filter((image) => image.operation_id === meta.id).map(({ id, name }) => ({ id, name, url: `/api/images/${id}` })),
         });
       }
-      const chatMessages = new Map(await Promise.all(pageTurns.map(async result => {
-        const turn = turns.get(result.turnId);
-        const completed = await store.completedChatItems(result.turnId);
-        const messages = (turn?.items ?? []).flatMap(item => {
-          if (item.type !== 'agentMessage' || typeof item.id !== 'string' || typeof item.text !== 'string' || !item.text.trim()) return [];
-          if (turn?.status !== 'completed' && !completed.has(item.id)) return [];
-          return [{ id: item.id, text: item.text }];
-        });
-        return [result.turnId, messages] as const;
-      })));
       const timelines = new Map(await Promise.all(pageTurns.map(async result => {
-        const turn = turns.get(result.turnId);
-        const slots = await store.timelineSlots(threadId, result.turnId);
-        const items = turn?.items ?? [];
-        const known = new Set(slots.map(slot => slot.itemId));
-        // Native history retains completion order for items whose start was not
-        // observed. Keep them available without claiming a recovered start order.
-        const unrecorded = items.flatMap(item => {
-          if (typeof item.id !== 'string' || known.has(item.id)) return [];
-          const kind = timelineKind(item);
-          // An in-progress image in an RPC snapshot has no established start
-          // position until its notification has been committed locally.
-          if (kind === 'image' && item.status !== 'completed' && item.status !== 'failed') return [];
-          const initialInput = kind === 'user' && expandClientId(typeof item.clientId === 'string' ? item.clientId : '').includes(result.sourceIds[0] ?? '');
-          // Native turn admission proves its initial input precedes all work in
-          // that turn even when its start notification was not observed.
-          return kind ? [{ itemId: item.id, kind, position: slots.length && initialInput ? -1 : slots.length + items.indexOf(item) }] : [];
-        });
-        const completed = await store.completedChatItems(result.turnId);
-        const entries = await Promise.all([...slots, ...unrecorded].map(async slot => {
-          const item = items.find(candidate => candidate.id === slot.itemId);
-          const sourceIds = slot.kind === 'user' && item ? expandClientId(typeof item.clientId === 'string' ? item.clientId : '') : [];
-          const stream = streaming?.turnId === result.turnId && streaming.id === slot.itemId ? streaming : undefined;
-          const text = slot.kind === 'text' ? stream?.text ?? (typeof item?.text === 'string' && (turn?.status === 'completed' || completed.has(slot.itemId)) ? item.text : undefined) : undefined;
-          const image = slot.kind === 'image' ? await store.generatedImageForItem(resultOperationId(result.turnId), slot.itemId) : undefined;
-          const imageState = slot.kind !== 'image' ? undefined : image ? 'ready' as const
-            : item?.status === 'failed' || record(item?.result).isError === true ? 'failed' as const
-              : item && item.status !== 'completed' && isActiveTurn(turn) ? 'preparing' as const : 'unknown' as const;
-          const voice = slot.kind === 'voice' ? result.voiceDispatches.find(value => value.itemId === slot.itemId) : undefined;
-          return { ...slot, sourceIds, ...(text === undefined ? {} : { text, textState: stream ? 'streaming' as const : 'complete' as const }),
-            ...(imageState ? { imageState } : {}), ...(image ? { imageId: image.id } : {}), ...(voice ? { voiceId: voice.id } : {}) };
-        }));
-        return [result.turnId, entries] as const;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          const activeStream = publicStreamingReply();
+          const sampledStream = activeStream?.turnId === result.turnId ? activeStream : undefined;
+          const turn = turns.get(result.turnId);
+          const slots = await store.timelineSlots(threadId, result.turnId);
+          const items = turn?.items ?? [];
+          const known = new Set(slots.map(slot => slot.itemId));
+          const itemById = new Map<string, typeof items[number]>();
+          const itemIndex = new Map<string, number>();
+          let duplicateId = false;
+          items.forEach((item, index) => {
+            if (typeof item.id !== 'string') return;
+            if (itemById.has(item.id)) { duplicateId = true; return; }
+            itemById.set(item.id, item);
+            itemIndex.set(item.id, index);
+          });
+          // Keep items without an observed start available without claiming a
+          // recovered start order.
+          const unrecorded = items.flatMap((item, index) => {
+            if (typeof item.id !== 'string' || known.has(item.id)) return [];
+            const kind = timelineKind(item);
+            // An in-progress image in an RPC snapshot has no established start
+            // position until its notification has been committed locally.
+            if (kind === 'image' && item.status !== 'completed' && item.status !== 'failed') return [];
+            const initialInput = kind === 'user' && expandClientId(typeof item.clientId === 'string' ? item.clientId : '').includes(result.sourceIds[0] ?? '');
+            // Native turn admission proves its initial input precedes all work in
+            // that turn even when its start notification was not observed.
+            return kind ? [{ itemId: item.id, kind, position: slots.length && initialInput ? -1 : slots.length + index }] : [];
+          });
+          let orderedSlots = [...slots, ...unrecorded];
+          // A completed image without a recorded start can be placed before a
+          // later slot only when the common item IDs agree and no unknown slot
+          // lies in that interval. Leave ambiguous cases in their prior order.
+          const anchors = slots.flatMap((slot, slotIndex) => {
+            const index = itemIndex.get(slot.itemId);
+            return index === undefined ? [] : [{ slotIndex, index, itemId: slot.itemId }];
+          });
+          if (!duplicateId && anchors.every((anchor, i) => i === 0 || anchors[i - 1]!.index < anchor.index)) {
+            const before = new Map<string, typeof unrecorded>();
+            const moved = new Set<string>();
+            let next = 0;
+            for (const slot of unrecorded) {
+              const item = itemById.get(slot.itemId);
+              if (slot.kind !== 'image' || item?.status !== 'completed') continue;
+              const index = itemIndex.get(slot.itemId)!;
+              while (next < anchors.length && anchors[next]!.index < index) next++;
+              const following = anchors[next];
+              const preceding = anchors[next - 1];
+              if (!following || following.slotIndex !== (preceding?.slotIndex ?? -1) + 1) continue;
+              const group = before.get(following.itemId) ?? [];
+              group.push(slot);
+              before.set(following.itemId, group);
+              moved.add(slot.itemId);
+            }
+            if (moved.size) {
+              const prior = [...unrecorded.filter(slot => slot.position === -1), ...slots, ...unrecorded.filter(slot => slot.position !== -1)];
+              orderedSlots = prior.flatMap(slot => moved.has(slot.itemId) ? [] : [...(before.get(slot.itemId) ?? []), slot])
+                .map((slot, position) => ({ ...slot, position }));
+            }
+          }
+          const completed = await store.completedChatItems(result.turnId);
+          const messages = items.flatMap(item => {
+            if (item.type !== 'agentMessage' || typeof item.id !== 'string' || typeof item.text !== 'string' || !item.text.trim()) return [];
+            if (turn?.status !== 'completed' && !completed.has(item.id)) return [];
+            return [{ id: item.id, text: item.text }];
+          });
+          const entries = await Promise.all(orderedSlots.map(async slot => {
+            const item = itemById.get(slot.itemId);
+            const sourceIds = slot.kind === 'user' && item ? expandClientId(typeof item.clientId === 'string' ? item.clientId : '') : [];
+            const stream = sampledStream?.turnId === result.turnId && sampledStream.id === slot.itemId ? sampledStream : undefined;
+            const text = slot.kind === 'text' ? stream?.text ?? (typeof item?.text === 'string' && (turn?.status === 'completed' || completed.has(slot.itemId)) ? item.text : undefined) : undefined;
+            const image = slot.kind === 'image' ? await store.generatedImageForItem(resultOperationId(result.turnId), slot.itemId) : undefined;
+            const imageState = slot.kind !== 'image' ? undefined : image ? 'ready' as const
+              : item?.status === 'failed' || record(item?.result).isError === true ? 'failed' as const
+                : item && item.status !== 'completed' && isActiveTurn(turn) ? 'preparing' as const : 'unknown' as const;
+            const voice = slot.kind === 'voice' ? result.voiceDispatches.find(value => value.itemId === slot.itemId) : undefined;
+            return { ...slot, sourceIds, ...(text === undefined ? {} : { text, textState: stream ? 'streaming' as const : 'complete' as const }),
+              ...(imageState ? { imageState } : {}), ...(image ? { imageId: image.id } : {}), ...(voice ? { voiceId: voice.id } : {}) };
+          }));
+          const activeAfterRead = publicStreamingReply();
+          const currentStream = activeAfterRead?.turnId === result.turnId ? activeAfterRead : undefined;
+          if (sampledStream?.id === currentStream?.id && sampledStream?.turnId === currentStream?.turnId) return [result.turnId, { entries, messages }] as const;
+        }
+        throw new Error('Chat projection changed during read');
       })));
       const results = pageTurns.map((result) => ({
         id: resultOperationId(result.turnId),
@@ -2402,8 +2463,8 @@ export async function createPartner(config: Config, credentials: Credentials, de
         sourceIds: result.sourceIds,
         sequence: result.sequence,
         revision: result.revision,
-        completedMessages: chatMessages.get(result.turnId) ?? [],
-        timeline: timelines.get(result.turnId) ?? [],
+        completedMessages: timelines.get(result.turnId)?.messages ?? [],
+        timeline: timelines.get(result.turnId)?.entries ?? [],
         anchorSequence: Math.min(...result.sourceIds.map(id => messagesById.get(id)?.sequence ?? Number.MAX_SAFE_INTEGER)),
         anchorCreated: messagesById.get(result.sourceIds[0] ?? '')?.created ?? result.completedAt ?? 0,
         chatStatus: turnStatus(turns.get(result.turnId)),
@@ -2653,7 +2714,8 @@ export async function createPartner(config: Config, credentials: Credentials, de
       admission = task.then(() => undefined, () => { if (!closing) notify(); });
       try { return await task; } finally { compactAdmissionPending = false; }
     },
-    subscribe(listener: (update?: TimelineUpdate) => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
+    subscribe(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
+    subscribeChat(listener: (observation: ChatObservation) => void) { chatListeners.add(listener); return () => { chatListeners.delete(listener); }; },
     close() {
       if (closePromise) return closePromise;
       closing = true;
@@ -2676,6 +2738,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
         await admission;
         await eventChain;
         listeners.clear();
+        chatListeners.clear();
         try { await store.close(); }
         catch (error) { closeError ??= error; }
         try { stickers.close(); }

@@ -3,6 +3,7 @@ import { once } from 'node:events';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { createHash } from 'node:crypto';
 import { test } from 'node:test';
 import type { ChatMessage, ChatView } from '@lamplit/contracts';
 import { fixture, eventually } from './fixture.ts';
@@ -34,7 +35,7 @@ test('authenticated image upload echoes exact draft identities and rejects anoth
   } finally { await app.close(); await f.close(); }
 });
 
-test('a recorded image start absent from native history reopens as unknown, without fabricating a result', async () => {
+test('unfinished images stay hidden and explicit image failures survive restart', async () => {
   const f = await fixture(); f.appServer.env.FAKE_STREAM_FIXTURE = 'true';
   let partner = await f.createPartner();
   try {
@@ -44,17 +45,13 @@ test('a recorded image start absent from native history reopens as unknown, with
     const failed = { ...image, id: 'failed-image' };
     await f.streamCommand({ action: 'timeline', entries: [{ method: 'item/started', item: image },
       { method: 'item/started', item: failed }, { method: 'item/completed', item: { ...failed, status: 'failed' } }] });
-    await eventually(async () => (await createCodexChatBackend(partner).read()).messages.some(message => message.imageState === 'preparing'));
-    const slot = (await createCodexChatBackend(partner).read()).messages.find(message => message.imageState === 'preparing')!;
-    assert.equal((await createCodexChatBackend(partner).read()).messages.find(message => message.imageState === 'failed')?.images, undefined);
+    await eventually(async () => (await partner.snapshot()).results.some(result => result.timeline.some(slot => slot.itemId === failed.id && slot.imageState === 'failed')));
+    assert.deepEqual((await createCodexChatBackend(partner).read()).messages.filter(message => message.imageState).map(message => message.imageState), ['failed']);
     await partner.close(); partner = await f.createPartner();
-    const recovered = (await createCodexChatBackend(partner).read()).messages.find(message => message.id === slot.id);
-    assert.equal(recovered?.imageState, 'unknown');
-    assert.equal(recovered?.images, undefined);
-    assert.equal((await createCodexChatBackend(partner).read()).messages.some(message => message.imageState === 'failed'), true);
+    assert.deepEqual((await createCodexChatBackend(partner).read()).messages.filter(message => message.imageState).map(message => message.imageState), ['failed']);
     await f.streamCommand({ action: 'fail' });
     await eventually(async () => (await createCodexChatBackend(partner).read()).activeTurnId === null);
-    assert.equal((await createCodexChatBackend(partner).read()).messages.find(message => message.id === slot.id)?.imageState, 'unknown');
+    assert.deepEqual((await createCodexChatBackend(partner).read()).messages.filter(message => message.imageState).map(message => message.imageState), ['failed']);
   } finally { await partner.close(); await f.close(); }
 });
 
@@ -121,17 +118,13 @@ test('real App controller reconciles a delayed image across 35 voices, reconnect
     controller = new ChatController(() => {}, storage); controller.start();
     await eventually(async () => (controller.view?.messages.filter(message => message.voice).length ?? 0) >= 28 && !!controller.before, 4_000);
     await controller.loadOlder();
-    await eventually(async () => visible().some(message => message.imageState === 'preparing'));
-    const imageId = visible().find(message => message.imageState === 'preparing')!.id;
+    const imageId = `image:${createHash('sha256').update(JSON.stringify([first.turnId, image.id])).digest('hex')}`;
     const before = visible();
-    assert.equal(before.filter(message => message.imageState === 'preparing').length, 2);
+    assert.equal(before.some(message => message.imageState !== undefined), false);
     assert.equal(JSON.stringify(before).includes('foreign-image'), false);
     assert.ok(before.findIndex(message => message.operationId === sourceId) < before.findIndex(message => message.id === first.id));
-    assert.ok(before.findIndex(message => message.id === first.id) < before.findIndex(message => message.id === imageId));
-    assert.ok(before.findIndex(message => message.id === imageId) < before.findIndex(message => !!message.voice));
-    assert.ok(before.findIndex(message => message.id === imageId) < before.findIndex(message => message.operationId === steerId));
     assert.ok(before.findIndex(message => message.operationId === steerId) < before.findIndex(message => !!message.voice));
-    const otherImageId = before.find(message => message.imageState === 'preparing' && message.id !== imageId)!.id;
+    const otherImageId = `image:${createHash('sha256').update(JSON.stringify([first.turnId, secondImage.id])).digest('hex')}`;
     assert.equal(before.filter(message => message.voice).length, 35);
     const voiceIds = before.filter(message => message.voice).map(message => message.id);
     controller.setVisible(false);
