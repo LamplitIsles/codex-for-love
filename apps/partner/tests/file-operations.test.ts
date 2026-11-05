@@ -2,6 +2,9 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { test } from 'node:test';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { createHash } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import fs from 'node:fs/promises';
 import { appendFileSync, truncateSync } from 'node:fs';
 import { get as httpGet, type IncomingMessage } from 'node:http';
@@ -38,18 +41,49 @@ test('manifest text limits count Unicode code points, including supplementary ch
 });
 
 test('matching contracts advertise streaming limits and the published old pin fails closed', async () => {
-  const f = await fixture(); const partner = await f.createPartner();
+  const f = await fixture(); let oldRoot: string | undefined;
   try {
+    const partner = await f.createPartner();
     assert.deepEqual(await partner.sharedFileLimits(), { maxFilesPerMessage: 6, maxFileBytes: 100_000_000, maxMessageFileBytes: 200_000_000 });
+    oldRoot = await fs.mkdtemp(join(tmpdir(), 'lamplit-old-contracts-'));
+    const archive = fileURLToPath(new URL('./fixtures/lamplit-contracts-9b30d315.tar.gz', import.meta.url));
+    assert.equal(createHash('sha256').update(await fs.readFile(archive)).digest('hex'), 'bfa450d08ae466ce6dc4fca524d3706a20949c8c213313d006fd27c495f78b42');
+    await promisify(execFile)('tar', ['-xzf', archive, '-C', oldRoot]);
+    const oldPackage = join(oldRoot, 'package');
+    const source = JSON.parse(await fs.readFile(join(oldPackage, 'lamplit-source.json'), 'utf8'));
+    assert.equal(source.revision, '9b30d315453c1dd833b52b7a38b53e6ea4f745e0');
     const script = `
       import assert from 'node:assert/strict';
+      import { registerHooks } from 'node:module';
+      import { readFileSync } from 'node:fs';
+      import { join } from 'node:path';
+      import { pathToFileURL } from 'node:url';
+      const oldPackage = process.argv[2], matchingEntry = process.argv[3];
+      const oldBase = pathToFileURL(oldPackage + '/').href;
+      const exports = JSON.parse(readFileSync(join(oldPackage, 'package.json'), 'utf8')).exports;
+      const loaded = new Set();
+      registerHooks({ resolve(specifier, context, nextResolve) {
+        if (specifier === matchingEntry || specifier === '@lamplit/contracts' || specifier.startsWith('@lamplit/contracts/')) {
+          const key = specifier === matchingEntry || specifier === '@lamplit/contracts' ? '.' : '.' + specifier.slice('@lamplit/contracts'.length);
+          loaded.add(key);
+          return { url: new URL(exports[key].import, oldBase).href, shortCircuit: true };
+        }
+        if (context.parentURL?.startsWith(oldBase) && !specifier.startsWith('.') && !specifier.startsWith('node:')) {
+          return nextResolve(specifier, { ...context, parentURL: matchingEntry });
+        }
+        return nextResolve(specifier, context);
+      } });
+      const oldContracts = await import(process.argv[3]);
+      assert.ok('FILE_UPLOAD_PATH' in oldContracts && !('FILE_OPERATIONS_PATH' in oldContracts));
+      loaded.clear();
       const { fixture } = await import(process.argv[1]);
+      assert.ok(loaded.has('.') && loaded.has('./server'));
       const f = await fixture();
       try { await assert.rejects(f.createPartner(), /Matching streaming file contracts are required/); }
       finally { await f.close(); }
     `;
-    await promisify(execFile)(process.execPath, ['--input-type=module', '-e', script, new URL('./fixture.ts', import.meta.url).href]);
-  } finally { await partner.close(); await f.close(); }
+    await promisify(execFile)(process.execPath, ['--input-type=module', '-e', script, new URL('./fixture.ts', import.meta.url).href, oldPackage, import.meta.resolve('@lamplit/contracts')]);
+  } finally { try { if (oldRoot) await fs.rm(oldRoot, { recursive: true, force: true }); } finally { await f.close(); } }
 });
 
 test('startup preserves unregistered empty directories', async () => {

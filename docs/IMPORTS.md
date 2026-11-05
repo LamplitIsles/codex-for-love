@@ -729,3 +729,7 @@ from the previous pin, and contract dependencies and package export entry points
 are unchanged.
 App owns the streaming attachment UI and public contracts; CFL owns the host
 file storage and execution integration.
+
+The fail-closed regression also retains the unmodified `9b30d315` contracts
+archive identified in the preceding section as a test fixture. Its SHA-256 and
+source revision are checked before it is loaded in an isolated child process.
