@@ -6,6 +6,7 @@ import { ModelPreferenceError } from './model-preference.ts';
 import { APPEARANCE_PATH, WORKSPACE_IMAGE_PATH } from '@lamplit/contracts';
 import { imageHttp, stickerHttp } from '@lamplit/contracts/server';
 import { createChatSocket } from './chat.ts';
+import { sendWorkspaceMedia } from './workspace-media-http.ts';
 import { createVoiceHost, type VoiceDependencies } from './voice.ts';
 import { VOICE_CAPABILITY_PATH, VOICE_STREAM_PATH } from '@lamplit/contracts/voice';
 import { MAX_MESSAGE_LENGTH } from "./message-input.ts";
@@ -67,6 +68,7 @@ export function createWebServer(partner: Partner, assets: string, options: { aut
   const streams = new Map<ServerResponse, IncomingMessage>();
   const activeSockets = new Map<import('ws').WebSocket, IncomingMessage>();
   let activeFileDownloads = 0;
+  let activeWorkspaceMedia = 0;
   function holdFileDownload(response: ServerResponse): () => void {
     activeFileDownloads++;
     let handlerDone = false, responseDone = response.writableFinished || response.destroyed, released = false;
@@ -247,6 +249,25 @@ export function createWebServer(partner: Partner, assets: string, options: { aut
         if (!image) return json(response, { error: 'Workspace image unavailable' }, 404);
         response.writeHead(200, { 'content-type': image.mediaType, 'cache-control': 'no-store' });
         response.end(image.bytes); return;
+      }
+      if (path === '/api/chat/workspace-media') {
+        if (request.method !== 'GET') return json(response, { error: 'Method not allowed' }, 405);
+        const query = new URL(request.url!, 'http://localhost').searchParams;
+        const kind = query.get('kind');
+        if ([...query.keys()].length !== 2 || query.getAll('kind').length !== 1 || query.getAll('path').length !== 1 || (kind !== 'audio' && kind !== 'video'))
+          return json(response, { error: 'Workspace media unavailable' }, 404);
+        if (activeWorkspaceMedia >= 4) return json(response, { error: 'Workspace media busy' }, 503);
+        activeWorkspaceMedia++;
+        try {
+          // URLSearchParams performs the only query decoding; '%' remains literal.
+          const file = await partner.workspaceMedia(query.get('path'), kind);
+          if (!file) { if (!await authorize(request)) return unauthorized(); return json(response, { error: 'Workspace media unavailable' }, 404); }
+          try {
+            if (!await authorize(request)) return unauthorized();
+            await sendWorkspaceMedia(request, response, file, () => authorize(request));
+          } finally { await file.close(); }
+          return;
+        } finally { activeWorkspaceMedia--; }
       }
       if (path === '/api/chat/file-operations' || path.startsWith('/api/chat/file-operations/')) {
         response.setHeader('cache-control', 'private, no-store');

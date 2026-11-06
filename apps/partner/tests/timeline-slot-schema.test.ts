@@ -39,3 +39,47 @@ test('timeline slot identities and positions remain scoped and durable', async (
     } finally { db.close(); }
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
+
+test('legacy timeline slots migrate atomically without losing positions or constraints', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'cfl-timeline-ui-'));
+  const path = join(directory, 'session.sqlite');
+  try {
+    const db = new DatabaseSync(path);
+    db.exec(`CREATE TABLE chat_timeline_slots (
+      session_id TEXT NOT NULL, turn_id TEXT NOT NULL, item_id TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK(kind IN ('user','text','image','voice')),
+      position INTEGER NOT NULL CHECK(position >= 0),
+      PRIMARY KEY(session_id,turn_id,item_id), UNIQUE(session_id,turn_id,position)
+    );
+    INSERT INTO chat_timeline_slots VALUES ('s','t','old','voice',3);
+    CREATE INDEX timeline_test_kind ON chat_timeline_slots(kind);`);
+    db.close();
+    const store = new Store(path);
+    assert.deepEqual(await store.timelineSlots('s', 't'), [{ itemId: 'old', kind: 'voice', position: 3 }]);
+    await store.recordTimelineSlot('s', 't', 'new', 'ui');
+    assert.deepEqual(await store.timelineSlots('s', 't'), [{ itemId: 'old', kind: 'voice', position: 3 }, { itemId: 'new', kind: 'ui', position: 4 }]);
+    await assert.rejects(store.recordTimelineSlot('s', 't', 'old', 'ui'));
+    await store.close();
+    const reopened = new Store(path);
+    assert.equal((await reopened.timelineSlots('s', 't'))[1]?.kind, 'ui');
+    await reopened.close();
+    const check = new DatabaseSync(path);
+    assert.ok(check.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='timeline_test_kind'").get());
+    assert.throws(() => check.prepare('INSERT INTO chat_timeline_slots VALUES (?,?,?,?,?)').run('s', 't', 'bad', 'other', 5));
+    check.close();
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test('unrecognized timeline schemas are retained rather than rebuilt', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'cfl-timeline-ui-unknown-'));
+  const path = join(directory, 'session.sqlite');
+  try {
+    const db = new DatabaseSync(path);
+    db.exec("CREATE TABLE chat_timeline_slots (session_id TEXT, extra TEXT); INSERT INTO chat_timeline_slots VALUES ('preserved','value')");
+    db.close();
+    assert.throws(() => new Store(path), /Unrecognized chat_timeline_slots schema/u);
+    const check = new DatabaseSync(path);
+    assert.equal(check.prepare('SELECT extra FROM chat_timeline_slots').get()?.extra, 'value');
+    check.close();
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});

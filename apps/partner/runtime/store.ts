@@ -144,7 +144,7 @@ export class Store {
           session_id TEXT NOT NULL,
           turn_id TEXT NOT NULL,
           item_id TEXT NOT NULL,
-          kind TEXT NOT NULL CHECK(kind IN ('user','text','image','voice')),
+          kind TEXT NOT NULL CHECK(kind IN ('user','text','image','voice','ui')),
           position INTEGER NOT NULL CHECK(position >= 0),
           PRIMARY KEY(session_id,turn_id,item_id),
           UNIQUE(session_id,turn_id,position)
@@ -234,6 +234,7 @@ export class Store {
       if (!directory || directory.type.toUpperCase() !== 'TEXT' || directory.notnull !== 1) throw new Error('Unrecognized file upload directory schema');
       this.db.exec('CREATE UNIQUE INDEX IF NOT EXISTS file_upload_operations_dir_key ON file_upload_operations(dir_key)');
       this.migrateFileSizeLimit();
+      this.migrateTimelineSlots();
       this.db.exec(`
         INSERT OR IGNORE INTO message_revisions(message_id)
           SELECT id FROM message_meta ORDER BY sequence;
@@ -296,6 +297,46 @@ export class Store {
     }
   }
 
+  // Preserve positions and identities while extending the old CHECK constraint.
+  private migrateTimelineSlots(): void {
+    const schema = this.db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='chat_timeline_slots'").get() as { sql: string } | undefined;
+    if (!schema?.sql) throw new Error('Missing chat_timeline_slots schema');
+    const normalize = (sql: string) => sql.replace(/\s+/gu, '').toLowerCase();
+    const definition = normalize(schema.sql.slice(schema.sql.indexOf('(')));
+    const expected = (kinds: string) => normalize(`(session_id TEXT NOT NULL, turn_id TEXT NOT NULL,
+      item_id TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN (${kinds})),
+      position INTEGER NOT NULL CHECK(position >= 0), PRIMARY KEY(session_id,turn_id,item_id),
+      UNIQUE(session_id,turn_id,position))`);
+    if (definition === expected("'user','text','image','voice','ui'")) return;
+    if (definition !== expected("'user','text','image','voice'")) throw new Error('Unrecognized chat_timeline_slots schema');
+    const tables = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all() as Array<{ name: string }>;
+    for (const { name } of tables) {
+      const escaped = name.replaceAll('"', '""');
+      const foreign = this.db.prepare(`PRAGMA foreign_key_list("${escaped}")`).all() as Array<{ table: string }>;
+      if (foreign.some(key => key.table === 'chat_timeline_slots')) throw new Error('Unsupported foreign key to chat_timeline_slots');
+    }
+    const dependent = this.db.prepare("SELECT sql FROM sqlite_master WHERE tbl_name='chat_timeline_slots' AND type IN ('index','trigger') AND sql IS NOT NULL ORDER BY type,name").all() as Array<{ sql: string }>;
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.db.exec(`
+        CREATE TABLE chat_timeline_slots_ui_v2 (
+          session_id TEXT NOT NULL, turn_id TEXT NOT NULL, item_id TEXT NOT NULL,
+          kind TEXT NOT NULL CHECK(kind IN ('user','text','image','voice','ui')),
+          position INTEGER NOT NULL CHECK(position >= 0),
+          PRIMARY KEY(session_id,turn_id,item_id), UNIQUE(session_id,turn_id,position)
+        );
+        INSERT INTO chat_timeline_slots_ui_v2 SELECT session_id,turn_id,item_id,kind,position FROM chat_timeline_slots;
+        DROP TABLE chat_timeline_slots;
+        ALTER TABLE chat_timeline_slots_ui_v2 RENAME TO chat_timeline_slots;
+      `);
+      for (const { sql } of dependent) this.db.exec(sql);
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
   private transaction<T>(callback: () => T | Promise<T>, beforeCommit?: () => void): Promise<T> {
     if (this.closed) return Promise.reject(new Error('Session store is closed'));
     const result = this.writes.then(async () => {
@@ -321,15 +362,15 @@ export class Store {
     return this.transaction(() => new Set(this.db.prepare('SELECT item_id FROM chat_completed_items WHERE turn_id=?').all(turnId).map(row => String((row as { item_id: string }).item_id))));
   }
 
-  async recordTimelineSlot(sessionId: string, turnId: string, itemId: string, kind: 'user' | 'text' | 'image' | 'voice'): Promise<void> {
+  async recordTimelineSlot(sessionId: string, turnId: string, itemId: string, kind: 'user' | 'text' | 'image' | 'voice' | 'ui'): Promise<void> {
     await this.transaction(() => {
       const previous = this.db.prepare('SELECT kind FROM chat_timeline_slots WHERE session_id=? AND turn_id=? AND item_id=?').get(sessionId, turnId, itemId) as { kind: string } | undefined;
       if (previous) { if (previous.kind !== kind) throw identityConflict(); return; }
       this.db.prepare('INSERT INTO chat_timeline_slots(session_id,turn_id,item_id,kind,position) SELECT ?,?,?,?,COALESCE(MAX(position)+1,0) FROM chat_timeline_slots WHERE session_id=? AND turn_id=?').run(sessionId, turnId, itemId, kind, sessionId, turnId);
     });
   }
-  async timelineSlots(sessionId: string, turnId: string): Promise<Array<{ itemId: string; kind: 'user' | 'text' | 'image' | 'voice'; position: number }>> {
-    return this.transaction(() => (this.db.prepare('SELECT item_id,kind,position FROM chat_timeline_slots WHERE session_id=? AND turn_id=? ORDER BY position').all(sessionId, turnId) as Array<{ item_id: string; kind: 'user' | 'text' | 'image' | 'voice'; position: number }>).map(row => ({ itemId: row.item_id, kind: row.kind, position: row.position })));
+  async timelineSlots(sessionId: string, turnId: string): Promise<Array<{ itemId: string; kind: 'user' | 'text' | 'image' | 'voice' | 'ui'; position: number }>> {
+    return this.transaction(() => (this.db.prepare('SELECT item_id,kind,position FROM chat_timeline_slots WHERE session_id=? AND turn_id=? ORDER BY position').all(sessionId, turnId) as Array<{ item_id: string; kind: 'user' | 'text' | 'image' | 'voice' | 'ui'; position: number }>).map(row => ({ itemId: row.item_id, kind: row.kind, position: row.position })));
   }
 
   private async revision(): Promise<number> {

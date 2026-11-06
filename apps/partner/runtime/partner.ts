@@ -1,3 +1,4 @@
+import { uiDispatchesFromTurn } from './ui-dispatch.ts';
 import { createTtsSettings, loadTtsSettings } from './tts-settings.ts';
 import { createBackgroundSettings } from './background-settings.ts';
 import { createVoiceSettings } from './voice-settings.ts';
@@ -8,6 +9,7 @@ import { postImage } from './post-assets.ts';
 import type { EventV1 } from './post-contract.ts';
 import { postEndpoint } from './config.ts';
 import { readWorkspaceImage } from './workspace-images.ts';
+import { openWorkspaceMedia, type WorkspaceMediaKind } from './workspace-media.ts';
 import { StickerCatalog } from './sticker-catalog.ts';
 import { readStickerZip } from './sticker-import.ts';
 import { listDiary, readDiary } from './diary.ts';
@@ -97,6 +99,7 @@ type TurnResult = {
   status: string;
   generatedIds: string[];
   voiceDispatches: Array<{ id: string; itemId: string }>;
+  uiDispatches?: Array<{ itemId: string; ui: unknown }>;
   completedAt?: number;
 };
 const HISTORY_PAGE_MESSAGES = 50;
@@ -123,7 +126,7 @@ export function visibleHistoryPage(messages: readonly MessageMeta[], results: re
     const message = candidates[index]!;
     const result = resultBySource.get(message.id);
     const resultUnits = result
-      ? result.answers.length + result.generatedIds.length + result.voiceDispatches.length + (result.error || ['failed', 'interrupted', 'cancelled'].includes(result.status) ? 1 : 0)
+      ? result.answers.length + result.generatedIds.length + result.voiceDispatches.length + (result.uiDispatches?.length ?? 0) + (result.error || ['failed', 'interrupted', 'cancelled'].includes(result.status) ? 1 : 0)
       : 0;
     const units = 1 + resultUnits;
     // Keep one whole input/result group when it alone is larger than the page,
@@ -164,6 +167,8 @@ type RestoredDraft = {
 export type PartnerDependencies = {
   appServer?: Partial<CodexAppServerClientOptions>;
   now?: () => number;
+  /** Override the shared payload boundary in isolated fake tests. */
+  uiPayloadBound?: (value: unknown) => unknown;
 };
 
 type JsonObject = Record<string, unknown>;
@@ -311,10 +316,11 @@ function officialItemId(item: OfficialItem): string {
   return '';
 }
 
-function timelineKind(item: OfficialItem): 'user' | 'text' | 'image' | 'voice' | undefined {
+function timelineKind(item: OfficialItem): 'user' | 'text' | 'image' | 'voice' | 'ui' | undefined {
   return item.type === 'userMessage' ? 'user' : item.type === 'agentMessage' ? 'text'
     : item.type === 'imageGeneration' || (item.type === 'mcpToolCall' && item.server === 'companion' && item.tool === 'send_sticker') ? 'image'
-      : item.type === 'mcpToolCall' && item.server === 'companion' && item.tool === 'send_voice' ? 'voice' : undefined;
+      : item.type === 'mcpToolCall' && item.server === 'companion' && item.tool === 'send_voice' ? 'voice'
+        : item.type === 'mcpToolCall' && item.server === 'companion' && item.tool === 'send_ui' ? 'ui' : undefined;
 }
 
 function sourceLocation(turn: OfficialTurn, sourceId: string): SourceLocation | undefined {
@@ -1022,6 +1028,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
 
     const generatedIds: string[] = [];
     const voiceDispatches = voiceDispatchesFromTurn(turn);
+    const uiDispatches = uiDispatchesFromTurn(turn, dependencies.uiPayloadBound);
     let resultError = errorFromTurn(turn);
     let resultStatus = status;
     const completedAt = status === 'completed' ? completedTurnTime(turn.completedAt) : undefined;
@@ -1047,6 +1054,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
       status: resultStatus,
       generatedIds,
       voiceDispatches,
+      uiDispatches,
       ...(completedAt === undefined
         ? {}
         : { completedAt }),
@@ -1614,7 +1622,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
         // in the durable completion ledger before its real owner completes it.
         if (item.type === 'agentMessage' && (!turns.has(turnId)
           || (streaming && streaming.id === item.id && streaming.turnId !== turnId))) break;
-        if (item.type === 'mcpToolCall' && item.server === 'companion' && item.tool === 'send_sticker'
+        if (item.type === 'mcpToolCall' && item.server === 'companion' && (item.tool === 'send_sticker' || item.tool === 'send_ui')
           && (notification.params.threadId !== threadId || !turns.has(turnId))) break;
         if (item.type === 'mcpToolCall' && item.server === 'post' && item.tool === 'send_message' && turns.has(turnId)) {
           const result = record(record(item.result).structuredContent), code = record(result.error).code;
@@ -1653,7 +1661,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
         }
         if (item.type === 'contextCompaction') await finishCompaction(typeof params.turnId === 'string' ? params.turnId : undefined, typeof item.id === 'string' ? item.id : undefined);
         const result = turnResults.get(turnId);
-        const structure = (value: TurnResult) => JSON.stringify([value.sourceIds, value.generatedIds, value.voiceDispatches, value.status, value.error]);
+        const structure = (value: TurnResult) => JSON.stringify([value.sourceIds, value.generatedIds, value.voiceDispatches, value.uiDispatches, value.status, value.error]);
         const replyOnly = isAnswer(item) && typeof item.id === 'string' && typeof item.text === 'string'
           && priorResult && result && structure(priorResult) === structure(result);
         if (!closing) notify(replyOnly ? { type: 'reply-settled' } : { type: 'change' });
@@ -2083,6 +2091,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
     ttsSettings,
     voiceCredential() { return config.speech ? credentials.speech ?? null : null; },
     workspaceImage(path: string | null) { return readWorkspaceImage(paths.workspaceRoot, path); },
+    workspaceMedia(path: string | null, kind: WorkspaceMediaKind) { return openWorkspaceMedia(paths.workspaceRoot, path, kind); },
     stickerBackend(authorize: () => Promise<boolean>, authorizeCommit: () => boolean): StickerBackend {
       const guard = () => mutationGuard(threadId, authorize);
       const beforeCommit = commitGuard(threadId, authorizeCommit);
@@ -2418,16 +2427,16 @@ export async function createPartner(config: Config, credentials: Credentials, de
           const unrecorded = items.flatMap((item, index) => {
             if (typeof item.id !== 'string' || known.has(item.id)) return [];
             const kind = timelineKind(item);
-            // An in-progress image in an RPC snapshot has no established start
+            // An in-progress media or UI item in an RPC snapshot has no established start
             // position until its notification has been committed locally.
-            if (kind === 'image' && item.status !== 'completed' && item.status !== 'failed') return [];
+            if ((kind === 'image' || kind === 'ui' || kind === 'voice') && item.status !== 'completed' && item.status !== 'failed') return [];
             const initialInput = kind === 'user' && expandClientId(typeof item.clientId === 'string' ? item.clientId : '').includes(result.sourceIds[0] ?? '');
             // Native turn admission proves its initial input precedes all work in
             // that turn even when its start notification was not observed.
             return kind ? [{ itemId: item.id, kind, position: slots.length && initialInput ? -1 : slots.length + index }] : [];
           });
           let orderedSlots = [...slots, ...unrecorded];
-          // A completed image without a recorded start can be placed before a
+          // A completed media or UI item without a recorded start can be placed before a
           // later slot only when the common item IDs agree and no unknown slot
           // lies in that interval. Leave ambiguous cases in their prior order.
           const anchors = slots.flatMap((slot, slotIndex) => {
@@ -2440,7 +2449,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
             let next = 0;
             for (const slot of unrecorded) {
               const item = itemById.get(slot.itemId);
-              if (slot.kind !== 'image' || item?.status !== 'completed') continue;
+              if (!['image', 'voice', 'ui'].includes(slot.kind) || item?.status !== 'completed') continue;
               const index = itemIndex.get(slot.itemId)!;
               while (next < anchors.length && anchors[next]!.index < index) next++;
               const following = anchors[next];
@@ -2473,8 +2482,9 @@ export async function createPartner(config: Config, credentials: Credentials, de
               : item?.status === 'failed' || record(item?.result).isError === true ? 'failed' as const
                 : item && item.status !== 'completed' && isActiveTurn(turn) ? 'preparing' as const : 'unknown' as const;
             const voice = slot.kind === 'voice' ? result.voiceDispatches.find(value => value.itemId === slot.itemId) : undefined;
+            const ui = slot.kind === 'ui' ? result.uiDispatches?.find(value => value.itemId === slot.itemId) : undefined;
             return { ...slot, sourceIds, ...(text === undefined ? {} : { text, textState: stream ? 'streaming' as const : 'complete' as const }),
-              ...(imageState ? { imageState } : {}), ...(image ? { imageId: image.id } : {}), ...(voice ? { voiceId: voice.id } : {}) };
+              ...(imageState ? { imageState } : {}), ...(image ? { imageId: image.id } : {}), ...(voice ? { voiceId: voice.id } : {}), ...(ui ? { ui: ui.ui } : {}) };
           }));
           const activeAfterRead = publicStreamingReply();
           const currentStream = activeAfterRead?.turnId === result.turnId ? activeAfterRead : undefined;

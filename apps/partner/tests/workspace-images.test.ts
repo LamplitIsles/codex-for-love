@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import sharp from 'sharp';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { MAX_WORKSPACE_IMAGE_BYTES, readWorkspaceImage } from '../runtime/workspace-images.ts';
+import { MAX_WORKSPACE_IMAGE_BYTES, readWorkspaceImage, safeWorkspacePath } from '../runtime/workspace-images.ts';
 
 export async function imageFixture() {
   const directory = await mkdtemp(join(tmpdir(), 'workspace-image-'));
@@ -15,6 +15,15 @@ export async function imageFixture() {
   const png = await sharp({ create: { width: 3, height: 2, channels: 3, background: '#cc8844' } }).png().toBuffer();
   return { directory, workspace, png, close: () => rm(directory, { recursive: true, force: true }) };
 }
+
+test('shared lexical guard keeps literal paths and rejects the original image escape cases', () => {
+  for (const path of ['image.png', './image.PNG', '/absolute/image.png', 'file%20name.png', '..%2fimage.png', 'a/.../image.png', 'a/x..y.png']) {
+    assert.equal(safeWorkspacePath(path), true, path);
+  }
+  for (const path of [null, '', ' bad.png', 'bad.png ', '../image.png', 'a/../image.png', '//host/image.png', 'file:/image.png', 'HTTPS://example/image.png', 'a\\b.png', 'a\u0000.png', 'a\u001f.png', 'a\u007f.png', 'a\u009f.png', 'a\uFFFD.png']) {
+    assert.equal(safeWorkspacePath(path), false, String(path));
+  }
+});
 
 test('workspace reader returns current image bytes, literal paths and supported formats', async () => {
   const f = await imageFixture();
@@ -27,6 +36,9 @@ test('workspace reader returns current image bytes, literal paths and supported 
         assert.deepEqual(await readWorkspaceImage(f.workspace, path), { bytes, mediaType: `image/${format}` });
       }
     }
+    const jpeg = await sharp(f.png).jpeg().toBuffer();
+    await writeFile(join(f.workspace, 'different.PNG'), jpeg);
+    assert.deepEqual(await readWorkspaceImage(f.workspace, 'different.PNG'), { bytes: jpeg, mediaType: 'image/jpeg' });
     await writeFile(join(f.workspace, 'change.png'), f.png);
     assert.ok(await readWorkspaceImage(f.workspace, 'change.png'));
     await writeFile(join(f.workspace, 'change.png'), 'no longer an image');

@@ -11,7 +11,7 @@ const mediaTypes = new Map([['png', 'image/png'], ['jpeg', 'image/jpeg'], ['webp
 const darwinFcntl = process.platform === 'darwin'
   ? koffi.load('/usr/lib/libSystem.B.dylib').func('int fcntl(int fd, int cmd, ...)') : undefined;
 
-async function descriptorPath(fd: number): Promise<string> {
+export async function descriptorPath(fd: number): Promise<string> {
   let path: string;
   if (darwinFcntl) {
     const output = Buffer.alloc(1024);
@@ -28,16 +28,20 @@ async function descriptorPath(fd: number): Promise<string> {
   return path;
 }
 
-function contained(root: string, path: string): boolean {
+export function contained(root: string, path: string): boolean {
   const part = relative(root, path);
   return part !== '' && part !== '..' && !part.startsWith(`..${sep}`) && !isAbsolute(part);
 }
 
+/** Query-decoded literal path; percent sequences remain part of the filename. */
+export function safeWorkspacePath(path: string | null): path is string {
+  return !!path && path === path.trim() && !/[\x00-\x1f\x7f-\x9f\\\uFFFD]/u.test(path)
+    && !/^[a-z][a-z0-9+.-]*:/iu.test(path) && !path.startsWith('//') && !path.split('/').includes('..');
+}
+
 /** Literal query path, never a Markdown URI: percent sequences are filenames. */
 export async function readWorkspaceImage(workspace: string, path: string | null): Promise<{ bytes: Buffer; mediaType: string } | null> {
-  if (!path || path !== path.trim() || /[\x00-\x1f\x7f-\x9f\\\uFFFD]/u.test(path)
-    || /^[a-z][a-z0-9+.-]*:/iu.test(path) || path.startsWith('//')
-    || path.split('/').includes('..') || !/\.(?:png|jpe?g|webp|gif)$/iu.test(path)) return null;
+  if (!safeWorkspacePath(path) || !/\.(?:png|jpe?g|webp|gif)$/iu.test(path)) return null;
   const handles: Awaited<ReturnType<typeof open>>[] = [];
   try {
     const root = await realpath(workspace);

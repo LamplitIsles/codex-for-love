@@ -18,7 +18,7 @@ test('only canonical entries serve the document and both revalidate', async () =
     assert.equal((await fetch(`${url}/`)).headers.get('cache-control'), 'no-cache');
     assert.equal((await fetch(`${url}/chat`)).headers.get('cache-control'), 'no-cache');
     assert.equal(await (await fetch(`${url}/chat`)).text(), await (await fetch(`${url}/`)).text());
-    for (const path of ['/slice', '/slice/', '/slice/manifest.webmanifest', '/management', '/missing.js', '/assets/missing.js'])
+    for (const path of ['/slice', '/slice/', '/slice/manifest.webmanifest', '/management', '/a2ui.html', '/missing.js', '/assets/missing.js'])
       assert.equal((await fetch(`${url}${path}`)).status, 404, path);
   } finally {
     await app.close();
@@ -42,6 +42,34 @@ test('selected frontend static resources use immutable asset caching', async () 
     assert.equal(asset.status, 200);
     assert.equal(asset.headers.get('cache-control'), 'public, max-age=31536000, immutable');
     assert.equal((await fetch(`${url}/chat`)).headers.get('cache-control'), 'no-cache');
+  } finally { await app?.close(); await rm(assets, { recursive: true, force: true }); }
+});
+
+test('an explicitly provided A2UI entry and its hashed asset are served without a fallback', async () => {
+  const assets = await mkdtemp(join(tmpdir(), 'partner-a2ui-static-'));
+  let app: ReturnType<typeof createWebServer> | undefined;
+  const assetPath = '/assets/a2ui-12345678.js';
+  const html = `<!doctype html><title>Test A2UI entry</title><script type="module" src="${assetPath}"></script>`;
+  const script = 'export const fixture = "test-owned";';
+  try {
+    await mkdir(join(assets, 'assets'));
+    await writeFile(join(assets, 'index.html'), '<!doctype html><title>Different index</title>');
+    await writeFile(join(assets, 'a2ui.html'), html);
+    await writeFile(join(assets, 'assets', 'a2ui-12345678.js'), script);
+    app = createWebServer({ close: async () => {} } as Partner, assets);
+    app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening');
+    const url = `http://127.0.0.1:${(app.server.address() as { port: number }).port}`;
+    const entry = await fetch(`${url}/a2ui.html`);
+    assert.equal(entry.status, 200);
+    assert.match(entry.headers.get('content-type') ?? '', /^text\/html(?:;|$)/iu);
+    assert.equal(entry.headers.get('cache-control'), 'no-cache');
+    assert.equal(await entry.text(), html);
+    const asset = await fetch(`${url}${assetPath}`);
+    assert.equal(asset.status, 200);
+    assert.equal(asset.headers.get('cache-control'), 'public, max-age=31536000, immutable');
+    assert.equal(await asset.text(), script);
+    for (const path of ['/missing-a2ui.html', '/assets/a2ui-missing123.js'])
+      assert.equal((await fetch(`${url}${path}`)).status, 404, path);
   } finally { await app?.close(); await rm(assets, { recursive: true, force: true }); }
 });
 

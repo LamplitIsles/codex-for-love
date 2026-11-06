@@ -60,6 +60,9 @@ export function createCodexChatBackend(partner: Partner, authorize: () => Promis
             const imageState = slot.imageState === 'failed' ? 'failed' : image?.availability === 'available' ? 'ready' : 'unknown';
             ordered.push({ order, position: slot.position, message: { id: `image:${createHash('sha256').update(JSON.stringify([r.turnId, slot.itemId])).digest('hex')}`, role: 'agent', text: '', imageState,
               ...(imageState === 'ready' && image ? { images: [image] } : {}), createdAt, operationId: null, turnId: r.turnId } });
+          } else if (slot.kind === 'ui' && Object.hasOwn(slot, 'ui')) {
+            const message: ChatMessage & { ui: unknown } = { id: `ui:${createHash('sha256').update(JSON.stringify([r.turnId, slot.itemId])).digest('hex')}`, role: 'agent', text: '', ui: slot.ui, createdAt, operationId: null, turnId: r.turnId };
+            ordered.push({ order, position: slot.position, message });
           } else if (slot.kind === 'voice' && slot.voiceId) {
             ordered.push({ order, position: slot.position, message: { id: `voice:${createHash('sha256').update(JSON.stringify([r.id, slot.itemId, slot.voiceId])).digest('hex')}`, role: 'agent', text: '', voice: { id: slot.voiceId }, createdAt, operationId: null, turnId: r.turnId } });
           }
@@ -122,7 +125,7 @@ export function createCodexChatBackend(partner: Partner, authorize: () => Promis
   function overlay(view: ChatView): ChatView {
     return { ...view, messages: view.messages.map(message => {
       const value = latest.get(message.id);
-      return value && message.turnId === value.turnId && !(value.textState === 'streaming' && message.textState === 'complete')
+      return value && !Object.hasOwn(message, 'ui') && message.turnId === value.turnId && !(value.textState === 'streaming' && message.textState === 'complete')
         ? { ...message, text: value.text, textState: value.textState } : message;
     }) };
   }
@@ -160,7 +163,7 @@ export function createCodexChatBackend(partner: Partner, authorize: () => Promis
   function replyUpdate(id: string, turnId: string, text: string, textState: 'streaming' | 'complete') {
     if (textState === 'streaming' && !text.trim()) return;
     latest.set(id, { turnId, text, textState });
-    const message = current?.messages.find(value => value.id === id && value.turnId === turnId);
+    const message = current?.messages.find(value => value.id === id && value.turnId === turnId && !Object.hasOwn(value, 'ui'));
     if (!current || !message) {
       if (waitingReply !== id) { waitingReply = id; refresh(); }
       else if (running) waitingChanged = true;
@@ -170,7 +173,7 @@ export function createCodexChatBackend(partner: Partner, authorize: () => Promis
     const completion = textState === 'complete' ? partner.replyCompletion() : undefined;
     const completedTurn = completion?.itemId === id && completion.turnId === turnId && current.activeTurnId === turnId ? turnId : undefined;
     const clearPreview = textState === 'complete' && current.streamingReply?.id === id && current.streamingReply.turnId === turnId;
-    current = { ...current, messages: current.messages.map(value => value.id === id ? next : value),
+    current = { ...current, messages: current.messages.map(value => value === message ? next : value),
       ...(completedTurn ? { replyCompletedTurnId: completedTurn } : {}), ...(clearPreview ? { streamingReply: undefined } : {}) };
     changed?.({ type: 'update', scope, messages: [{ type: 'upsert', message: next }],
       ...(completedTurn || clearPreview ? { state: { ...(completedTurn ? { replyCompletedTurnId: completedTurn } : {}), ...(clearPreview ? { streamingReply: null } : {}) } } : {}) });

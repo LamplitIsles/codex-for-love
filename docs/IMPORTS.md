@@ -314,7 +314,17 @@ retain attribution for the public contracts and do not include browser resources
 The default Framework7/Svelte frontend and `@lamplit/contracts` public exports
 are built together from Apache-2.0 `LamplitIsles/lamplit-app`, initially
 `26ab708799f8ef4d99d974e1ab60c4d14a38267a`. `lamplit-app.sha` is the authoritative
-current pin. At the PR30 handoff, the source was merged App PR30 (App spec #4210)
+current pin. For the A2UI interface, merged App PR #54 uses commit
+`c93881ad054ba188446eec950f5a8abfd74560e5`, whose tree
+`271cbedc9ba7623dc73ac9d350b79a673413a467` matches reviewed head
+`398d549c5981b4564122ef9145fa6b2e9ea199f2`. The independently verified
+published contracts archive has SHA-256
+`9da2a3c3e941ab430445bd929591405f4fec40aa0520f99386b1b7a5a714abfc`;
+the matching frontend archive has SHA-256
+`1a69738dfa478bcea248a4a592f38120723dd9ff6ad7c05f8d4a9cfa94e35c67`.
+The frontend contains its own dependency notices, including Apache-2.0
+`svelte-a2ui` 0.2.0; the retained App IMPORTS is copied from that release.
+At the earlier PR30 handoff, the source was merged App PR30 (App spec #4210)
 `a41762d2f5b4320e88adaec7f5c16dc102edf043`, tree
 `a547f65a53d6c1f8ab89cbd0edcedae31907ca35` (Apache-2.0). Browser resources and
 compiled public contracts were built from that same revision; upstream licenses and

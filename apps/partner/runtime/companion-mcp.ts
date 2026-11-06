@@ -20,6 +20,7 @@ import { constants } from 'node:fs';
 import type { ImageInput } from './images.ts';
 import { createConversationSearch } from './conversation-search.ts';
 import { alarmMessageSchema, alarmScheduleSchema, createAlarm, deleteAlarm, editAlarm, listAlarms } from './alarms.ts';
+import { sendUiResult } from './ui-dispatch.ts';
 
 const workspace = process.argv[2];
 if (!workspace) throw new Error('Companion MCP requires a workspace path');
@@ -75,6 +76,10 @@ server.registerTool('edit_alarm', { description: 'Change the message of an exist
   return alarm ? { content: [{ type: 'text' as const, text: JSON.stringify(alarm) }] } : { content: [{ type: 'text' as const, text: 'Alarm not found' }], isError: true };
 });
 server.registerTool('delete_alarm', { description: 'Cancel one of your alarms by ID.', inputSchema: { id: z.uuid() } }, async ({ id }) => ({ content: [{ type: 'text', text: JSON.stringify({ deleted: deleteAlarm(alarms, id) }) }] }));
+server.registerTool('send_ui', {
+  description: `Send a standalone, display-focused interface into this conversation. It supports local tabs, media playback and modal opening; it does not return user input or actions. Use only when a structured interface helps. Supply one A2UI 1.0 Candidate surface: {"version":"1.0","createSurface":{"surfaceId":"example","catalogId":"https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json","components":[{"id":"root","component":"Column","children":["title"]},{"id":"title","component":"Text","text":"Hello"}]}}. Components are a flat array connected by unique IDs, rooted at root; each child must exist and have exactly one parent. Supported: Text, Image, Icon, Video, AudioPlayer, Row, Column, List, Card, Tabs, Modal, Divider, Button. Text uses text; Image, Video and AudioPlayer use url, with optional Image/AudioPlayer description and Video posterUrl; Icon uses a Basic Catalog name such as star. Row, Column and List use children: [id]; Card uses child: id; Tabs uses tabs: [{title,child}]; Modal uses trigger and content IDs. A Modal trigger must be a Button with child and action {"event":{"name":"open_modal"}}; buttons are not supported elsewhere. Text, descriptions and tab titles can bind a top-level string in createSurface.dataModel using {"@path":"/key"}. Other actions, functions, input controls and HTML/code are unavailable. Media URLs must be literal HTTPS, a workspace: reference described in the ui parameter, or an approved conversation media path. Keep the surface under 16 KiB, 100 nodes and 16 levels.`,
+  inputSchema: { ui: z.record(z.string(), z.unknown()).describe('One A2UI createSurface message, not a JSON string. For workspace media URLs use workspace: followed by a URI-encoded workspace path, for example workspace:images%2Fphoto.png, workspace:music%2Fsong.wav or workspace:video%2Fclip.mp4. Images support PNG/JPEG/WebP/GIF, audio WAV/MP3 and video MP4. These are live files: changes or deletion affect later viewing. Use your normal tools to generate files; UI cannot execute code.') },
+}, async ({ ui }) => sendUiResult(ui));
 server.registerTool('send_voice', { description: 'Send one standalone Voice message. Use only for a short deliberate spoken message; it never adds a transcript.', inputSchema: { text: z.string().trim().min(1).max(240) } }, async ({ text }, extra) => {
   try {
     if (!configPath) throw new Error('Voice dispatch is unavailable');

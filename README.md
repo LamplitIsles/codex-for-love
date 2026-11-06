@@ -412,6 +412,20 @@ and 12,000 Unicode code points. Selected text stays complete within the existing
 Subprocess, unavailable-daemon and oversized-reply failures return ordinary errors
 with retry; text chat stays connected. No Meilisearch credentials are required.
 
+### Structured chat interfaces
+
+The bundled Companion MCP registers `send_ui` for a standalone, display-focused
+A2UI interface. The pinned, published App contracts provide the shared validator;
+the selected frontend must match the pinned compiled contracts. The tool accepts
+one validated A2UI 1.0 Candidate
+surface, bounded to 16 KiB, 100 components and 16 levels. It supports display and
+local interactions such as tabs and modals; it does not send user input or actions
+back to the Partner. Successful completed tool results are projected as separate
+messages from the official Codex turn, preserving item identity and recorded or
+recoverable order through history. Failed or unfinished results do not create UI
+messages. The selected compatible App must supply `/a2ui.html` and its assets for
+the embedded renderer; CFL serves those resources from that verified App release.
+
 ### Partner alarms
 
 The bundled Companion MCP exposes `create_alarm`, `list_alarms`, `edit_alarm`,
@@ -827,6 +841,47 @@ These are live references: reopening history may show changed bytes or an
 unavailable file. They do not copy files, retain snapshots, or add images to the
 Chat Image Library. Markdown URI decoding happens once in the App; the endpoint
 uses the query-decoded path literally, preserving filenames containing `%20`.
+
+### Workspace audio and video
+
+The authenticated, same-origin `GET /api/chat/workspace-media?kind=audio|video&path=<encoded literal path>`
+reads a regular file from the configured execution workspace. Supply exactly one
+`kind` and one `path`; query decoding occurs once, so a filename containing the
+literal characters `%20` remains literal after URL query decoding. Like workspace
+images, these are live references: changing or deleting the file affects later
+reads and historical messages. CFL does not copy the file or create a database record.
+
+The endpoint accepts WAV (`.wav`, RIFF/WAVE with format and data chunks), MP3
+(`.mp3`, MPEG Layer III frames with optional bounded ID3), and MP4 (`.mp4`,
+recognized ISO BMFF brands with a checked video track, sample tables and media
+data). Video sample entries are limited to `avc1`, `avc3`, `hvc1`, `hev1`,
+`mp4v`, `vp09` and `av01`. If no video track has both samples and chunk offsets,
+the file must have matching fragment track and run metadata. Inspection is
+limited to 4,096 boxes. Other valid MP4 variants may be
+rejected, and acceptance does not guarantee that a client can decode the file.
+It checks the container signature and structure, not complete media decoding.
+Files are limited to 256 MiB and streamed in chunks of at most 64 KiB, with at
+most four concurrent workspace media responses. Escaping paths, non-regular
+files, unrecognized formats and over-limit files are unavailable. Responses use
+`private, no-store` and
+`nosniff`; authorization and file identity are checked throughout streaming.
+
+A full response is `200` with `Content-Length`; a single byte range, including
+open-ended or suffix ranges, is `206` with `Content-Range` and `Content-Length`.
+Invalid, multiple or unsatisfiable ranges return `416` and `Content-Range: bytes */<size>`.
+The response includes a weak `ETag` and an opaque `X-CFL-Media-Version` based on
+the open file's device, inode, size, modification time and change time. Clients
+combining ranges must send the first response's version as
+`If-CFL-Media-Version` on every subsequent request; a changed version returns
+`412` with no media body. `If-None-Match` supports weak comparison; `If-Range`
+cannot use this weak validator and falls back to a complete `200`. Cancellation,
+authorization loss or a detected file change stops an active response. This
+metadata version is not a content hash: its consistency depends on the filesystem
+updating these identity and timestamp fields correctly and cannot defend against
+privileged storage manipulation or extreme metadata reuse.
+
+The pinned App contract supplies the workspace media references. Actual iOS
+WebKit playback still requires device validation.
 
 ### Shared image sending and recovery
 

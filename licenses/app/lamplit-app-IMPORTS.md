@@ -75,3 +75,11 @@ CFL-derived Keet/Framework7 header, avatar and palette treatment. It adds no
 upstream source, native backend implementation, state or credentials; the source
 commits and Apache-2.0 attribution above remain authoritative. The complete frozen
 Matrix handoff includes the owned runners/fixtures and existing license files.
+
+## A2UI Svelte renderer
+
+The chat interface renderer uses `svelte-a2ui` 0.2.0 from
+<https://github.com/ChaliceForAuri/a2ui-svelte>, licensed Apache-2.0. The
+application validates its supported A2UI 1.0 Candidate subset before adapting
+it to the package's renderer dialect. Media, text, button and modal components
+are host implementations; the library does not receive a live agent transport.
