@@ -16,7 +16,8 @@
     "release:check": "node scripts/pack-check.mjs",
     "release:smoke": "node scripts/artifact-smoke.mjs",
     "release:preflight": "node scripts/publish-preflight.mjs",
-    "source:prepare": "node scripts/prepare-shared-source.mjs"
+    "source:prepare": "node scripts/prepare-shared-source.mjs",
+    "frontend:fixture": "node apps/partner/tests/frontend-development-host.ts"
   },
   "devDependencies": {
     "rolldown": "1.2.8"

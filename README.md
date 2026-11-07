@@ -1034,3 +1034,38 @@ may leave unreferenced immutable files after a failed transaction; there is no
 automatic cleanup, since deleting referenced versions would break history.
 Never expose this directory as static web content. No live provider, production
 deployment or App UI is enabled by these contracts alone.
+
+## Local frontend development fixture
+
+This is a synthetic, unauthenticated loopback-only development host, not an
+installation. It uses the real Partner HTTP/WebSocket routes and a fake Codex;
+replies labelled `【模拟回复】` are scripted and say nothing about model behavior.
+Do not expose it to a network or use real accounts, credentials, workspaces or
+conversations. No external messaging service is configured. The sample includes
+chat, relationship history, diaries, album images and reminders. It uses a fixed
+clock so sample alarms do not fire during development. Fake Codex does not provide
+real model, voice, image generation or external service behavior.
+
+Use Node 24 and the pinned pnpm; prepare contracts and install dependencies as
+described in [shared frontend preparation](docs/default-shared-frontend.md).
+From this checkout run:
+
+```sh
+pnpm frontend:fixture start        # 127.0.0.1:3090; optional port argument
+# In a compatible lamplit-app checkout, with its own dependencies installed:
+CHAT_BACKEND=http://127.0.0.1:3090 bun run dev
+```
+
+App's existing Vite `/api` HTTP and WebSocket proxy supplies the connection;
+choose unused loopback ports and ensure the App contracts match `lamplit-app.sha`.
+The state and synthetic workspace are under the ignored
+`.scratch/frontend-development-fixture/state`. Normal stop and restart retain
+changes. With the host stopped, `pnpm frontend:fixture reset` removes only the
+verified fixture data; the next start recreates the samples. Reset rejects an
+active or unverified directory. A crash may leave `state/LOCK`: first verify the
+recorded process and its fake server are no longer running, then remove that
+lock directory manually before starting or resetting. An interrupted seed must
+be explicitly reset. A failed or interrupted reset also blocks startup until
+an explicit reset completes; it never silently accepts partially deleted data.
+The temporary socket directory is independent of persistent
+state; no production reset route is exposed.
