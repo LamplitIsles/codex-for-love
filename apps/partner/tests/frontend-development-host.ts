@@ -1,14 +1,13 @@
 // Local synthetic frontend development host. Never use with a real workspace.
 import { once } from 'node:events';
-import { lstat, mkdir, mkdtemp, readdir, readFile, realpath, rm, rmdir, writeFile } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { copyFile, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rm, rmdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { fixture } from './fixture.ts';
-import { seedNow, seedPanels } from './panels-seed.ts';
+import { developmentNow, seedDevelopment } from './frontend-development-seed.ts';
 import { createWebServer } from './web-server.ts';
-import { Store } from '../runtime/store.ts';
-import { partnerPaths } from '../runtime/storage-paths.ts';
 
 const marker = 'CFL synthetic frontend development fixture v1\n';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../../.scratch/frontend-development-fixture/state');
@@ -76,24 +75,24 @@ export async function startDevelopment(directory: string, port: number) {
       if (await readFile(join(data, 'SEEDED'), 'utf8') !== marker) throw new Error('Incomplete development seed; stop and reset explicitly');
     }
     const f = await fixture(data);
+    // Profile images must be inside the workspace. Preserve an existing sample
+    // path so restarts never overwrite a developer's chosen image.
+    const profileDir = join(f.workspace, '.lamplit', 'profile');
+    await mkdir(profileDir, { recursive: true, mode: 0o700 });
+    const avatar = join(profileDir, 'development-companion.jpg');
+    try { await copyFile(new URL('./fixtures/frontend-development/companion-avatar.jpg', import.meta.url), avatar, constants.COPYFILE_EXCL); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; }
+    // The TOML schema requires a pair, but the runtime supports a missing user
+    // avatar. This in-memory, synthetic fixture deliberately configures only Mica.
+    f.config.avatars = { companion: avatar } as NonNullable<typeof f.config.avatars>;
     if (first) {
-      await seedPanels(f.workspace, f.appServer.env.FAKE_SERVER_STATE!);
-      const statePath = f.appServer.env.FAKE_SERVER_STATE!;
-      const state = JSON.parse(await readFile(statePath, 'utf8'));
-      const text = '你好，今天一起看看灯火吧。';
-      const store = new Store(partnerPaths(f.workspace).database);
-      try { await store.ensureMessage('dev-welcome', seedNow, text); } finally { await store.close(); }
-      state.turns.push({ id: 'dev-welcome-turn', status: 'completed', startedAt: seedNow / 1000, completedAt: seedNow / 1000, items: [
-        { type: 'userMessage', id: 'dev-welcome-user', clientId: 'dev-welcome', content: [{ type: 'text', text }] },
-        { type: 'agentMessage', id: 'dev-welcome-reply', text: '【模拟回复】你好！这是本地开发示例。', phase: 'final_answer' },
-      ] });
-      await writeFile(statePath, JSON.stringify(state));
+      await seedDevelopment(f.workspace, f.appServer.env.FAKE_SERVER_STATE!);
       await writeFile(join(data, 'SEEDED'), marker, { flag: 'wx' });
     }
     await writeFile(join(data, 'control.json'), JSON.stringify({ completedText: '【模拟回复】这是本地开发夹具的回复。' }));
     socketDirectory = await mkdtemp(join(tmpdir(), 'cfl-dev-socket-'));
     f.config.codex.socket_path = join(socketDirectory, 'codex.sock');
-    partner = await f.createPartner({ now: () => seedNow });
+    partner = await f.createPartner({ now: () => developmentNow });
     app = createWebServer(partner, join(data, 'assets'));
     app.server.listen(port, '127.0.0.1'); await once(app.server, 'listening');
     const origin = `http://127.0.0.1:${(app.server.address() as { port: number }).port}`;

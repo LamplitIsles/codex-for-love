@@ -743,3 +743,22 @@ file storage and execution integration.
 The fail-closed regression also retains the unmodified `9b30d315` contracts
 archive identified in the preceding section as a test fixture. Its SHA-256 and
 source revision are checked before it is loaded in an isolated child process.
+
+## Frontend development photographs
+
+The local-only development fixture includes resized JPEG previews from Wikimedia
+Commons; no network is needed to display them. All four photographs are published as CC0 1.0
+([dedication](https://creativecommons.org/publicdomain/zero/1.0/)). Names and scenes in the synthetic conversations do not identify the photographers.
+
+- `companion-avatar.jpg`: [Fashion-woman-model-portrait](https://commons.wikimedia.org/wiki/File:Fashion-woman-model-portrait_(24300464886).jpg),
+  www.Pixel.la Free Stock Photos, CC0 1.0. This 500 × 334 Wikimedia preview
+  was resized from the Flickr original; Commons reviewed its CC0 license in 2016.
+- `coffee.jpg`: [Cup of coffee in Café Butter](https://commons.wikimedia.org/wiki/File:Cup_of_coffee_in_Caf%C3%A9_Butter_-_Prenzlauer_Berg,_Berlin.jpg),
+  Edward, CC0 1.0.
+- `sea.jpg`: [Monastirbeach](https://commons.wikimedia.org/wiki/File:Monastirbeach.jpg),
+  Azza mon, CC0 1.0.
+- `cat.jpg`: [The black and white cat](https://commons.wikimedia.org/wiki/File:The_black_and_white_cat.jpg),
+  Khidoyatxon, CC0 1.0.
+
+These Wikimedia-generated previews are the distributed files, with their
+originals and licensing information available at the linked source pages.

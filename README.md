@@ -1042,9 +1042,19 @@ installation. It uses the real Partner HTTP/WebSocket routes and a fake Codex;
 replies labelled `【模拟回复】` are scripted and say nothing about model behavior.
 Do not expose it to a network or use real accounts, credentials, workspaces or
 conversations. No external messaging service is configured. The sample includes
-chat, relationship history, diaries, album images and reminders. It uses a fixed
-clock so sample alarms do not fire during development. Fake Codex does not provide
-real model, voice, image generation or external service behavior.
+chat, A2UI cards with local tabs and dialogs, relationship history, diaries,
+album images and reminders. A2UI interactions are local and do not send actions
+to the fake model. It uses a fixed
+clock fixed at 2026-10-02 12:00 UTC (20:00 in Asia/Shanghai), so sample
+alarms do not fire during development. The browser uses its own clock and time
+zone for dates; the conversation includes 03:59 and 04:00 Asia/Shanghai for
+the chat-day boundary. Fake Codex does not provide real model, voice, image
+generation or external service behavior. Sample photographs are bundled locally;
+see [their provenance](docs/IMPORTS.md#frontend-development-photographs).
+The synthetic companion uses a bundled portrait; no user avatar is configured.
+On startup, the fixture copies it into `.lamplit/profile/development-companion.jpg`
+inside its workspace only if that file is missing. An existing file is preserved,
+so an older fixture gets the sample on restart without resetting conversation data.
 
 Use Node 24 and the pinned pnpm; prepare contracts and install dependencies as
 described in [shared frontend preparation](docs/default-shared-frontend.md).
@@ -1060,8 +1070,9 @@ App's existing Vite `/api` HTTP and WebSocket proxy supplies the connection;
 choose unused loopback ports and ensure the App contracts match `lamplit-app.sha`.
 The state and synthetic workspace are under the ignored
 `.scratch/frontend-development-fixture/state`. Normal stop and restart retain
-changes. With the host stopped, `pnpm frontend:fixture reset` removes only the
-verified fixture data; the next start recreates the samples. Reset rejects an
+changes, including older fixture samples; new conversation and A2UI samples
+appear only on first initialization or an explicit reset. With the host stopped,
+`pnpm frontend:fixture reset` removes only the verified fixture data; the next start recreates the samples. Reset rejects an
 active or unverified directory. A crash may leave `state/LOCK`: first verify the
 recorded process and its fake server are no longer running, then remove that
 lock directory manually before starting or resetting. An interrupted seed must
