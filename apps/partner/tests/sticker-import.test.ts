@@ -75,7 +75,7 @@ test('authenticated ZIP import, bounded discovery, independent favorites and pri
     try { assert.equal((await catalog.listStickers({ participant: 'human', cursor: null, limit: 10 })).stickers.length, 1); assert.equal((await catalog.listStickers({ participant: 'agent', cursor: null, limit: 10 })).stickers.length, 0); }
     finally { catalog.close(); }
     const upload = await fetch(`${origin}/api/stickers/favorites/upload`, { method: 'POST', headers: { origin, authorization: 'owner', 'content-type': 'application/json' }, body: JSON.stringify({ sessionId: session, name: '单张', tags: ['测试'], mediaType: 'image/png', data: png.toString('base64') }) });
-    assert.equal(upload.status, 200);
+    assert.equal(upload.status, 200); assert.equal(upload.headers.get('cache-control'), 'no-store');
     const uploaded = await upload.json(); assert.equal(uploaded.favorite, true);
     const favoritesPage = await fetch(`${origin}/api/stickers/favorites?sessionId=${encodeURIComponent(session)}&limit=1`, { headers: { authorization: 'owner' } });
     const favorites = await favoritesPage.json(); assert.equal(favorites.stickers.length, 1); assert.ok(favorites.nextCursor);
@@ -84,14 +84,20 @@ test('authenticated ZIP import, bounded discovery, independent favorites and pri
     assert.equal((await partner.conversationImages()).images.length, 0);
     const mediaUrl = `${origin}/api/stickers/media/${pack.cover.version}/original`;
     const original = await fetch(mediaUrl, { headers: { authorization: 'owner' } }); assert.equal(original.status, 200);
-    assert.equal(original.headers.get('cache-control'), 'private, no-cache');
+    assert.equal(original.headers.get('cache-control'), 'private, max-age=2592000');
     const etag = original.headers.get('etag')!; assert.deepEqual(Buffer.from(await original.arrayBuffer()), png);
-    assert.equal((await fetch(mediaUrl, { headers: { authorization: 'owner', 'if-none-match': etag } })).status, 304);
+    const cached = await fetch(mediaUrl, { headers: { authorization: 'owner', 'if-none-match': `"other", W/${etag}` } });
+    assert.equal(cached.status, 304); assert.equal(cached.headers.get('cache-control'), 'private, max-age=2592000');
+    assert.equal(cached.headers.get('etag'), etag);
+    const unmatched = await fetch(mediaUrl, { headers: { authorization: 'owner', 'if-none-match': '"different"' } });
+    assert.equal(unmatched.status, 200); assert.equal(unmatched.headers.get('etag'), etag);
+    const missing = await fetch(`${origin}/api/stickers/media/${'0'.repeat(64)}/original`, { headers: { authorization: 'owner', 'if-none-match': '*' } });
+    assert.equal(missing.status, 404); assert.equal(missing.headers.get('cache-control'), 'no-store');
     const thumbnailUrl = `${origin}/api/stickers/media/${pack.cover.version}/thumbnail`;
     assert.equal((await fetch(thumbnailUrl)).status, 401);
     const thumbnail = await fetch(thumbnailUrl, { headers: { authorization: 'owner' } });
     assert.equal(thumbnail.status, 200); assert.equal(thumbnail.headers.get('content-type'), 'image/webp');
-    assert.equal(thumbnail.headers.get('cache-control'), 'private, no-cache');
+    assert.equal(thumbnail.headers.get('cache-control'), 'private, max-age=2592000');
     const thumbnailBytes = Buffer.from(await thumbnail.arrayBuffer());
     assert.ok(thumbnailBytes.length <= 160_000);
     const thumbnailTag = thumbnail.headers.get('etag')!;
@@ -101,7 +107,8 @@ test('authenticated ZIP import, bounded discovery, independent favorites and pri
     assert.ok([400, 404].includes(retired.status));
     assert.ok(!retired.headers.get('content-type')?.startsWith('image/'));
     authorized = false;
-    assert.equal((await fetch(mediaUrl, { headers: { authorization: 'owner', 'if-none-match': etag } })).status, 401);
+    const denied = await fetch(mediaUrl, { headers: { authorization: 'owner', 'if-none-match': etag } });
+    assert.equal(denied.status, 401); assert.equal(denied.headers.get('cache-control'), 'no-store');
     assert.equal((await fetch(thumbnailUrl, { headers: { authorization: 'owner', 'if-none-match': thumbnailTag } })).status, 401);
   } finally { await app.close(); await f.close(); }
 });

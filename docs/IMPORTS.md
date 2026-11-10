@@ -762,3 +762,21 @@ Commons; no network is needed to display them. All four photographs are publishe
 
 These Wikimedia-generated previews are the distributed files, with their
 originals and licensing information available at the linked source pages.
+
+## Private chat media cache — FlickNote #118 / App PR #62
+
+CFL selects App main `a815b3f0c1786f3d76e3a562712357c50f958d72`, tree
+`bb61b116637cf53d1cf8fbc2e3316b2f78d087e7`, identical to reviewed App
+`da0f79e`. This pin also includes App PRs #55–#61 since the previous pin,
+including the Konsta frontend transition and removal of voice input and Capacitor
+adaptation. The published Forgejo contracts archive is 52,145 bytes, SHA-256
+`a96c8e6768b61ccc505486d7d6ad5dac76d80d988fa5b1b705792e48f12f459e`;
+the frontend archive is 7,117,452 bytes, SHA-256
+`811f6502bbf85aa52b8b80f2deaa3bd2057fe6d84c753d6f8fe4ae100a1859b5`.
+Both downloaded archives identify the merged revision. The frontend manifest's
+265 browser, 50 compiled-contract and 205 license files were independently
+verified; all compiled contracts match the separate archive. Its Better Auth
+marker and Apache-2.0 and Chord MIT notices match the contract package. The
+retained App IMPORTS notice is updated from the same frontend archive; the Noto
+Sans SC notice is unchanged. App owns the media cache contracts and browser
+behavior; CFL supplies the authenticated native media adapters.

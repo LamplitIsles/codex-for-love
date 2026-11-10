@@ -1,6 +1,6 @@
 # Shared App contracts and isolated acceptance
 
-CFL serves the shared Framework7 App at `/`. `/chat` serves identical HTML with
+CFL serves the shared Svelte/Konsta App at `/`. `/chat` serves identical HTML with
 root-relative assets. Missing assets, `/slice` and management routes return 404.
 The host keeps its existing native API, socket/media/voice authorization and
 same-origin checks. Platform independently owns hosted auth, manifest, service
@@ -224,6 +224,9 @@ after review. Workers do not merge, publish, deploy, restart or reconfigure live
 services. The standalone App does not register a service worker.
 
 ## Local-first voice consumption
+
+The current shared App no longer provides voice input; CFL retains the compatible
+server contract. The following records historical acceptance.
 
 Spec #3739 consumes merged App #3734/PR21 source
 `97da354fb27697e530c9be1be9dceb7b2599f71e`, with the identical tree of approved

@@ -25,7 +25,12 @@ On the CFL host run `codex-for-love pair /path/to/partner.toml` and enter its on
 
 Post and Keet authenticate their exact webhook POST routes with separate receiver Bearers; neither credential grants browser or human API access. The provider exposes a fixed public `etos` client, with the exact callback `etosllmstudio://auth/callback`, authorization code plus S256 PKCE and owner consent. The client identifier and callback scheme do not prove which app initiated the request. Native clients must check state and issuer, protect their tokens, and implement the OAuth handoff; ETOS does not yet implement it. Native bearer-authenticated POST requests to the human API and WebSocket upgrades must send an `Origin` header equal to the configured canonical origin; missing or foreign origins are rejected. The OAuth issuer is the configured origin plus `/api/auth`, with metadata at `/.well-known/oauth-authorization-server/api/auth`. No unauthenticated local or proxy mode is available.
 
-## Desktop installation and Capacitor mobile media
+<a id="desktop-installation-and-capacitor-mobile-media"></a>
+
+## Desktop installation and mobile browser
+
+The current shared App uses the browser for mobile access; it no longer includes
+Capacitor adapters or voice input.
 
 Serve the existing static build and API at the same trusted origin. The root
 manifest has stable identity `/`, scope/start URL `/`, standalone display,
@@ -35,34 +40,24 @@ device. Loopback is secure only on the device itself; an HTTP LAN host is not
 made secure by installation. Network routing, certificates and proxy setup are
 outside this feature.
 
-The image button selects files; touch long-press uses native Camera in Capacitor
-when the plugin is installed. Elsewhere it opens a file input with
-`capture="environment"`. Capture is a preference and may open a picker. The
-browser/OS owns camera permissions and cancellation. Files follow existing
-image limits, preview and submission; cancel does not submit. Microphone
-recording still uses getUserMedia and configured STT, requiring a secure context
-and microphone permission.
+The attachment menu uses browser file selection. Available image sources and
+camera options depend on the browser and operating system; cancellation leaves
+the draft intact. The App can play existing voice messages but does not record
+or stream voice input. CFL retains voice endpoints for compatible clients.
 
-Mobile uses Capacitor. The shell must install and sync `@capacitor/camera` 8.x
-and `@capacitor/keyboard` 8.x, then ship a rebuilt app. Web dependencies alone
-cannot install native plugins. Camera cancellation leaves drafts intact; other
-camera errors use the existing camera-failed notice. Android Camera starts a
-separate Activity; shell recovery must handle `App.appRestoredResult` if the OS
-terminates the app during capture.
-
-With native Keyboard available, tapping timeline whitespace, message text or
-copy controls dismisses the keyboard while preserving composer focus. Links and
-other controls keep their own behavior; swipes do not dismiss. Only completed
-agent text messages have a copy button, with short toast feedback. Without the
-plugin, ordinary browser focus handling applies. Keep the shell's existing
-system-bar colors and resize settings.
-
-There is no service worker, offline cache or Web Push. Documents revalidate on
-refresh; versioned UI assets retain their existing immutable caching. Authenticated
-image, audio and other private API responses use `no-store`. Notifications remain
-page-local: the page must stay connected and active enough to receive events,
-with browser permission. Installation does not guarantee background SSE or
-notifications after closing/suspension.
+There is no service worker or Web Push. Documents revalidate on refresh;
+versioned UI assets retain their existing immutable caching. Authorized successful
+GETs for `/api/chat/media/{id}/{original|preview|model}` and
+`/api/stickers/media/{version}/{original|thumbnail}` return
+`Cache-Control: private, max-age=2592000` and a strong ETag; matching 304 responses
+carry the same cache policy and ETag after server-side authorization and media
+checks. Image and sticker uploads, other endpoints in these contracts, and errors
+from these routes use `no-store`.
+A fresh private cache can reuse media after revocation, deletion or an account
+switch in the same browser; it does not guarantee account isolation or retention.
+Notifications remain page-local: the page must stay connected and active enough
+to receive events, with browser permission. Installation does not guarantee
+background SSE or notifications after closing/suspension.
 
 ## Mobile keyboard validation
 
@@ -77,8 +72,8 @@ Reading actions now release editable focus instead of hiding the keyboard while
 retaining it. Browser acceptance covers copy-menu and settings close, return to
 latest, and explicit input editing; the revised OS keyboard behavior awaits
 device acceptance.
-Animation quality, text selection, native camera permissions/cancellation/photo
-preview, process-death recovery and iOS behavior remain device acceptance items.
+Animation quality, text selection, browser camera selection and iOS behavior
+remain device acceptance items.
 
 ## Optional local pet
 

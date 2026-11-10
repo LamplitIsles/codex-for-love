@@ -16,7 +16,7 @@ It began when Neil moved his own companion, Shio, from DeepSeek Harness to Codex
 |---|---|
 | Long-lived conversation | Companion-oriented compaction preserves feelings, life events, and relationship history across long conversations |
 | Relationship continuity | Explicit relationship updates live in an append-only local journal instead of a generated profile that defines the companion |
-| Voice | Speak naturally with speech-to-text and receive deliberate, standalone Voice messages in the companion's chosen voice |
+| Voice | Receive and play standalone Voice messages in the companion's chosen voice |
 | Images | Share photos, understand images, create or edit images together, and browse the shared visual chat history |
 | Chat history search | Search past conversations from the chat header and read a complete matched message with nearby conversation context |
 | Diaries and memory | Read and write ordinary workspace files, including human-readable daily memories |
@@ -269,22 +269,13 @@ Appearance and native snapshot retain the existing pair of background URLs.
 Companion selects the composition from the window shape before the keyboard
 opens (square windows use portrait), fills the chat area and crops centrally.
 Backgrounds remain stationary as messages scroll. They never enter message
-history or the Chat Image Library and do not interrupt voice recordings.
+history or the Chat Image Library.
 
-The shared lamplit-app frontend uses Svelte 5, Vite and Framework7 9.2.0.
-Voice recording starts when local PCM arrives while recognition connects. Early
-Stop releases capture and retains ordered startup audio until recognition is
-ready; the final transcript becomes an editable draft for manual send. See
-[voice consumption and isolated acceptance](docs/default-shared-frontend.md#local-first-voice-consumption).
-App owns browser components, localization and browser tests; CFL owns the Node
-runtime and the domain rules it uses. Framework7 owns
-component styles, theme tokens, its app/view shell and Photo Browser navigation;
-SvelteKit, Tailwind and daisyUI are removed. Sidebar, settings and search use
-the official Svelte Panel, Popover and Popup components. Framework7 owns their
-instances, visibility and backdrops. Sidebar closing uses the supported
-nonanimated path so input remains reachable even without a transition-end event.
-The Node HTTP/SSE host remains the backend. Reloading a transient Photo Browser
-URL opens the chat page.
+The shared Lamplit App uses Svelte, Konsta UI and Tailwind. App owns browser
+components, localization and browser tests; CFL owns the Node runtime and its
+backend rules. The App supports playback of existing voice messages but does not
+provide voice recording or speech-to-text input. The voice input endpoints remain
+available to compatible clients.
 
 The Companion header’s settings button changes language and appearance immediately without changing the conversation. These choices are browser-local preferences, not settings stored in the Partner configuration or workspace.
 
@@ -292,20 +283,14 @@ Browser site settings own notification permission; the shared App requests it on
 
 ### Install Companion on desktop
 
-Desktop users can open the Companion URL in a supporting browser and choose
-**Install app** to open CFL in a standalone window. Mobile uses the Capacitor app.
-Installation
-and microphone access require a trusted secure context: HTTPS or local loopback;
-plain HTTP on a phone's LAN address is not sufficient. Use a URL already
-accessible and trusted on the device; installing CFL does not configure networking
-or TLS. Browser and OS installation options vary.
+Users can open the Companion URL in a supporting browser and use its install
+option to open CFL in a standalone window. Use a URL already accessible and
+trusted on the device; installation does not configure networking or TLS. Browser
+and OS installation options vary.
 
-Tap the image button to select images, or long-press it on a touch screen to
-request a camera capture. In Capacitor with the Camera plugin installed, this
-opens the native camera. Browsers use a capture file input and may offer a picker
-instead. Cancel leaves the draft intact and sends nothing. Captured
-files use the same image limits and preview as selected files. Recording uses
-the existing browser microphone permission and speech configuration.
+The attachment menu lets users select images and other supported files. Image
+selection uses the browser's file picker; available sources and camera options
+vary by browser and device. Cancelling leaves the draft intact.
 
 Partner replies retain all generated images in the current conversation view,
 older history and after reconnect. The upload limit applies to Human input;
@@ -319,70 +304,11 @@ window uses the same online API and notification limits as a browser tab.
 
 ### Typing and reading on mobile
 
-Mobile uses the Capacitor app. Tapping chat whitespace or message text ends
-editing and lets the WebView dismiss its keyboard. Copying, returning to the
-latest message, and closing a reading overlay do not restore input focus.
-Swipes, links and other controls keep their own behavior. Keyboard geometry
-and safe-area adaptation remain independent of focus.
-Companion enables the existing `@capacitor/app` 8.1.1 Back handler while mounted:
-Android Back closes its active menu, popover, popup, Photo Browser or sidebar
-before returning to the chat;
-at the chat root it minimizes the app. Unmount removes the listener and restores
-the shell's disabled handler. Capacitor 8's built-in `SystemBars` synchronizes
-status/navigation icon contrast with the selected appearance; no additional
-status-bar plugin or APK rebuild is needed for this integration.
-
-The chat uses Framework7's Svelte `Page`, `PageContent`, `Messages` and `Message`
-components. Each text, image and voice segment is a separate message bubble;
-segments retain their business-message identity, source, time and pending state.
-Grouping uses the official Svelte demo's `first`, `last` and `tail` properties.
-Framework7 `Messagebar` owns textarea growth and the scroll area's bottom padding.
-Its attachment components show pending images; toolbar slots contain attachment,
-microphone and send controls. Text grows up to the configured 144-pixel limit
-before scrolling. Voice capture keeps the existing draft and attachments,
-disables send, and offers cancel at the attachment control and stop at the
-microphone. Recognition inserts at the captured selection for review and manual
-sending; it never sends by itself. Recognition inserts only the transcript text;
-provider emotion annotations are ignored. The left sidebar supports Framework7
-swipe-to-close. A small down-arrow button returns readers to the latest message.
-Viewport adaptation retains scroll position while
-reading and follows content or viewport resizing only when already near the end.
-Opening the chat and returning to the foreground show the latest message.
-Capacitor App `resume` covers native activity resumes and browser visibility
-changes; Framework7 Messages performs the scroll without focusing the composer.
-
-Long-press a completed message from either participant to open the official
-Framework7 Actions popover anchored to the message or image on mobile and desktop.
-Desktop supports left-button hold and right-click.
-Framework7 `taphold` owns touch timing, movement cancellation and click suppression;
-a mouse-only adapter opens the same popover and cancels on release or drag. Text
-provides Copy and images provide Save, with a separate Cancel group; the action
-list can grow with future message operations. Copy preserves the original
-Markdown and shows brief feedback; scrolling and multitouch cancel the hold. Capacitor uses
-`@capacitor/clipboard` 8.0.1, including when the server uses a plain HTTP LAN URL;
-web browsers use the secure-context Clipboard API.
-
-Message timestamps and pending status use Framework7 Message `textFooter` inside
-the bubble; avatars retain the framework’s bottom alignment.
-
-Native photo selection uses Capacitor Camera 8.2.3 gallery intake and reads the
-returned originals into memory before creating drafts. Web browsers keep the
-file picker. Native picker or read failures show a composer error; reselect an
-unreadable photo to retry. Supported originals remain PNG, JPEG, WebP and GIF;
-HEIC is rejected. The native shell must include the Camera plugin and be rebuilt
-after `cap sync`.
-
-Tap an image to open Framework7 Photo Browser. Mobile previews use almost the
-full width and support pinch zoom and panning. Tap outside the displayed image
-to close it. Long-press an image in the chat or preview to save the original:
-browsers download it, and Capacitor saves to the application's **Lamplit** album.
-The native shell must include `@capacitor-community/media` 9.1.0 for Capacitor 8
-and be rebuilt after `cap sync`. Android uses the plugin's default application
-album mode without broad gallery access. An iOS shell also needs
-`NSPhotoLibraryUsageDescription` for album creation/access (and
-`NSPhotoLibraryAddUsageDescription`); denied permission shows an error. CFL does
-not enumerate the user's photos. When a save menu is open, the first outside tap
-closes the menu; a subsequent outside tap closes the preview.
+The shared App adapts its composer and conversation layout to the available
+viewport. It uses Konsta controls, with PhotoSwipe for image viewing. Browser file
+selection and downloads are used for attachments and saving originals; the App
+no longer includes Capacitor-specific adapters. Existing voice messages remain
+playable, while recording and voice-input streaming are not provided by the App.
 
 Sending a valid message immediately returns to the latest messages, before the
 network request completes. The timeline follows when you are at the latest messages and preserves your
@@ -624,7 +550,7 @@ Development and tests must use fresh, test-owned workspaces. Do not point them a
 
 ## Default shared Lamplit App
 
-The default standalone entry `/` serves the approved shared Framework7 App.
+The default standalone entry `/` serves the shared Svelte/Konsta App.
 `/chat` serves identical HTML with root-relative `/assets/*` and `/icons/*` URLs.
 There is no `/slice` entry, UI fallback or asset-directory environment override.
 Platform owns hosted authentication, manifest, service worker and management;
@@ -785,9 +711,11 @@ they are not the current route or build workflow.
 
 ### Streaming voice input
 
-The shared app reads `/api/voice/capability` and records through the same-origin
-`/api/voice/stream` WebSocket. Authenticated owners can configure streaming voice
-through same-origin `GET /api/voice/settings` and `POST /api/voice/settings`.
+CFL retains voice-input endpoints for compatible clients; the current shared App
+does not record audio or expose voice-input settings. The capability endpoint is
+`/api/voice/capability`, and streaming uses the same-origin `/api/voice/stream`
+WebSocket. Authenticated owners can configure streaming voice through same-origin
+`GET /api/voice/settings` and `POST /api/voice/settings`.
 GET returns `{region: "beijing" | "singapore", configured: boolean}`; POST takes
 strict JSON `{region, apiKey}` and returns the confirmed public snapshot. Keys
 are never returned. Responses are `no-store`. An empty key retains the current
@@ -795,9 +723,9 @@ key only when the region is unchanged and already configured; switching regions
 requires a new matching key. Key validity at the provider is checked on recording,
 not on save. Settings support is independent of recording availability.
 
-UI settings work without `[speech]` and persist region/key together in private
+The settings API works without `[speech]` and persists region/key together in private
 `state/voice-settings.json` (0600), separate from CLI credentials. Before the first
-UI save, `[speech]` plus the CLI `speech` credential continues to enable Beijing
+settings API save, `[speech]` plus the CLI `speech` credential continues to enable Beijing
 streaming. Legacy `speech.endpoint` values are accepted and ignored, regardless
 of their type or contents; no configuration rewrite is needed. Alibaba TTS and
 CLI credential behavior remain independent. Streaming uses only the fixed
@@ -820,8 +748,8 @@ saved state fails closed rather than resetting to CLI credentials. No secret val
 Audio streams as mono PCM16 LE at 16 kHz, up to five minutes/9,600,000 bytes,
 with frames up to 16 KiB and bounded provider buffering. Only finalized sentences
 are returned after Finish, ordered by sentence ID with replacement of duplicate
-finals. The result enters an editable draft; it creates no Codex turn until Send.
-Cancel, disconnect, errors, timeouts and server shutdown release the provider
+finals. The client decides how to use the transcript; the stream does not create
+a Codex turn. Cancel, disconnect, errors, timeouts and server shutdown release the provider
 connection. Audio and unsent transcripts are transient. Shared runtime validation
 comes from `@lamplit/contracts/voice`. Voice input uses streaming exclusively;
 the former whole-audio transcription endpoint has been removed.
@@ -897,8 +825,15 @@ with its operation-owned `ref`. Upload does not admit a message or add
 album membership. `/api/chat/socket` submit binds text, ordered references and
 replacement IDs atomically to native admission. Exact retries reconcile without
 execution; changed identity, incomplete references and foreign operations fail.
-Authenticated `GET /api/chat/media/{id}/{original|preview|model}` returns `no-store`
-media or a visible missing result. Native-origin originals need no uploaded variants.
+Authenticated `GET /api/chat/media/{id}/{original|preview|model}` returns private
+media with `Cache-Control: private, max-age=2592000` and a strong ETag, or a
+non-cacheable error. Native-origin originals need no uploaded variants. When a
+request reaches the server for revalidation, authorization and the existing media
+checks run before a matching conditional request can return 304. Fresh browser or
+device caches can reuse previously authorized bytes for 30 days even after server
+changes, permission revocation or an account switch in the same browser. Private
+caching does not guarantee account isolation, encryption, retention or offline access;
+chat history still requires a connection.
 
 Recovery refreshes official history and exposes only confirmed recoverable text/images.
 Definite rolled-back admission returns `failed`; a durably received input remains
@@ -918,9 +853,8 @@ See [the shared image protocol and isolated acceptance recipe](docs/image-send-r
 
 The default shared UI keeps manual and automatic successful compaction silent: no completed status, toast or timeline boundary. Running and
 failure feedback remain visible. Official compact records remain available for
-continuation and conversation search. The native Framework7 composer and its
-72px attachments/44px removal targets remain the layout baseline; the earlier
-full Composer/96px attachment mockup is superseded.
+continuation and conversation search. The current composer is owned by the
+shared Svelte/Konsta App.
 
 The shared view carries session-owned `contextUsage: { tokens, capacity }`, with
 nullable values, and `compaction: null | { id, status }`. Current usage comes only
@@ -1004,11 +938,12 @@ enlargement and at most 160,000 bytes. It is generated on demand from the
 hash-verified original, including for existing assets. Each catalog instance reuses a
 bounded in-memory thumbnail cache, with no thumbnail files stored; every request
 still reads and verifies the original before using a cached result. `/thumbnail`
-and `/original` require owner authentication and use private,
-revalidated ETags based on the response bytes. Clients may show an identity-isolated
-cached thumbnail while revalidating, and must discard it on authentication failure,
-forbidden or missing responses. The selected App frontend must match the pinned
-public contracts. The Partner
+and `/original` require owner authentication and use the same 30-day private
+HTTP cache and byte-based strong ETags as chat images. A request that reaches the
+server revalidates authorization and media before returning 304; fresh caches may
+reuse bytes under the limitations described above. Other sticker endpoints and
+errors remain `no-store`. The selected App frontend must match the pinned public
+contracts. The Partner
 uses the separate Companion MCP sticker tools. A conversation image can be
 favorited only after it belongs to that conversation; imports and favorites do
 not themselves create chat messages or photo-library membership.

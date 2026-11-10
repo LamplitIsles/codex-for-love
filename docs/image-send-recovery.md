@@ -28,12 +28,19 @@ Rust build, native release, external provider or production state is involved.
   start/steer or history. It promises retention, not exactly-once execution;
   lookup recovers a lost receipt and identical retries never replay an ambiguous
   native attempt. Reply outcomes never revoke submission; definite pre-processing rejection may offer recovery.
-- `GET /api/chat/media/{attachmentId}/{original|preview|model}` authenticates each
-  request. Native stored metadata or operation-owned staging determines ownership;
-  opaque ID knowledge is insufficient. Originals retain a finite 32 MiB read bound,
-  previews/models 160,000/320,000 bytes. Responses are `no-store` and `nosniff`;
-  unavailable originals/variants return 404. Native/generated originals remain
-  readable even when intake is disabled; no decoder dependency was added.
+- `GET /api/chat/media/{attachmentId}/{original|preview|model}` authenticates
+  requests reaching the server. Preview/model lookup uses staging for the selected
+  session; original lookup falls back from that staging to workspace image metadata
+  queried by ID. This fallback does not establish cross-thread ownership isolation.
+  Originals retain a 32 MiB read bound, previews/models 160,000/320,000 bytes.
+  Successful responses use `Cache-Control: private, max-age=2592000`, a strong ETag
+  based on the returned bytes, variant and media type, and `nosniff`. Conditional
+  requests read and validate the media and recheck authorization/session before a
+  matching 304 with the same cache policy and ETag. Errors use `no-store`; missing
+  originals/variants return 404. Fresh private caches may reuse bytes without a
+  request, including after revocation, deletion or a same-browser account switch.
+  Native/generated originals remain readable even when intake is disabled; the
+  existing checks do not add image decoding or complete integrity validation.
 - History and album project verified native membership and provenance. User
   image-only messages and completed agent images have real media references;
   workspace inspection and staging never add album membership.
