@@ -70,6 +70,9 @@ for (const name of ['better-auth', '@better-auth/passkey', '@better-auth/oauth-p
 await copyDependencyLicenses('typebox', join(prepared, 'contracts/package.json'), 'contracts');
 await copyDependencyLicenses('marked', join(prepared, 'contracts/package.json'), 'contracts');
 await copyDependencyLicenses('@elevenlabs/elevenlabs-js', join(root, 'apps/partner/package.json'), 'elevenlabs');
+for (const name of ['ajv', 'ws']) {
+  await copyDependencyLicenses(name, join(root, 'packages/codex-app-server-client/package.json'), 'codex-sdk');
+}
 await writeFile(join(vendor, 'source.json'), JSON.stringify(manifest, null, 2) + '\n');
 const packed = Object.values(JSON.parse(execFileSync('npm', ['pack', '--json', '--pack-destination', output], { cwd: mainPackage, encoding: 'utf8' })))[0];
 console.log(JSON.stringify({ artifact: join(output, packed.filename), mainPackage, version: packed.version }, null, 2));

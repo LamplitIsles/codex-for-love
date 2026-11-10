@@ -33,6 +33,9 @@ try {
   for (const dependency of ['better-auth@1.7.14', '@better-auth__passkey@1.7.14', '@better-auth__oauth-provider@1.7.14', '@simplewebauthn__server@13.3.3']) {
     if (![...files].some(file => file.startsWith(`vendor/licenses/auth/${dependency}/`))) throw new Error(`${name} omits the ${dependency} license.`);
   }
+  for (const dependency of ['ajv@8.20.0', 'fast-deep-equal@3.1.3', 'fast-uri@3.1.7', 'json-schema-traverse@1.0.0', 'require-from-string@2.0.2', 'ws@8.21.1']) {
+    if (![...files].some(file => file.startsWith(`vendor/licenses/codex-sdk/${dependency}/`))) throw new Error(`${name} omits the ${dependency} license.`);
+  }
   const ecosystemServers = parse(await readFile(join(path, 'vendor', 'ecosystem-mcp.example.toml'), 'utf8')).mcp_servers;
   if (Object.keys(ecosystemServers ?? {}).sort().join(',') !== 'flicknote,web') throw new Error(`${name} has an unexpected ecosystem MCP template.`);
   if (JSON.stringify(manifest).includes('github:')) throw new Error(`${name} exposes a Git dependency.`);

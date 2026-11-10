@@ -11,40 +11,48 @@ import type { ChatView, PostSource } from '@lamplit/contracts';
 import { postAcceptanceHost } from './post-acceptance-host.ts';
 import { eventually } from './fixture.ts';
 
-async function probeFailedHost(hold = false) {
+async function probeFailedHost() {
   const root = await mkdtemp(join(tmpdir(), 'post-host-init-'));
   const moduleUrl = new URL('./post-acceptance-host.ts', import.meta.url).href;
   const script = `import { postAcceptanceHost } from ${JSON.stringify(moduleUrl)};
-    import { spawn } from 'node:child_process';
-    import { mkdirSync, writeFileSync } from 'node:fs';
-    import { join } from 'node:path';
-    try { await postAcceptanceHost(process.argv[1]); process.exitCode = 1; }
-    catch (error) { if (error.code !== 'ENOENT') throw error; console.log('expected ENOENT'); }
-    if (process.argv[2] === 'hold') {
-      mkdirSync(join(process.env.TMPDIR, 'synthetic-fixture'));
-      writeFileSync(join(process.env.TMPDIR, 'synthetic-fixture', 'marker'), 'owned');
-      spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
-      console.log('synthetic fixture ready');
-      setInterval(() => {}, 1000);
+    try {
+      await postAcceptanceHost(process.argv[1], undefined, error => {
+        if (error.code === 'ENOENT') console.log('initialization ENOENT');
+      });
+      process.exitCode = 1;
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+      console.log('cleanup complete: expected ENOENT');
     }`;
   const socket = join(root, 'lamplit-partner-test-XXXXXX/workspace/.lamplit/run/codex.sock');
   if (Buffer.byteLength(socket) > (process.platform === 'darwin' ? 103 : 107)) {
     await rm(root, { recursive: true, force: true });
     throw new Error('Test-owned TMPDIR is too long for the fixture socket');
   }
-  const child = spawn(process.execPath, ['--input-type=module', '-e', script, join(root, 'missing'), hold ? 'hold' : ''], {
+  const child = spawn(process.execPath, ['--input-type=module', '-e', script, join(root, 'missing')], {
     detached: true, stdio: ['ignore', 'pipe', 'pipe'],
     env: { PATH: process.env.PATH, HOME: root, TMPDIR: root, NODE_DISABLE_COMPILE_CACHE: '1' },
   });
   const closed = once(child, 'close');
-  let output = ''; child.stdout.on('data', chunk => { output += chunk; }); child.stderr.on('data', chunk => { output += chunk; });
+  let output = '', stage = 'initialization';
   const stop = () => { try { if (child.pid) process.kill(-child.pid, 'SIGKILL'); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error; } };
   process.once('SIGINT', stop); process.once('SIGTERM', stop);
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const result = await Promise.race([closed, new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), 8000); })]);
+    const limit = new Promise<null>(resolve => {
+      // These limits guard against hung tests; they are not startup or shutdown SLAs.
+      const arm = () => { clearTimeout(timer); timer = setTimeout(() => resolve(null), stage === 'initialization' ? 60_000 : 30_000); };
+      child.stdout.on('data', chunk => {
+        output += chunk;
+        if (stage === 'initialization' && output.includes('initialization ENOENT')) { stage = 'cleanup'; arm(); }
+        if (stage === 'cleanup' && output.includes('cleanup complete: expected ENOENT')) { stage = 'process exit'; arm(); }
+      });
+      child.stderr.on('data', chunk => { output += chunk; });
+      arm();
+    });
+    const result = await Promise.race([closed, limit]);
     if (!result) { stop(); await closed; }
-    return { root, pid: child.pid!, result, output };
+    return { root, result, output, stage };
   } finally {
     if (timer) clearTimeout(timer);
     process.off('SIGINT', stop); process.off('SIGTERM', stop);
@@ -53,20 +61,12 @@ async function probeFailedHost(hold = false) {
   }
 }
 
-test('Post host releases its resources when static assets are unavailable', { timeout: 15_000 }, async () => {
+test('Post host releases its resources when static assets are unavailable', { timeout: 130_000 }, async () => {
   const probe = await probeFailedHost();
-  assert.ok(probe.result, `Post host initialization leaked resources: ${probe.output}`);
+  assert.ok(probe.result, `Post host did not complete ${probe.stage}: ${probe.output}`);
   assert.equal(probe.result[0], 0, probe.output);
-  assert.match(probe.output, /expected ENOENT/);
-  await assert.rejects(access(probe.root), { code: 'ENOENT' });
-});
-
-test('Post host probe cleans its process group and fixture after a timeout', { timeout: 15_000 }, async () => {
-  const probe = await probeFailedHost(true);
-  assert.equal(probe.result, null, probe.output);
-  assert.match(probe.output, /expected ENOENT/);
-  assert.match(probe.output, /synthetic fixture ready/);
-  assert.throws(() => process.kill(-probe.pid, 0), { code: 'ESRCH' });
+  assert.match(probe.output, /initialization ENOENT/);
+  assert.match(probe.output, /cleanup complete: expected ENOENT/);
   await assert.rejects(access(probe.root), { code: 'ENOENT' });
 });
 

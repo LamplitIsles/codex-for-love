@@ -18,10 +18,11 @@ import { event, examples, postService } from './post-fixture.ts';
 import { postInputId } from '../runtime/post.ts';
 
 type Incoming = { action: 'incoming'; id: string; source: PostSource; text: string; createdAt: number; history?: boolean; images?: unknown[] };
-export async function postAcceptanceHost(assets: string, evidence?: string) {
+export async function postAcceptanceHost(assets: string, evidence?: string, onInitializationError?: (error: unknown) => void) {
   const cleanup: Array<() => void | Promise<void>> = [];
   try { return await initializePostAcceptanceHost(assets, evidence, cleanup); }
   catch (error) {
+    try { onInitializationError?.(error); } catch { /* preserve the setup error and cleanup */ }
     for (const close of cleanup.reverse()) try { await close(); } catch { /* preserve the setup error */ }
     throw error;
   }

@@ -1,0 +1,84 @@
+{
+  "name": "@jaminzhou/codex-app-server-client",
+  "version": "0.2.1",
+  "description": "Unofficial TypeScript client for streaming Codex conversations, explicit approvals, and persistent threads over the public app-server protocol.",
+  "keywords": [
+    "codex",
+    "app-server",
+    "json-rpc",
+    "openai",
+    "typescript"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JaminZhou/codex-app-server-client.git"
+  },
+  "homepage": "https://github.com/JaminZhou/codex-app-server-client#readme",
+  "bugs": {
+    "url": "https://github.com/JaminZhou/codex-app-server-client/issues"
+  },
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "CHANGELOG.md",
+    "COMPATIBILITY.md",
+    "CONTRIBUTING.md",
+    "dist",
+    "examples",
+    "docs",
+    "RELEASING.md",
+    "schemas",
+    "SOURCES.md",
+    "THIRD_PARTY_LICENSES",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./protocol": {
+      "types": "./dist/protocol.d.ts",
+      "import": "./dist/protocol.js"
+    },
+    "./schemas/*": "./schemas/*"
+  },
+  "scripts": {
+    "build": "tsup && node scripts/finalize-declarations.mjs",
+    "git:smoke": "pnpm --silent dlx npm@11.6.2 exec -- node scripts/git-dependency-smoke.mjs",
+    "package:smoke": "node scripts/package-smoke.mjs",
+    "preview:pack": "node scripts/preview-pack.mjs",
+    "release:pack": "node scripts/preview-pack.mjs --release",
+    "examples:smoke": "pnpm build && node scripts/examples-smoke.mjs",
+    "prepare": "npm run build",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "compatibility:check": "node scripts/compatibility-smoke.mjs --check",
+    "compatibility:smoke": "pnpm build && node scripts/compatibility-smoke.mjs",
+    "protocol:generate": "node scripts/generate-protocol.mjs",
+    "protocol:check": "node scripts/generate-protocol.mjs --check",
+    "protocol:latest-check": "node scripts/check-latest-stable-protocol.mjs",
+    "check": "pnpm protocol:check && pnpm compatibility:check && pnpm typecheck && pnpm test && pnpm build"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@openai/codex": "0.154.0",
+    "@types/node": "26.1.1",
+    "ajv": "8.20.0",
+    "ws": "8.21.1"
+  },
+  "devDependencies": {
+    "@microsoft/api-extractor": "7.58.12",
+    "@types/ws": "8.18.1",
+    "tsup": "8.5.1",
+    "typescript": "5.9.3",
+    "vitest": "4.1.11"
+  },
+  "private": true
+}

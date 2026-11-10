@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import sharp from 'sharp';
 import { test } from 'node:test';
 import { once } from 'node:events';
-import { readFile, writeFile, mkdir, stat, unlink } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, stat, unlink, rename } from 'node:fs/promises';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
@@ -358,9 +358,29 @@ test('Post diagnostics expose only finite receiver, admission, native and send c
     const unknown = structuredClone(direct); unknown.message.account_id = 'DIAGNOSTIC_PRIVATE_ACCOUNT';
     assert.equal((await h.send(unknown)).status, 422);
     post.accountMode = 'fail'; assert.equal((await h.send(unknown)).status, 503); post.accountMode = 'normal';
+    // The fake logs the request before it starts the turn. Hold it at that
+    // boundary so the diagnostics test covers this ordering deterministically.
+    const controlPath = join(f.directory, 'control.json');
+    const holdStart = async (hold: boolean) => {
+      const next = `${controlPath}.next`;
+      await writeFile(next, JSON.stringify({ holdMethods: hold ? ['turn/start'] : [] }));
+      await rename(next, controlPath);
+    };
+    await holdStart(true);
     assert.equal((await h.send(direct)).status, 202);
     await eventually(async () => (await starts(f)).length === 1);
-    const native = await f.nativeState(), turnId = native.active;
+    assert.equal((await f.nativeState()).active, null);
+    await holdStart(false);
+    let native: Awaited<ReturnType<typeof f.nativeState>> | undefined;
+    await eventually(async () => {
+      const current = await f.nativeState();
+      if (typeof current.active !== 'string' || !current.active) return false;
+      if (!(await partner.snapshot()).messages.some(message => message.turnId === current.active)) return false;
+      native = current;
+      return true;
+    });
+    assert(native);
+    const turnId = native.active;
     await f.streamCommand({ action: 'event', notification: { method: 'item/completed', params: { threadId: native.threadId, turnId, completedAtMs: Date.now(), item: { type: 'mcpToolCall', id: 'DIAGNOSTIC_PRIVATE_TOOL_ID', server: 'post', tool: 'send_message', arguments: { private: 'DIAGNOSTIC_PRIVATE_ARGS' }, status: 'failed', result: null, error: { message: 'DIAGNOSTIC_PRIVATE_ERROR https://private.invalid' } } } } });
     await eventually(async () => records().some(r => r.event === 'post.tool'));
     await partner.chatStop(turnId); await f.rejectStart(true);

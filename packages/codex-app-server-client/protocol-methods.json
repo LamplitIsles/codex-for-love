@@ -1,0 +1,1398 @@
+{
+  "schemaVersion": 2,
+  "codexCliVersion": "0.154.0",
+  "source": {
+    "repository": "https://github.com/openai/codex",
+    "tag": "rust-v0.154.0",
+    "commit": "6b9826e3aa83b1a5947db50f4332cb9c65f1b340",
+    "path": "codex-rs/app-server-protocol/src/protocol/common.rs"
+  },
+  "methods": [
+    {
+      "method": "initialize",
+      "response": {
+        "module": "InitializeResponse",
+        "name": "InitializeResponse"
+      },
+      "variant": "Initialize"
+    },
+    {
+      "method": "server/diagnostics",
+      "response": {
+        "module": "v2/ServerDiagnosticsResponse",
+        "name": "ServerDiagnosticsResponse"
+      },
+      "variant": "ServerDiagnostics"
+    },
+    {
+      "method": "userVerification/status",
+      "response": {
+        "module": "v2/UserVerificationStatusResponse",
+        "name": "UserVerificationStatusResponse"
+      },
+      "variant": "UserVerificationStatus"
+    },
+    {
+      "method": "userVerification/enroll",
+      "response": {
+        "module": "v2/UserVerificationEnrollResponse",
+        "name": "UserVerificationEnrollResponse"
+      },
+      "variant": "UserVerificationEnroll"
+    },
+    {
+      "method": "userVerification/delete",
+      "response": {
+        "module": "v2/UserVerificationDeleteResponse",
+        "name": "UserVerificationDeleteResponse"
+      },
+      "variant": "UserVerificationDelete"
+    },
+    {
+      "method": "userVerification/verify",
+      "response": {
+        "module": "v2/UserVerificationVerifyResponse",
+        "name": "UserVerificationVerifyResponse"
+      },
+      "variant": "UserVerificationVerify"
+    },
+    {
+      "method": "thread/start",
+      "response": {
+        "module": "v2/ThreadStartResponse",
+        "name": "ThreadStartResponse"
+      },
+      "variant": "ThreadStart"
+    },
+    {
+      "method": "thread/resume",
+      "response": {
+        "module": "v2/ThreadResumeResponse",
+        "name": "ThreadResumeResponse"
+      },
+      "variant": "ThreadResume"
+    },
+    {
+      "method": "thread/fork",
+      "response": {
+        "module": "v2/ThreadForkResponse",
+        "name": "ThreadForkResponse"
+      },
+      "variant": "ThreadFork"
+    },
+    {
+      "method": "thread/archive",
+      "response": {
+        "module": "v2/ThreadArchiveResponse",
+        "name": "ThreadArchiveResponse"
+      },
+      "variant": "ThreadArchive"
+    },
+    {
+      "method": "thread/delete",
+      "response": {
+        "module": "v2/ThreadDeleteResponse",
+        "name": "ThreadDeleteResponse"
+      },
+      "variant": "ThreadDelete"
+    },
+    {
+      "method": "thread/unsubscribe",
+      "response": {
+        "module": "v2/ThreadUnsubscribeResponse",
+        "name": "ThreadUnsubscribeResponse"
+      },
+      "variant": "ThreadUnsubscribe"
+    },
+    {
+      "method": "thread/increment_elicitation",
+      "response": {
+        "module": "v2/ThreadIncrementElicitationResponse",
+        "name": "ThreadIncrementElicitationResponse"
+      },
+      "variant": "ThreadIncrementElicitation"
+    },
+    {
+      "method": "thread/decrement_elicitation",
+      "response": {
+        "module": "v2/ThreadDecrementElicitationResponse",
+        "name": "ThreadDecrementElicitationResponse"
+      },
+      "variant": "ThreadDecrementElicitation"
+    },
+    {
+      "method": "thread/name/set",
+      "response": {
+        "module": "v2/ThreadSetNameResponse",
+        "name": "ThreadSetNameResponse"
+      },
+      "variant": "ThreadSetName"
+    },
+    {
+      "method": "thread/goal/set",
+      "response": {
+        "module": "v2/ThreadGoalSetResponse",
+        "name": "ThreadGoalSetResponse"
+      },
+      "variant": "ThreadGoalSet"
+    },
+    {
+      "method": "thread/goal/get",
+      "response": {
+        "module": "v2/ThreadGoalGetResponse",
+        "name": "ThreadGoalGetResponse"
+      },
+      "variant": "ThreadGoalGet"
+    },
+    {
+      "method": "thread/goal/clear",
+      "response": {
+        "module": "v2/ThreadGoalClearResponse",
+        "name": "ThreadGoalClearResponse"
+      },
+      "variant": "ThreadGoalClear"
+    },
+    {
+      "method": "thread/queue/add",
+      "response": {
+        "module": "v2/ThreadQueueAddResponse",
+        "name": "ThreadQueueAddResponse"
+      },
+      "variant": "ThreadQueueAdd"
+    },
+    {
+      "method": "thread/queue/list",
+      "response": {
+        "module": "v2/ThreadQueueListResponse",
+        "name": "ThreadQueueListResponse"
+      },
+      "variant": "ThreadQueueList"
+    },
+    {
+      "method": "thread/queue/update",
+      "response": {
+        "module": "v2/ThreadQueueUpdateResponse",
+        "name": "ThreadQueueUpdateResponse"
+      },
+      "variant": "ThreadQueueUpdate"
+    },
+    {
+      "method": "thread/queue/delete",
+      "response": {
+        "module": "v2/ThreadQueueDeleteResponse",
+        "name": "ThreadQueueDeleteResponse"
+      },
+      "variant": "ThreadQueueDelete"
+    },
+    {
+      "method": "thread/queue/reorder",
+      "response": {
+        "module": "v2/ThreadQueueReorderResponse",
+        "name": "ThreadQueueReorderResponse"
+      },
+      "variant": "ThreadQueueReorder"
+    },
+    {
+      "method": "thread/queue/start",
+      "response": {
+        "module": "v2/ThreadQueueStartResponse",
+        "name": "ThreadQueueStartResponse"
+      },
+      "variant": "ThreadQueueStart"
+    },
+    {
+      "method": "thread/metadata/update",
+      "response": {
+        "module": "v2/ThreadMetadataUpdateResponse",
+        "name": "ThreadMetadataUpdateResponse"
+      },
+      "variant": "ThreadMetadataUpdate"
+    },
+    {
+      "method": "thread/section/move",
+      "response": {
+        "module": "v2/ThreadSectionMoveResponse",
+        "name": "ThreadSectionMoveResponse"
+      },
+      "variant": "ThreadSectionMove"
+    },
+    {
+      "method": "thread/settings/update",
+      "response": {
+        "module": "v2/ThreadSettingsUpdateResponse",
+        "name": "ThreadSettingsUpdateResponse"
+      },
+      "variant": "ThreadSettingsUpdate"
+    },
+    {
+      "method": "thread/memoryMode/set",
+      "response": {
+        "module": "v2/ThreadMemoryModeSetResponse",
+        "name": "ThreadMemoryModeSetResponse"
+      },
+      "variant": "ThreadMemoryModeSet"
+    },
+    {
+      "method": "memory/reset",
+      "response": {
+        "module": "v2/MemoryResetResponse",
+        "name": "MemoryResetResponse"
+      },
+      "variant": "MemoryReset"
+    },
+    {
+      "method": "thread/unarchive",
+      "response": {
+        "module": "v2/ThreadUnarchiveResponse",
+        "name": "ThreadUnarchiveResponse"
+      },
+      "variant": "ThreadUnarchive"
+    },
+    {
+      "method": "thread/compact/start",
+      "response": {
+        "module": "v2/ThreadCompactStartResponse",
+        "name": "ThreadCompactStartResponse"
+      },
+      "variant": "ThreadCompactStart"
+    },
+    {
+      "method": "thread/shellCommand",
+      "response": {
+        "module": "v2/ThreadShellCommandResponse",
+        "name": "ThreadShellCommandResponse"
+      },
+      "variant": "ThreadShellCommand"
+    },
+    {
+      "method": "thread/approveGuardianDeniedAction",
+      "response": {
+        "module": "v2/ThreadApproveGuardianDeniedActionResponse",
+        "name": "ThreadApproveGuardianDeniedActionResponse"
+      },
+      "variant": "ThreadApproveGuardianDeniedAction"
+    },
+    {
+      "method": "thread/backgroundTerminals/clean",
+      "response": {
+        "module": "v2/ThreadBackgroundTerminalsCleanResponse",
+        "name": "ThreadBackgroundTerminalsCleanResponse"
+      },
+      "variant": "ThreadBackgroundTerminalsClean"
+    },
+    {
+      "method": "thread/backgroundTerminals/list",
+      "response": {
+        "module": "v2/ThreadBackgroundTerminalsListResponse",
+        "name": "ThreadBackgroundTerminalsListResponse"
+      },
+      "variant": "ThreadBackgroundTerminalsList"
+    },
+    {
+      "method": "thread/backgroundTerminals/terminate",
+      "response": {
+        "module": "v2/ThreadBackgroundTerminalsTerminateResponse",
+        "name": "ThreadBackgroundTerminalsTerminateResponse"
+      },
+      "variant": "ThreadBackgroundTerminalsTerminate"
+    },
+    {
+      "method": "thread/rollback",
+      "response": {
+        "module": "v2/ThreadRollbackResponse",
+        "name": "ThreadRollbackResponse"
+      },
+      "variant": "ThreadRollback"
+    },
+    {
+      "method": "thread/revert",
+      "response": {
+        "module": "v2/ThreadRevertResponse",
+        "name": "ThreadRevertResponse"
+      },
+      "variant": "ThreadRevert"
+    },
+    {
+      "method": "thread/list",
+      "response": {
+        "module": "v2/ThreadListResponse",
+        "name": "ThreadListResponse"
+      },
+      "variant": "ThreadList"
+    },
+    {
+      "method": "project/list",
+      "response": {
+        "module": "v2/ProjectListResponse",
+        "name": "ProjectListResponse"
+      },
+      "variant": "ProjectList"
+    },
+    {
+      "method": "project/read",
+      "response": {
+        "module": "v2/ProjectReadResponse",
+        "name": "ProjectReadResponse"
+      },
+      "variant": "ProjectRead"
+    },
+    {
+      "method": "project/create",
+      "response": {
+        "module": "v2/ProjectCreateResponse",
+        "name": "ProjectCreateResponse"
+      },
+      "variant": "ProjectCreate"
+    },
+    {
+      "method": "project/import",
+      "response": {
+        "module": "v2/ProjectImportResponse",
+        "name": "ProjectImportResponse"
+      },
+      "variant": "ProjectImport"
+    },
+    {
+      "method": "project/update",
+      "response": {
+        "module": "v2/ProjectUpdateResponse",
+        "name": "ProjectUpdateResponse"
+      },
+      "variant": "ProjectUpdate"
+    },
+    {
+      "method": "project/move",
+      "response": {
+        "module": "v2/ProjectMoveResponse",
+        "name": "ProjectMoveResponse"
+      },
+      "variant": "ProjectMove"
+    },
+    {
+      "method": "project/delete",
+      "response": {
+        "module": "v2/ProjectDeleteResponse",
+        "name": "ProjectDeleteResponse"
+      },
+      "variant": "ProjectDelete"
+    },
+    {
+      "method": "threadSection/list",
+      "response": {
+        "module": "v2/ThreadSectionListResponse",
+        "name": "ThreadSectionListResponse"
+      },
+      "variant": "ThreadSectionList"
+    },
+    {
+      "method": "threadSection/create",
+      "response": {
+        "module": "v2/ThreadSectionCreateResponse",
+        "name": "ThreadSectionCreateResponse"
+      },
+      "variant": "ThreadSectionCreate"
+    },
+    {
+      "method": "threadSection/update",
+      "response": {
+        "module": "v2/ThreadSectionUpdateResponse",
+        "name": "ThreadSectionUpdateResponse"
+      },
+      "variant": "ThreadSectionUpdate"
+    },
+    {
+      "method": "threadSection/delete",
+      "response": {
+        "module": "v2/ThreadSectionDeleteResponse",
+        "name": "ThreadSectionDeleteResponse"
+      },
+      "variant": "ThreadSectionDelete"
+    },
+    {
+      "method": "thread/search",
+      "response": {
+        "module": "v2/ThreadSearchResponse",
+        "name": "ThreadSearchResponse"
+      },
+      "variant": "ThreadSearch"
+    },
+    {
+      "method": "thread/searchOccurrences",
+      "response": {
+        "module": "v2/ThreadSearchOccurrencesResponse",
+        "name": "ThreadSearchOccurrencesResponse"
+      },
+      "variant": "ThreadSearchOccurrences"
+    },
+    {
+      "method": "thread/loaded/list",
+      "response": {
+        "module": "v2/ThreadLoadedListResponse",
+        "name": "ThreadLoadedListResponse"
+      },
+      "variant": "ThreadLoadedList"
+    },
+    {
+      "method": "thread/read",
+      "response": {
+        "module": "v2/ThreadReadResponse",
+        "name": "ThreadReadResponse"
+      },
+      "variant": "ThreadRead"
+    },
+    {
+      "method": "thread/turns/list",
+      "response": {
+        "module": "v2/ThreadTurnsListResponse",
+        "name": "ThreadTurnsListResponse"
+      },
+      "variant": "ThreadTurnsList"
+    },
+    {
+      "method": "thread/items/list",
+      "response": {
+        "module": "v2/ThreadItemsListResponse",
+        "name": "ThreadItemsListResponse"
+      },
+      "variant": "ThreadItemsList"
+    },
+    {
+      "method": "thread/inject_items",
+      "response": {
+        "module": "v2/ThreadInjectItemsResponse",
+        "name": "ThreadInjectItemsResponse"
+      },
+      "variant": "ThreadInjectItems"
+    },
+    {
+      "method": "skills/list",
+      "response": {
+        "module": "v2/SkillsListResponse",
+        "name": "SkillsListResponse"
+      },
+      "variant": "SkillsList"
+    },
+    {
+      "method": "skills/extraRoots/set",
+      "response": {
+        "module": "v2/SkillsExtraRootsSetResponse",
+        "name": "SkillsExtraRootsSetResponse"
+      },
+      "variant": "SkillsExtraRootsSet"
+    },
+    {
+      "method": "hooks/list",
+      "response": {
+        "module": "v2/HooksListResponse",
+        "name": "HooksListResponse"
+      },
+      "variant": "HooksList"
+    },
+    {
+      "method": "marketplace/add",
+      "response": {
+        "module": "v2/MarketplaceAddResponse",
+        "name": "MarketplaceAddResponse"
+      },
+      "variant": "MarketplaceAdd"
+    },
+    {
+      "method": "marketplace/remove",
+      "response": {
+        "module": "v2/MarketplaceRemoveResponse",
+        "name": "MarketplaceRemoveResponse"
+      },
+      "variant": "MarketplaceRemove"
+    },
+    {
+      "method": "marketplace/upgrade",
+      "response": {
+        "module": "v2/MarketplaceUpgradeResponse",
+        "name": "MarketplaceUpgradeResponse"
+      },
+      "variant": "MarketplaceUpgrade"
+    },
+    {
+      "method": "plugin/list",
+      "response": {
+        "module": "v2/PluginListResponse",
+        "name": "PluginListResponse"
+      },
+      "variant": "PluginList"
+    },
+    {
+      "method": "plugin/search",
+      "response": {
+        "module": "v2/PluginSearchResponse",
+        "name": "PluginSearchResponse"
+      },
+      "variant": "PluginSearch"
+    },
+    {
+      "method": "plugin/installed",
+      "response": {
+        "module": "v2/PluginInstalledResponse",
+        "name": "PluginInstalledResponse"
+      },
+      "variant": "PluginInstalled"
+    },
+    {
+      "method": "plugin/reconcile",
+      "response": {
+        "module": "v2/PluginReconcileResponse",
+        "name": "PluginReconcileResponse"
+      },
+      "variant": "PluginReconcile"
+    },
+    {
+      "method": "plugin/read",
+      "response": {
+        "module": "v2/PluginReadResponse",
+        "name": "PluginReadResponse"
+      },
+      "variant": "PluginRead"
+    },
+    {
+      "method": "plugin/skill/read",
+      "response": {
+        "module": "v2/PluginSkillReadResponse",
+        "name": "PluginSkillReadResponse"
+      },
+      "variant": "PluginSkillRead"
+    },
+    {
+      "method": "plugin/share/save",
+      "response": {
+        "module": "v2/PluginShareSaveResponse",
+        "name": "PluginShareSaveResponse"
+      },
+      "variant": "PluginShareSave"
+    },
+    {
+      "method": "plugin/share/updateTargets",
+      "response": {
+        "module": "v2/PluginShareUpdateTargetsResponse",
+        "name": "PluginShareUpdateTargetsResponse"
+      },
+      "variant": "PluginShareUpdateTargets"
+    },
+    {
+      "method": "plugin/share/list",
+      "response": {
+        "module": "v2/PluginShareListResponse",
+        "name": "PluginShareListResponse"
+      },
+      "variant": "PluginShareList"
+    },
+    {
+      "method": "plugin/share/checkout",
+      "response": {
+        "module": "v2/PluginShareCheckoutResponse",
+        "name": "PluginShareCheckoutResponse"
+      },
+      "variant": "PluginShareCheckout"
+    },
+    {
+      "method": "plugin/share/delete",
+      "response": {
+        "module": "v2/PluginShareDeleteResponse",
+        "name": "PluginShareDeleteResponse"
+      },
+      "variant": "PluginShareDelete"
+    },
+    {
+      "method": "app/read",
+      "response": {
+        "module": "v2/AppsReadResponse",
+        "name": "AppsReadResponse"
+      },
+      "variant": "AppsRead"
+    },
+    {
+      "method": "app/list",
+      "response": {
+        "module": "v2/AppsListResponse",
+        "name": "AppsListResponse"
+      },
+      "variant": "AppsList"
+    },
+    {
+      "method": "app/installed",
+      "response": {
+        "module": "v2/AppsInstalledResponse",
+        "name": "AppsInstalledResponse"
+      },
+      "variant": "AppsInstalled"
+    },
+    {
+      "method": "fs/readFile",
+      "response": {
+        "module": "v2/FsReadFileResponse",
+        "name": "FsReadFileResponse"
+      },
+      "variant": "FsReadFile"
+    },
+    {
+      "method": "fs/writeFile",
+      "response": {
+        "module": "v2/FsWriteFileResponse",
+        "name": "FsWriteFileResponse"
+      },
+      "variant": "FsWriteFile"
+    },
+    {
+      "method": "fs/createDirectory",
+      "response": {
+        "module": "v2/FsCreateDirectoryResponse",
+        "name": "FsCreateDirectoryResponse"
+      },
+      "variant": "FsCreateDirectory"
+    },
+    {
+      "method": "fs/getMetadata",
+      "response": {
+        "module": "v2/FsGetMetadataResponse",
+        "name": "FsGetMetadataResponse"
+      },
+      "variant": "FsGetMetadata"
+    },
+    {
+      "method": "fs/readDirectory",
+      "response": {
+        "module": "v2/FsReadDirectoryResponse",
+        "name": "FsReadDirectoryResponse"
+      },
+      "variant": "FsReadDirectory"
+    },
+    {
+      "method": "fs/remove",
+      "response": {
+        "module": "v2/FsRemoveResponse",
+        "name": "FsRemoveResponse"
+      },
+      "variant": "FsRemove"
+    },
+    {
+      "method": "fs/copy",
+      "response": {
+        "module": "v2/FsCopyResponse",
+        "name": "FsCopyResponse"
+      },
+      "variant": "FsCopy"
+    },
+    {
+      "method": "fs/watch",
+      "response": {
+        "module": "v2/FsWatchResponse",
+        "name": "FsWatchResponse"
+      },
+      "variant": "FsWatch"
+    },
+    {
+      "method": "fs/unwatch",
+      "response": {
+        "module": "v2/FsUnwatchResponse",
+        "name": "FsUnwatchResponse"
+      },
+      "variant": "FsUnwatch"
+    },
+    {
+      "method": "skills/config/write",
+      "response": {
+        "module": "v2/SkillsConfigWriteResponse",
+        "name": "SkillsConfigWriteResponse"
+      },
+      "variant": "SkillsConfigWrite"
+    },
+    {
+      "method": "plugin/install",
+      "response": {
+        "module": "v2/PluginInstallResponse",
+        "name": "PluginInstallResponse"
+      },
+      "variant": "PluginInstall"
+    },
+    {
+      "method": "plugin/uninstall",
+      "response": {
+        "module": "v2/PluginUninstallResponse",
+        "name": "PluginUninstallResponse"
+      },
+      "variant": "PluginUninstall"
+    },
+    {
+      "method": "turn/start",
+      "response": {
+        "module": "v2/TurnStartResponse",
+        "name": "TurnStartResponse"
+      },
+      "variant": "TurnStart"
+    },
+    {
+      "method": "turn/settings/update",
+      "response": {
+        "module": "v2/TurnSettingsUpdateResponse",
+        "name": "TurnSettingsUpdateResponse"
+      },
+      "variant": "TurnSettingsUpdate"
+    },
+    {
+      "method": "turn/steer",
+      "response": {
+        "module": "v2/TurnSteerResponse",
+        "name": "TurnSteerResponse"
+      },
+      "variant": "TurnSteer"
+    },
+    {
+      "method": "turn/interrupt",
+      "response": {
+        "module": "v2/TurnInterruptResponse",
+        "name": "TurnInterruptResponse"
+      },
+      "variant": "TurnInterrupt"
+    },
+    {
+      "method": "thread/realtime/start",
+      "response": {
+        "module": "v2/ThreadRealtimeStartResponse",
+        "name": "ThreadRealtimeStartResponse"
+      },
+      "variant": "ThreadRealtimeStart"
+    },
+    {
+      "method": "thread/realtime/appendAudio",
+      "response": {
+        "module": "v2/ThreadRealtimeAppendAudioResponse",
+        "name": "ThreadRealtimeAppendAudioResponse"
+      },
+      "variant": "ThreadRealtimeAppendAudio"
+    },
+    {
+      "method": "thread/realtime/appendText",
+      "response": {
+        "module": "v2/ThreadRealtimeAppendTextResponse",
+        "name": "ThreadRealtimeAppendTextResponse"
+      },
+      "variant": "ThreadRealtimeAppendText"
+    },
+    {
+      "method": "thread/realtime/appendSpeech",
+      "response": {
+        "module": "v2/ThreadRealtimeAppendSpeechResponse",
+        "name": "ThreadRealtimeAppendSpeechResponse"
+      },
+      "variant": "ThreadRealtimeAppendSpeech"
+    },
+    {
+      "method": "thread/realtime/stop",
+      "response": {
+        "module": "v2/ThreadRealtimeStopResponse",
+        "name": "ThreadRealtimeStopResponse"
+      },
+      "variant": "ThreadRealtimeStop"
+    },
+    {
+      "method": "thread/timeline/list",
+      "response": {
+        "module": "v2/ThreadTimelineListResponse",
+        "name": "ThreadTimelineListResponse"
+      },
+      "variant": "ThreadTimelineList"
+    },
+    {
+      "method": "thread/realtime/listVoices",
+      "response": {
+        "module": "v2/ThreadRealtimeListVoicesResponse",
+        "name": "ThreadRealtimeListVoicesResponse"
+      },
+      "variant": "ThreadRealtimeListVoices"
+    },
+    {
+      "method": "review/start",
+      "response": {
+        "module": "v2/ReviewStartResponse",
+        "name": "ReviewStartResponse"
+      },
+      "variant": "ReviewStart"
+    },
+    {
+      "method": "model/list",
+      "response": {
+        "module": "v2/ModelListResponse",
+        "name": "ModelListResponse"
+      },
+      "variant": "ModelList"
+    },
+    {
+      "method": "modelProvider/capabilities/read",
+      "response": {
+        "module": "v2/ModelProviderCapabilitiesReadResponse",
+        "name": "ModelProviderCapabilitiesReadResponse"
+      },
+      "variant": "ModelProviderCapabilitiesRead"
+    },
+    {
+      "method": "experimentalFeature/list",
+      "response": {
+        "module": "v2/ExperimentalFeatureListResponse",
+        "name": "ExperimentalFeatureListResponse"
+      },
+      "variant": "ExperimentalFeatureList"
+    },
+    {
+      "method": "permissionProfile/list",
+      "response": {
+        "module": "v2/PermissionProfileListResponse",
+        "name": "PermissionProfileListResponse"
+      },
+      "variant": "PermissionProfileList"
+    },
+    {
+      "method": "experimentalFeature/enablement/set",
+      "response": {
+        "module": "v2/ExperimentalFeatureEnablementSetResponse",
+        "name": "ExperimentalFeatureEnablementSetResponse"
+      },
+      "variant": "ExperimentalFeatureEnablementSet"
+    },
+    {
+      "method": "remoteControl/enable",
+      "response": {
+        "module": "v2/RemoteControlEnableResponse",
+        "name": "RemoteControlEnableResponse"
+      },
+      "variant": "RemoteControlEnable"
+    },
+    {
+      "method": "remoteControl/disable",
+      "response": {
+        "module": "v2/RemoteControlDisableResponse",
+        "name": "RemoteControlDisableResponse"
+      },
+      "variant": "RemoteControlDisable"
+    },
+    {
+      "method": "remoteControl/status/read",
+      "response": {
+        "module": "v2/RemoteControlStatusReadResponse",
+        "name": "RemoteControlStatusReadResponse"
+      },
+      "variant": "RemoteControlStatusRead"
+    },
+    {
+      "method": "remoteControl/pairing/start",
+      "response": {
+        "module": "v2/RemoteControlPairingStartResponse",
+        "name": "RemoteControlPairingStartResponse"
+      },
+      "variant": "RemoteControlPairingStart"
+    },
+    {
+      "method": "remoteControl/pairing/status",
+      "response": {
+        "module": "v2/RemoteControlPairingStatusResponse",
+        "name": "RemoteControlPairingStatusResponse"
+      },
+      "variant": "RemoteControlPairingStatus"
+    },
+    {
+      "method": "remoteControl/client/list",
+      "response": {
+        "module": "v2/RemoteControlClientsListResponse",
+        "name": "RemoteControlClientsListResponse"
+      },
+      "variant": "RemoteControlClientsList"
+    },
+    {
+      "method": "remoteControl/client/revoke",
+      "response": {
+        "module": "v2/RemoteControlClientsRevokeResponse",
+        "name": "RemoteControlClientsRevokeResponse"
+      },
+      "variant": "RemoteControlClientsRevoke"
+    },
+    {
+      "method": "collaborationMode/list",
+      "response": {
+        "module": "v2/CollaborationModeListResponse",
+        "name": "CollaborationModeListResponse"
+      },
+      "variant": "CollaborationModeList"
+    },
+    {
+      "method": "mock/experimentalMethod",
+      "response": {
+        "module": "v2/MockExperimentalMethodResponse",
+        "name": "MockExperimentalMethodResponse"
+      },
+      "variant": "MockExperimentalMethod"
+    },
+    {
+      "method": "environment/add",
+      "response": {
+        "module": "v2/EnvironmentAddResponse",
+        "name": "EnvironmentAddResponse"
+      },
+      "variant": "EnvironmentAdd"
+    },
+    {
+      "method": "environment/info",
+      "response": {
+        "module": "v2/EnvironmentInfoResponse",
+        "name": "EnvironmentInfoResponse"
+      },
+      "variant": "EnvironmentInfo"
+    },
+    {
+      "method": "environment/status",
+      "response": {
+        "module": "v2/EnvironmentStatusResponse",
+        "name": "EnvironmentStatusResponse"
+      },
+      "variant": "EnvironmentStatus"
+    },
+    {
+      "method": "mcpServer/oauth/login",
+      "response": {
+        "module": "v2/McpServerOauthLoginResponse",
+        "name": "McpServerOauthLoginResponse"
+      },
+      "variant": "McpServerOauthLogin"
+    },
+    {
+      "method": "config/mcpServer/reload",
+      "response": {
+        "module": "v2/McpServerRefreshResponse",
+        "name": "McpServerRefreshResponse"
+      },
+      "variant": "McpServerRefresh"
+    },
+    {
+      "method": "mcpServerStatus/list",
+      "response": {
+        "module": "v2/ListMcpServerStatusResponse",
+        "name": "ListMcpServerStatusResponse"
+      },
+      "variant": "McpServerStatusList"
+    },
+    {
+      "method": "mcpServer/resource/read",
+      "response": {
+        "module": "v2/McpResourceReadResponse",
+        "name": "McpResourceReadResponse"
+      },
+      "variant": "McpResourceRead"
+    },
+    {
+      "method": "mcpServer/event/stream/start",
+      "response": {
+        "module": "v2/McpServerEventStreamStartResponse",
+        "name": "McpServerEventStreamStartResponse"
+      },
+      "variant": "McpServerEventStreamStart"
+    },
+    {
+      "method": "mcpServer/event/stream/stop",
+      "response": {
+        "module": "v2/McpServerEventStreamStopResponse",
+        "name": "McpServerEventStreamStopResponse"
+      },
+      "variant": "McpServerEventStreamStop"
+    },
+    {
+      "method": "mcpServer/tool/call",
+      "response": {
+        "module": "v2/McpServerToolCallResponse",
+        "name": "McpServerToolCallResponse"
+      },
+      "variant": "McpServerToolCall"
+    },
+    {
+      "method": "windowsSandbox/setupStart",
+      "response": {
+        "module": "v2/WindowsSandboxSetupStartResponse",
+        "name": "WindowsSandboxSetupStartResponse"
+      },
+      "variant": "WindowsSandboxSetupStart"
+    },
+    {
+      "method": "windowsSandbox/readiness",
+      "response": {
+        "module": "v2/WindowsSandboxReadinessResponse",
+        "name": "WindowsSandboxReadinessResponse"
+      },
+      "variant": "WindowsSandboxReadiness"
+    },
+    {
+      "method": "account/login/start",
+      "response": {
+        "module": "v2/LoginAccountResponse",
+        "name": "LoginAccountResponse"
+      },
+      "variant": "LoginAccount"
+    },
+    {
+      "method": "account/bedrock/discover",
+      "response": {
+        "module": "v2/BedrockDiscoverResponse",
+        "name": "BedrockDiscoverResponse"
+      },
+      "variant": "BedrockDiscover"
+    },
+    {
+      "method": "account/bedrock/setup",
+      "response": {
+        "module": "v2/BedrockSetupResponse",
+        "name": "BedrockSetupResponse"
+      },
+      "variant": "BedrockSetup"
+    },
+    {
+      "method": "account/login/cancel",
+      "response": {
+        "module": "v2/CancelLoginAccountResponse",
+        "name": "CancelLoginAccountResponse"
+      },
+      "variant": "CancelLoginAccount"
+    },
+    {
+      "method": "account/logout",
+      "response": {
+        "module": "v2/LogoutAccountResponse",
+        "name": "LogoutAccountResponse"
+      },
+      "variant": "LogoutAccount"
+    },
+    {
+      "method": "account/rateLimits/read",
+      "response": {
+        "module": "v2/GetAccountRateLimitsResponse",
+        "name": "GetAccountRateLimitsResponse"
+      },
+      "variant": "GetAccountRateLimits"
+    },
+    {
+      "method": "account/rateLimitResetCredit/consume",
+      "response": {
+        "module": "v2/ConsumeAccountRateLimitResetCreditResponse",
+        "name": "ConsumeAccountRateLimitResetCreditResponse"
+      },
+      "variant": "ConsumeAccountRateLimitResetCredit"
+    },
+    {
+      "method": "account/usage/read",
+      "response": {
+        "module": "v2/GetAccountTokenUsageResponse",
+        "name": "GetAccountTokenUsageResponse"
+      },
+      "variant": "GetAccountTokenUsage"
+    },
+    {
+      "method": "account/workspaceMessages/read",
+      "response": {
+        "module": "v2/GetWorkspaceMessagesResponse",
+        "name": "GetWorkspaceMessagesResponse"
+      },
+      "variant": "GetWorkspaceMessages"
+    },
+    {
+      "method": "account/sendAddCreditsNudgeEmail",
+      "response": {
+        "module": "v2/SendAddCreditsNudgeEmailResponse",
+        "name": "SendAddCreditsNudgeEmailResponse"
+      },
+      "variant": "SendAddCreditsNudgeEmail"
+    },
+    {
+      "method": "feedback/upload",
+      "response": {
+        "module": "v2/FeedbackUploadResponse",
+        "name": "FeedbackUploadResponse"
+      },
+      "variant": "FeedbackUpload"
+    },
+    {
+      "method": "command/exec",
+      "response": {
+        "module": "v2/CommandExecResponse",
+        "name": "CommandExecResponse"
+      },
+      "variant": "OneOffCommandExec"
+    },
+    {
+      "method": "command/exec/write",
+      "response": {
+        "module": "v2/CommandExecWriteResponse",
+        "name": "CommandExecWriteResponse"
+      },
+      "variant": "CommandExecWrite"
+    },
+    {
+      "method": "command/exec/terminate",
+      "response": {
+        "module": "v2/CommandExecTerminateResponse",
+        "name": "CommandExecTerminateResponse"
+      },
+      "variant": "CommandExecTerminate"
+    },
+    {
+      "method": "command/exec/resize",
+      "response": {
+        "module": "v2/CommandExecResizeResponse",
+        "name": "CommandExecResizeResponse"
+      },
+      "variant": "CommandExecResize"
+    },
+    {
+      "method": "process/spawn",
+      "response": {
+        "module": "v2/ProcessSpawnResponse",
+        "name": "ProcessSpawnResponse"
+      },
+      "variant": "ProcessSpawn"
+    },
+    {
+      "method": "process/writeStdin",
+      "response": {
+        "module": "v2/ProcessWriteStdinResponse",
+        "name": "ProcessWriteStdinResponse"
+      },
+      "variant": "ProcessWriteStdin"
+    },
+    {
+      "method": "process/kill",
+      "response": {
+        "module": "v2/ProcessKillResponse",
+        "name": "ProcessKillResponse"
+      },
+      "variant": "ProcessKill"
+    },
+    {
+      "method": "process/resizePty",
+      "response": {
+        "module": "v2/ProcessResizePtyResponse",
+        "name": "ProcessResizePtyResponse"
+      },
+      "variant": "ProcessResizePty"
+    },
+    {
+      "method": "config/read",
+      "response": {
+        "module": "v2/ConfigReadResponse",
+        "name": "ConfigReadResponse"
+      },
+      "variant": "ConfigRead"
+    },
+    {
+      "method": "externalAgentConfig/detect",
+      "response": {
+        "module": "v2/ExternalAgentConfigDetectResponse",
+        "name": "ExternalAgentConfigDetectResponse"
+      },
+      "variant": "ExternalAgentConfigDetect"
+    },
+    {
+      "method": "externalAgentConfig/import",
+      "response": {
+        "module": "v2/ExternalAgentConfigImportResponse",
+        "name": "ExternalAgentConfigImportResponse"
+      },
+      "variant": "ExternalAgentConfigImport"
+    },
+    {
+      "method": "externalAgentConfig/import/recordHistory",
+      "response": {
+        "module": "v2/ExternalAgentConfigImportHistoryRecordResponse",
+        "name": "ExternalAgentConfigImportHistoryRecordResponse"
+      },
+      "variant": "ExternalAgentConfigImportHistoryRecord"
+    },
+    {
+      "method": "externalAgentConfig/import/readHistories",
+      "response": {
+        "module": "v2/ExternalAgentConfigImportHistoriesReadResponse",
+        "name": "ExternalAgentConfigImportHistoriesReadResponse"
+      },
+      "variant": "ExternalAgentConfigImportHistoriesRead"
+    },
+    {
+      "method": "config/value/write",
+      "response": {
+        "module": "v2/ConfigWriteResponse",
+        "name": "ConfigWriteResponse"
+      },
+      "variant": "ConfigValueWrite"
+    },
+    {
+      "method": "config/batchWrite",
+      "response": {
+        "module": "v2/ConfigWriteResponse",
+        "name": "ConfigWriteResponse"
+      },
+      "variant": "ConfigBatchWrite"
+    },
+    {
+      "method": "configRequirements/read",
+      "response": {
+        "module": "v2/ConfigRequirementsReadResponse",
+        "name": "ConfigRequirementsReadResponse"
+      },
+      "variant": "ConfigRequirementsRead"
+    },
+    {
+      "method": "account/read",
+      "response": {
+        "module": "v2/GetAccountResponse",
+        "name": "GetAccountResponse"
+      },
+      "variant": "GetAccount"
+    },
+    {
+      "method": "getConversationSummary",
+      "response": {
+        "module": "GetConversationSummaryResponse",
+        "name": "GetConversationSummaryResponse"
+      },
+      "variant": "GetConversationSummary"
+    },
+    {
+      "method": "gitDiffToRemote",
+      "response": {
+        "module": "GitDiffToRemoteResponse",
+        "name": "GitDiffToRemoteResponse"
+      },
+      "variant": "GitDiffToRemote"
+    },
+    {
+      "method": "getAuthStatus",
+      "response": {
+        "module": "GetAuthStatusResponse",
+        "name": "GetAuthStatusResponse"
+      },
+      "variant": "GetAuthStatus"
+    },
+    {
+      "method": "fuzzyFileSearch",
+      "response": {
+        "module": "FuzzyFileSearchResponse",
+        "name": "FuzzyFileSearchResponse"
+      },
+      "variant": "FuzzyFileSearch"
+    },
+    {
+      "method": "fuzzyFileSearch/sessionStart",
+      "response": {
+        "module": "FuzzyFileSearchSessionStartResponse",
+        "name": "FuzzyFileSearchSessionStartResponse"
+      },
+      "variant": "FuzzyFileSearchSessionStart"
+    },
+    {
+      "method": "fuzzyFileSearch/sessionUpdate",
+      "response": {
+        "module": "FuzzyFileSearchSessionUpdateResponse",
+        "name": "FuzzyFileSearchSessionUpdateResponse"
+      },
+      "variant": "FuzzyFileSearchSessionUpdate"
+    },
+    {
+      "method": "fuzzyFileSearch/sessionStop",
+      "response": {
+        "module": "FuzzyFileSearchSessionStopResponse",
+        "name": "FuzzyFileSearchSessionStopResponse"
+      },
+      "variant": "FuzzyFileSearchSessionStop"
+    }
+  ],
+  "serverRequests": [
+    {
+      "method": "item/commandExecution/requestApproval",
+      "response": {
+        "module": "v2/CommandExecutionRequestApprovalResponse",
+        "name": "CommandExecutionRequestApprovalResponse"
+      },
+      "variant": "CommandExecutionRequestApproval"
+    },
+    {
+      "method": "item/fileChange/requestApproval",
+      "response": {
+        "module": "v2/FileChangeRequestApprovalResponse",
+        "name": "FileChangeRequestApprovalResponse"
+      },
+      "variant": "FileChangeRequestApproval"
+    },
+    {
+      "method": "item/tool/requestUserInput",
+      "response": {
+        "module": "v2/ToolRequestUserInputResponse",
+        "name": "ToolRequestUserInputResponse"
+      },
+      "variant": "ToolRequestUserInput"
+    },
+    {
+      "method": "mcpServer/elicitation/request",
+      "response": {
+        "module": "v2/McpServerElicitationRequestResponse",
+        "name": "McpServerElicitationRequestResponse"
+      },
+      "variant": "McpServerElicitationRequest"
+    },
+    {
+      "method": "item/permissions/requestApproval",
+      "response": {
+        "module": "v2/PermissionsRequestApprovalResponse",
+        "name": "PermissionsRequestApprovalResponse"
+      },
+      "variant": "PermissionsRequestApproval"
+    },
+    {
+      "method": "item/tool/call",
+      "response": {
+        "module": "v2/DynamicToolCallResponse",
+        "name": "DynamicToolCallResponse"
+      },
+      "variant": "DynamicToolCall"
+    },
+    {
+      "method": "account/chatgptAuthTokens/refresh",
+      "response": {
+        "module": "v2/ChatgptAuthTokensRefreshResponse",
+        "name": "ChatgptAuthTokensRefreshResponse"
+      },
+      "variant": "ChatgptAuthTokensRefresh"
+    },
+    {
+      "method": "attestation/generate",
+      "response": {
+        "module": "v2/AttestationGenerateResponse",
+        "name": "AttestationGenerateResponse"
+      },
+      "variant": "AttestationGenerate"
+    },
+    {
+      "method": "currentTime/read",
+      "response": {
+        "module": "v2/CurrentTimeReadResponse",
+        "name": "CurrentTimeReadResponse"
+      },
+      "variant": "CurrentTimeRead"
+    },
+    {
+      "method": "applyPatchApproval",
+      "response": {
+        "module": "ApplyPatchApprovalResponse",
+        "name": "ApplyPatchApprovalResponse"
+      },
+      "variant": "ApplyPatchApproval"
+    },
+    {
+      "method": "execCommandApproval",
+      "response": {
+        "module": "ExecCommandApprovalResponse",
+        "name": "ExecCommandApprovalResponse"
+      },
+      "variant": "ExecCommandApproval"
+    }
+  ]
+}

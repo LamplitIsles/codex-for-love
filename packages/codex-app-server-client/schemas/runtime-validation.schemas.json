@@ -1,0 +1,744 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "compatibilityArrayItemDefinitions": {
+    "base": {},
+    "v2": {
+      "ThreadItemsListResponse": {
+        "data": [
+          "ThreadItemEntry",
+          "ThreadItem"
+        ]
+      }
+    }
+  },
+  "compatibilityOptionalFields": {
+    "base": {
+      "ToolRequestUserInputParams": [
+        "isBlocking"
+      ]
+    },
+    "v2": {
+      "ExternalAgentConfigImportHistoriesReadResponse": [
+        "connectors"
+      ],
+      "ModelProviderCapabilitiesReadResponse": [
+        "namespaceTools"
+      ]
+    }
+  },
+  "schemas": {
+    "AttestationGenerateResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "token": {
+          "description": "Opaque client attestation token.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "token"
+      ],
+      "title": "AttestationGenerateResponse",
+      "type": "object"
+    },
+    "ChatgptAuthTokensRefreshResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "accessToken": {
+          "type": "string"
+        },
+        "chatgptAccountId": {
+          "type": "string"
+        },
+        "chatgptPlanType": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "accessToken",
+        "chatgptAccountId"
+      ],
+      "title": "ChatgptAuthTokensRefreshResponse",
+      "type": "object"
+    },
+    "ClientNotification": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "oneOf": [
+        {
+          "properties": {
+            "method": {
+              "enum": [
+                "initialized"
+              ],
+              "title": "InitializedNotificationMethod",
+              "type": "string"
+            }
+          },
+          "required": [
+            "method"
+          ],
+          "title": "InitializedNotification",
+          "type": "object"
+        }
+      ],
+      "title": "ClientNotification"
+    },
+    "CommandExecutionRequestApprovalResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "CommandExecutionApprovalDecision": {
+          "oneOf": [
+            {
+              "description": "User approved the command.",
+              "enum": [
+                "accept"
+              ],
+              "type": "string"
+            },
+            {
+              "description": "User approved the command and future prompts in the same session-scoped approval cache should run without prompting.",
+              "enum": [
+                "acceptForSession"
+              ],
+              "type": "string"
+            },
+            {
+              "additionalProperties": false,
+              "description": "User approved the command, and wants to apply the proposed execpolicy amendment so future matching commands can run without prompting.",
+              "properties": {
+                "acceptWithExecpolicyAmendment": {
+                  "properties": {
+                    "execpolicy_amendment": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "execpolicy_amendment"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "acceptWithExecpolicyAmendment"
+              ],
+              "title": "AcceptWithExecpolicyAmendmentCommandExecutionApprovalDecision",
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "description": "User chose a persistent network policy rule (allow/deny) for this host.",
+              "properties": {
+                "applyNetworkPolicyAmendment": {
+                  "properties": {
+                    "network_policy_amendment": {
+                      "$ref": "#/definitions/NetworkPolicyAmendment"
+                    }
+                  },
+                  "required": [
+                    "network_policy_amendment"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "applyNetworkPolicyAmendment"
+              ],
+              "title": "ApplyNetworkPolicyAmendmentCommandExecutionApprovalDecision",
+              "type": "object"
+            },
+            {
+              "description": "User denied the command. The agent will continue the turn.",
+              "enum": [
+                "decline"
+              ],
+              "type": "string"
+            },
+            {
+              "description": "User denied the command. The turn will also be immediately interrupted.",
+              "enum": [
+                "cancel"
+              ],
+              "type": "string"
+            }
+          ]
+        },
+        "NetworkPolicyAmendment": {
+          "properties": {
+            "action": {
+              "$ref": "#/definitions/NetworkPolicyRuleAction"
+            },
+            "host": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "action",
+            "host"
+          ],
+          "type": "object"
+        },
+        "NetworkPolicyRuleAction": {
+          "enum": [
+            "allow",
+            "deny"
+          ],
+          "type": "string"
+        }
+      },
+      "properties": {
+        "decision": {
+          "$ref": "#/definitions/CommandExecutionApprovalDecision"
+        }
+      },
+      "required": [
+        "decision"
+      ],
+      "title": "CommandExecutionRequestApprovalResponse",
+      "type": "object"
+    },
+    "CurrentTimeReadResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "currentTimeAt": {
+          "description": "Current time as whole Unix seconds.",
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "currentTimeAt"
+      ],
+      "title": "CurrentTimeReadResponse",
+      "type": "object"
+    },
+    "DynamicToolCallResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "DynamicToolCallOutputContentItem": {
+          "oneOf": [
+            {
+              "properties": {
+                "text": {
+                  "type": "string"
+                },
+                "type": {
+                  "enum": [
+                    "inputText"
+                  ],
+                  "title": "InputTextDynamicToolCallOutputContentItemType",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "text",
+                "type"
+              ],
+              "title": "InputTextDynamicToolCallOutputContentItem",
+              "type": "object"
+            },
+            {
+              "properties": {
+                "imageUrl": {
+                  "type": "string"
+                },
+                "type": {
+                  "enum": [
+                    "inputImage"
+                  ],
+                  "title": "InputImageDynamicToolCallOutputContentItemType",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "imageUrl",
+                "type"
+              ],
+              "title": "InputImageDynamicToolCallOutputContentItem",
+              "type": "object"
+            },
+            {
+              "properties": {
+                "audioUrl": {
+                  "type": "string"
+                },
+                "type": {
+                  "enum": [
+                    "inputAudio"
+                  ],
+                  "title": "InputAudioDynamicToolCallOutputContentItemType",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "audioUrl",
+                "type"
+              ],
+              "title": "InputAudioDynamicToolCallOutputContentItem",
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "properties": {
+        "contentItems": {
+          "items": {
+            "$ref": "#/definitions/DynamicToolCallOutputContentItem"
+          },
+          "type": "array"
+        },
+        "success": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "contentItems",
+        "success"
+      ],
+      "title": "DynamicToolCallResponse",
+      "type": "object"
+    },
+    "FileChangeRequestApprovalResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "FileChangeApprovalDecision": {
+          "oneOf": [
+            {
+              "description": "User approved the file changes.",
+              "enum": [
+                "accept"
+              ],
+              "type": "string"
+            },
+            {
+              "description": "User approved the file changes and future changes to the same files should run without prompting.",
+              "enum": [
+                "acceptForSession"
+              ],
+              "type": "string"
+            },
+            {
+              "description": "User denied the file changes. The agent will continue the turn.",
+              "enum": [
+                "decline"
+              ],
+              "type": "string"
+            },
+            {
+              "description": "User denied the file changes. The turn will also be immediately interrupted.",
+              "enum": [
+                "cancel"
+              ],
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "properties": {
+        "decision": {
+          "$ref": "#/definitions/FileChangeApprovalDecision"
+        }
+      },
+      "required": [
+        "decision"
+      ],
+      "title": "FileChangeRequestApprovalResponse",
+      "type": "object"
+    },
+    "McpServerElicitationRequestResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "McpServerElicitationAction": {
+          "enum": [
+            "accept",
+            "decline",
+            "cancel"
+          ],
+          "type": "string"
+        }
+      },
+      "properties": {
+        "_meta": {
+          "description": "Optional client metadata for form-mode action handling."
+        },
+        "action": {
+          "$ref": "#/definitions/McpServerElicitationAction"
+        },
+        "content": {
+          "description": "Structured user input for accepted elicitations, mirroring RMCP `CreateElicitationResult`.\n\nThis is nullable because decline/cancel responses have no content."
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "title": "McpServerElicitationRequestResponse",
+      "type": "object"
+    },
+    "PermissionsRequestApprovalResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "AdditionalFileSystemPermissions": {
+          "properties": {
+            "entries": {
+              "items": {
+                "$ref": "#/definitions/FileSystemSandboxEntry"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            },
+            "globScanMaxDepth": {
+              "format": "uint",
+              "minimum": 1,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "read": {
+              "description": "This will be removed in favor of `entries`.",
+              "items": {
+                "$ref": "#/definitions/LegacyAppPathString"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            },
+            "write": {
+              "description": "This will be removed in favor of `entries`.",
+              "items": {
+                "$ref": "#/definitions/LegacyAppPathString"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            }
+          },
+          "type": "object"
+        },
+        "AdditionalNetworkPermissions": {
+          "properties": {
+            "enabled": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          },
+          "type": "object"
+        },
+        "FileSystemAccessMode": {
+          "enum": [
+            "read",
+            "write",
+            "deny"
+          ],
+          "type": "string"
+        },
+        "FileSystemPath": {
+          "oneOf": [
+            {
+              "properties": {
+                "path": {
+                  "$ref": "#/definitions/LegacyAppPathString"
+                },
+                "type": {
+                  "enum": [
+                    "path"
+                  ],
+                  "title": "PathFileSystemPathType",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "type"
+              ],
+              "title": "PathFileSystemPath",
+              "type": "object"
+            },
+            {
+              "properties": {
+                "pattern": {
+                  "type": "string"
+                },
+                "type": {
+                  "enum": [
+                    "glob_pattern"
+                  ],
+                  "title": "GlobPatternFileSystemPathType",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "pattern",
+                "type"
+              ],
+              "title": "GlobPatternFileSystemPath",
+              "type": "object"
+            },
+            {
+              "properties": {
+                "type": {
+                  "enum": [
+                    "special"
+                  ],
+                  "title": "SpecialFileSystemPathType",
+                  "type": "string"
+                },
+                "value": {
+                  "$ref": "#/definitions/FileSystemSpecialPath"
+                }
+              },
+              "required": [
+                "type",
+                "value"
+              ],
+              "title": "SpecialFileSystemPath",
+              "type": "object"
+            }
+          ]
+        },
+        "FileSystemSandboxEntry": {
+          "properties": {
+            "access": {
+              "$ref": "#/definitions/FileSystemAccessMode"
+            },
+            "path": {
+              "$ref": "#/definitions/FileSystemPath"
+            }
+          },
+          "required": [
+            "access",
+            "path"
+          ],
+          "type": "object"
+        },
+        "FileSystemSpecialPath": {
+          "oneOf": [
+            {
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "root"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "title": "RootFileSystemSpecialPath",
+              "type": "object"
+            },
+            {
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "minimal"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "title": "MinimalFileSystemSpecialPath",
+              "type": "object"
+            },
+            {
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "project_roots"
+                  ],
+                  "type": "string"
+                },
+                "subpath": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/definitions/LegacyAppPathString"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "title": "KindFileSystemSpecialPath",
+              "type": "object"
+            },
+            {
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "tmpdir"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "title": "TmpdirFileSystemSpecialPath",
+              "type": "object"
+            },
+            {
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "slash_tmp"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "title": "SlashTmpFileSystemSpecialPath",
+              "type": "object"
+            },
+            {
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "unknown"
+                  ],
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "subpath": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/definitions/LegacyAppPathString"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "kind",
+                "path"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "GrantedPermissionProfile": {
+          "properties": {
+            "fileSystem": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/AdditionalFileSystemPermissions"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "network": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/AdditionalNetworkPermissions"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "type": "object"
+        },
+        "LegacyAppPathString": {
+          "type": "string"
+        },
+        "PermissionGrantScope": {
+          "enum": [
+            "turn",
+            "session"
+          ],
+          "type": "string"
+        }
+      },
+      "properties": {
+        "permissions": {
+          "$ref": "#/definitions/GrantedPermissionProfile"
+        },
+        "scope": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/PermissionGrantScope"
+            }
+          ],
+          "default": "turn"
+        },
+        "strictAutoReview": {
+          "description": "Review every subsequent command in this turn before normal sandboxed execution.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "permissions"
+      ],
+      "title": "PermissionsRequestApprovalResponse",
+      "type": "object"
+    },
+    "ToolRequestUserInputResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "ToolRequestUserInputAnswer": {
+          "description": "EXPERIMENTAL. Captures a user's answer to a request_user_input question.",
+          "properties": {
+            "answers": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "answers"
+          ],
+          "type": "object"
+        }
+      },
+      "description": "EXPERIMENTAL. Response payload mapping question ids to answers.",
+      "properties": {
+        "answers": {
+          "additionalProperties": {
+            "$ref": "#/definitions/ToolRequestUserInputAnswer"
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "answers"
+      ],
+      "title": "ToolRequestUserInputResponse",
+      "type": "object"
+    }
+  },
+  "unavailableClientResponses": [
+    "getAuthStatus",
+    "getConversationSummary",
+    "gitDiffToRemote"
+  ]
+}

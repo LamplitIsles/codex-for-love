@@ -120,8 +120,11 @@ baseline. Its existing generator applies a narrow effective compatibility
 contract: historical `namespaceTools` is optional in
 `modelProvider/capabilities/read`, while `imageGeneration` and `webSearch` remain
 required booleans. This matches the observed `0.164.0` response without fabricating
-a field or disabling strict validation. The reviewed source commit is consumed
-directly; no SDK npm release or merge is implied by this pin.
+a field or disabling strict validation. CFL keeps this exact SDK source in
+`packages/codex-app-server-client`, including its generated protocol and
+schemas. Its WebSocket close clears the watchdog when the close race settles,
+while retaining the existing timeout and termination behavior. This local fix
+does not imply an SDK release or upstream merge.
 
 The SDK is independently authored by JaminZhou under the MIT License; its
 generated protocol bindings and JSON Schema are derived from OpenAI Codex
@@ -130,6 +133,8 @@ generated protocol bindings and JSON Schema are derived from OpenAI Codex
 license copies are retained in
 [`licenses/jaminzhou-codex-app-server-client-MIT.txt`](../licenses/jaminzhou-codex-app-server-client-MIT.txt)
 and [`licenses/openai-codex-generated-Apache-2.0.txt`](../licenses/openai-codex-generated-Apache-2.0.txt).
+The release bundle also includes the license notices of the SDK's bundled
+`ajv` and `ws` dependencies and their runtime dependencies.
 
 CFL configures only its bundled Companion MCP and SessionStart hook. FlickNote
 and Web are optional operator-provided MCPs documented in a static template;
