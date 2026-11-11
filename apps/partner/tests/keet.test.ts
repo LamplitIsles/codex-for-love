@@ -140,11 +140,21 @@ test('an older Companion page retains Keet source attribution after Partner rest
     await eventually(async () => (await starts(f)).length === 1);
     await app.app.close(); app = undefined;
     await partner.close();
+    // Later test-owned records make the real Keet trigger fall off the newest page.
+    // Ordinary Human metadata with no external source is visible only once its
+    // native item exists; Keet, Matrix, Post and reminder rows keep their own
+    // retention rules. These later records are ordinary Human ones, so they need
+    // both their durable metadata and their native user item.
+    const later = Array.from({ length: 51 }, () => randomUUID());
     const store = new Store(partnerPaths(f.workspace).database);
-    try {
-      // Later test-owned records make the real Keet trigger fall off the newest page.
-      for (let index = 0; index < 51; index++) await store.ensureMessage(randomUUID(), Date.now());
-    } finally { await store.close(); }
+    try { for (const id of later) await store.ensureMessage(id, Date.now()); }
+    finally { await store.close(); }
+    const statePath = f.appServer.env.FAKE_SERVER_STATE!;
+    const state = JSON.parse(await readFile(statePath, 'utf8')) as { turns: unknown[] };
+    state.turns.push(...later.map((id, index) => ({ id: `later-${index}`, status: 'completed', items: [
+      { type: 'userMessage', id: `item-${id}`, clientId: id, content: [{ type: 'text', text: `later ${index}` }] },
+    ] })));
+    await writeFile(statePath, JSON.stringify(state));
     const resumed = await f.createPartner(); app = await host(resumed, f.directory);
     const newest = await (await fetch(`${app.base}/api/session`)).json() as { hasMore: boolean; before: number; messages: Array<{ id: string }> };
     assert.equal(newest.hasMore, true);
