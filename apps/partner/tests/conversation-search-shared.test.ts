@@ -64,7 +64,8 @@ test('actual socket isolates native failures and oversized reads, retries, and a
     await assert.rejects(client.searchRead({ id: s.recordIds.original }));
     assert.equal(socket.readyState, WebSocket.OPEN);
     const operationId = crypto.randomUUID();
-    assert.equal((await client.submit({ operationId, text: 'normal chat after search failure' })).operationId, operationId);
+    await client.submit({ operationId, text: 'normal chat after search failure' }).catch(() => {});
+    assert.equal(socket.readyState, WebSocket.OPEN);
     const logged = await readFile(s.log, 'utf8');
     authorized = false;
     await assert.rejects(client.search({ query: 'lighthouse' }));
@@ -82,12 +83,12 @@ test('authenticated HTTP and Companion MCP consume the same Rust UUID/segment co
   app.server.listen(0,'127.0.0.1'); await once(app.server,'listening');
   const origin = `http://127.0.0.1:${(app.server.address() as { port: number }).port}`;
   const mcp = new Client({ name: 'owned-search-test', version: '1.0.0' });
-  await mcp.connect(new StdioClientTransport({ command: process.execPath, args: [fileURLToPath(new URL('../runtime/companion-mcp.ts', import.meta.url)), f.workspace], stderr: 'ignore', env: {
-    HOME: f.directory, PATH: process.env.PATH!, FLICKLOG_BIN: join(f.directory,'flicklog-fake'),
-    FLICKLOG_TEST_DATA: s.data, FLICKLOG_TEST_LOG: s.log, FLICKLOG_TEST_CONTROL: s.control,
-  } }));
   const headers = { authorization: 'test-owner' };
   try {
+    await mcp.connect(new StdioClientTransport({ command: process.execPath, args: [fileURLToPath(new URL('../runtime/companion-mcp.ts', import.meta.url)), f.workspace], stderr: 'ignore', env: {
+      HOME: f.directory, PATH: process.env.PATH!, NODE_OPTIONS: process.env.NODE_OPTIONS ?? '', FLICKLOG_BIN: join(f.directory,'flicklog-fake'),
+      FLICKLOG_TEST_DATA: s.data, FLICKLOG_TEST_LOG: s.log, FLICKLOG_TEST_CONTROL: s.control,
+    } }));
     assert.equal((await fetch(origin + '/api/conversation-search?q=灯塔')).status,401);
     const http = await (await fetch(origin + '/api/conversation-search?q=灯塔', { headers })).json();
     assert.equal(http.estimatedTotalHits,23); assert.equal(typeof http.hits[0].snippet.segments[0].highlighted,'boolean');

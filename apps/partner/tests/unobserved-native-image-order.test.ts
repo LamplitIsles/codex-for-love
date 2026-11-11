@@ -44,8 +44,8 @@ for (const [started, merged] of [[true, false], [false, false], [false, true]] a
     assert.deepEqual(before.map(m => m.id), [...sourceIds, imageId]);
 
     const steerId = crypto.randomUUID();
-    const receipt = await partner.submitShared({ operationId: steerId, text: 'steer after completed image' });
-    assert.equal(receipt.state, 'submitted');
+    const receipt = await partner.submitNativeDelivery({ operationId: steerId, text: 'steer after completed image' });
+    await eventually(async () => (await partner.lookupNativeDelivery(steerId))?.state === 'submitted');
     await eventually(async () => await f.consumed(steerId));
     await eventually(async () => (await partner.snapshot()).results.some(r => r.sourceIds.includes(steerId)));
     const live = (await backend.read()).messages.map(m => m.id);

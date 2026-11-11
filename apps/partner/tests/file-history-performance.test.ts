@@ -34,7 +34,8 @@ test('history checks only returned files, repeating integrity checks after chang
       const root = join(f.workspace, '.lamplit', 'attachments', '.file-operations');
       const before = new Set(await fs.readdir(root).catch(() => []));
       const uploaded = await stageTestFiles(partner, sessionId, operationId, [{ id: 'client', name: `file-${index}`, mediaType: '', bytes: data }]);
-      await backend.submit({ operationId, text: `message ${index}`, files: uploaded.files.map(file => file.ref) });
+      await backend.submit({ operationId, text: `message ${index}`, files: uploaded.files.map(file => file.ref) }).catch(() => {});
+      await eventually(async () => (await backend.lookup(operationId))?.state === 'submitted');
       const directory = join(root, (await fs.readdir(root)).find(name => !before.has(name))!);
       payloads.push({ id: operationId, bytes: data, path: join(directory, (await fs.readdir(directory)).find(name => name.startsWith('p0-'))!) });
     }
@@ -104,7 +105,8 @@ test('a page validates multiple messages in order with at most six concurrent fi
         return { id: `client-${order}`, name: `file-${index}-${order}`, mediaType: '', bytes };
       });
       const uploaded = await stageTestFiles(partner, sessionId, operationId, files);
-      await backend.submit({ operationId, text: `message ${index}`, files: uploaded.files.map(file => file.ref) });
+      await backend.submit({ operationId, text: `message ${index}`, files: uploaded.files.map(file => file.ref) }).catch(() => {});
+      await eventually(async () => (await backend.lookup(operationId))?.state === 'submitted');
     }
     await eventually(async () => (await f.requests()).filter(request => request.method === 'turn/start' || request.method === 'turn/steer').length >= 4, 30000);
     measuring = true;

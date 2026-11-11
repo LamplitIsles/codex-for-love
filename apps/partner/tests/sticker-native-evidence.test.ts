@@ -6,7 +6,7 @@ import { fixture, eventually } from './fixture.ts';
 import { StickerCatalog, packStickerId } from '../runtime/sticker-catalog.ts';
 import { createCodexChatBackend } from '../runtime/chat.ts';
 
-test('a retired mixed file operation cannot restage its preserved sticker', async () => {
+test('a completed mixed file operation keeps its preserved sticker and long-lived bytes', async () => {
   const f = await fixture(); const realNow = Date.now;
   const png = await sharp({ create: { width: 2, height: 2, channels: 3, background: 'blue' } }).png().toBuffer();
   const catalog = await StickerCatalog.open(f.workspace);
@@ -22,9 +22,12 @@ test('a retired mixed file operation cannot restage its preserved sticker', asyn
     await partner.fileOperationReserve(manifest, owner, async () => true, () => true);
     await partner.fileOperationReceive(operationId, 'f', (async function* () {})(), owner, async () => true, () => true);
     await partner.fileOperationComplete(operationId, owner, async () => true, () => true);
-    Date.now = () => realNow() + 25 * 60 * 60 * 1000;
+    Date.now = () => realNow() + 30 * 24 * 60 * 60 * 1000;
     await partner.fileOperationReserve({ ...manifest, operationId: crypto.randomUUID() }, owner, async () => true, () => true);
-    await assert.rejects(backend.stage(stage, async () => true), /different content/);
+    // Restaging an operation that is already recorded is idempotent, and nothing
+    // is retired or deleted, so the preserved sticker bytes stay readable.
+    assert.deepEqual((await backend.stage(stage, async () => true)).image, staged.image);
+    assert.ok((await partner.fileOperationStatus(operationId, owner, async () => true))?.result);
     assert.deepEqual((await partner.sharedMedia(staged.image.attachmentId, 'original'))?.bytes, png);
     assert.ok(await partner.sharedMedia(staged.image.attachmentId, 'preview'));
   } finally { Date.now = realNow; await partner.close(); catalog.close(); await f.close(); }
@@ -101,8 +104,8 @@ test('authenticated Human ID staging submits a static native model frame and res
     assert.deepEqual((await backend.stage(stage, async () => true)).image, staged.image);
     assert.equal((await partner.conversationImages()).images.length, 0);
     const submission = { operationId, text: '', images: [staged.image] };
-    await partner.submitShared(submission); await partner.submitShared(submission);
-    await partner.submitShared({ ...submission, images: [{ ...staged.image, sticker: { version: sticker.version, id: sticker.id } }] });
+    await partner.submitNativeDelivery(submission); await partner.submitNativeDelivery(submission);
+    await partner.submitNativeDelivery({ ...submission, images: [{ ...staged.image, sticker: { version: sticker.version, id: sticker.id } }] });
     await eventually(async () => await f.consumed(operationId));
     const starts = (await f.requests()).filter(request => request.method === 'turn/start');
     assert.equal(starts.length, 1);
@@ -116,6 +119,7 @@ test('authenticated Human ID staging submits a static native model frame and res
     const media = await fetch(`${origin}/api/chat/media/${staged.image.attachmentId}/original`, { headers });
     assert.equal(media.headers.get('content-type'), 'image/gif');
     assert.deepEqual(Buffer.from(await media.arrayBuffer()), gif);
+    await eventually(async () => (await partner.lookupNativeDelivery(operationId))?.state === 'submitted');
     const view = await createCodexChatBackend(partner).read();
     assert.deepEqual(view.messages.find(message => message.operationId === operationId)?.images?.[0]?.sticker, stage.sticker);
     await eventually(async () => (await partner.conversationImages()).images.length === 1);
@@ -145,43 +149,6 @@ test('authenticated Human ID staging submits a static native model frame and res
   } finally { await app.close().catch(() => undefined); catalog.close(); await f.close(); }
 });
 
-test('failed sticker admission retries once with preserved ID, version and original bytes', async () => {
-  const { mkdir, readFile } = await import('node:fs/promises');
-  const { DatabaseSync } = await import('node:sqlite');
-  const { partnerPaths } = await import('../runtime/storage-paths.ts');
-  const { Store } = await import('../runtime/store.ts');
-  const f = await fixture(); await f.holdProvider(true);
-  const paths = partnerPaths(f.workspace); await mkdir(paths.managedRoot, { recursive: true });
-  const seed = new Store(paths.database); await seed.close();
-  let db = new DatabaseSync(paths.database);
-  db.exec("CREATE TRIGGER reject_sticker BEFORE INSERT ON pending_inputs WHEN NEW.input='sticker failure' BEGIN SELECT RAISE(ABORT, 'fixture rollback'); END"); db.close();
-  const gif = await sharp(Buffer.from([255,0,0,255, 0,255,0,255]), { raw: { width: 1, height: 2, channels: 4, pageHeight: 1 } }).gif({ delay: [100,100], loop: 0 }).toBuffer();
-  const catalog = await StickerCatalog.open(f.workspace);
-  await catalog.importPack({ id: 'cats', name: '猫', description: '', stickers: [{ id: 'one', file: 'one.gif', name: '猫', tags: ['开心'] }] }, new Map([['one.gif', { bytes: gif, mediaType: 'image/gif' }]]));
-  const sticker = (await catalog.get(packStickerId('cats', 'one')))!;
-  let partner = await f.createPartner();
-  try {
-    const sessionId = (await partner.snapshot()).sessionId, operationId = crypto.randomUUID();
-    const staged = await partner.stickerBackend(async () => true, () => true).stage({ sessionId, operationId, sticker: { id: sticker.id, version: sticker.version } }, async () => true);
-    const submission = { operationId, text: 'sticker failure', images: [staged.image] };
-    assert.equal((await partner.submitShared(submission)).state, 'failed');
-    assert.equal((await partner.sharedRecovery())[0]?.images[0]?.sticker?.version, sticker.version);
-    await partner.close(); db = new DatabaseSync(paths.database); db.exec('DROP TRIGGER reject_sticker'); db.close();
-    partner = await f.createPartner();
-    const attemptId = crypto.randomUUID(), retry = { sessionId, operationId, attemptId };
-    assert.equal((await partner.retryFailed(retry)).state, 'submitted');
-    assert.equal((await partner.retryFailed(retry)).state, 'submitted');
-    await eventually(async () => await f.consumed(attemptId));
-    const view = await createCodexChatBackend(partner).read();
-    const image = view.messages.find(message => message.operationId === attemptId)?.images?.[0]!;
-    assert.deepEqual(image.sticker, { id: sticker.id, version: sticker.version });
-    assert.deepEqual((await partner.sharedMedia(image.attachmentId, 'original'))?.bytes, gif);
-    const requests = (await f.requests()).filter(request => request.method === 'turn/start'); assert.equal(requests.length, 1);
-    const input = (requests[0]!.params as { input: Array<{ type: string; path?: string }> }).input.find(item => item.type === 'localImage')!;
-    assert.equal((await sharp(await readFile(input.path!)).metadata()).format, 'jpeg');
-  } finally { catalog.close(); await f.close(); }
-});
-
 test('uncertain sticker native admission is never automatically replayed after restart', async () => {
   const { writeFile } = await import('node:fs/promises');
   const f = await fixture(); f.appServer.env.FAKE_IMAGES_FIXTURE = 'true';
@@ -194,13 +161,13 @@ test('uncertain sticker native admission is never automatically replayed after r
   try {
     const sessionId = (await partner.snapshot()).sessionId, operationId = crypto.randomUUID();
     const staged = await partner.stickerBackend(async () => true, () => true).stage({ sessionId, operationId, sticker: { id: sticker.id, version: sticker.version } }, async () => true);
-    await partner.submitShared({ operationId, text: '', images: [staged.image] });
+    await partner.submitNativeDelivery({ operationId, text: '', images: [staged.image] });
     await eventually(async () => (await f.requests()).some(request => request.method === 'turn/start' && (request.params as { clientUserMessageId?: string }).clientUserMessageId === operationId));
-    assert.equal((await partner.sharedRecovery()).some(item => item.sourceId === operationId), false);
+    assert.equal(await partner.lookupNativeDelivery(operationId), null);
     const count = (await f.requests()).filter(request => request.method === 'turn/start').length;
     await partner.close(); partner = await f.createPartner();
     assert.equal((await f.requests()).filter(request => request.method === 'turn/start').length, count);
-    assert.equal((await partner.sharedRecovery()).some(item => item.sourceId === operationId), false);
+    assert.equal(await partner.lookupNativeDelivery(operationId), null);
   } finally { catalog.close(); await f.close(); }
 });
 
@@ -215,7 +182,7 @@ test('a corrupted staged representative frame fails before native admission', as
     const sessionId = (await partner.snapshot()).sessionId, operationId = crypto.randomUUID();
     const staged = await partner.stickerBackend(async () => true, () => true).stage({ sessionId, operationId, sticker: { id: sticker.id, version: sticker.version } }, async () => true);
     await writeFile(asset.modelPath, Buffer.from([255, 216, 255, 1]));
-    await assert.rejects(partner.submitShared({ operationId, text: '', images: [staged.image] }));
+    assert.equal((await partner.submitNativeDelivery({ operationId, text: '', images: [staged.image] }))?.state, 'failed');
     assert.equal((await f.requests()).filter(request => request.method === 'turn/start').length, 0);
     assert.equal((await partner.conversationImages()).images.length, 0);
   } finally { catalog.close(); await f.close(); }
@@ -232,7 +199,7 @@ test('corrupted historical sticker original is reported missing instead of servi
   try {
     const sessionId = (await partner.snapshot()).sessionId, operationId = crypto.randomUUID();
     const staged = await partner.stickerBackend(async () => true, () => true).stage({ sessionId, operationId, sticker: { id: sticker.id, version: sticker.version } }, async () => true);
-    await partner.submitShared({ operationId, text: '', images: [staged.image] }); await eventually(async () => await f.consumed(operationId));
+    await partner.submitNativeDelivery({ operationId, text: '', images: [staged.image] }); await eventually(async () => await f.consumed(operationId));
     await writeFile(imagePath(f.workspace, { id: staged.image.attachmentId, media_type: 'image/png' }), Buffer.concat([png, Buffer.from('changed')]));
     assert.equal((await partner.sharedImageRef(staged.image.attachmentId))?.availability, 'missing');
     assert.equal(await partner.sharedMedia(staged.image.attachmentId, 'original'), null);

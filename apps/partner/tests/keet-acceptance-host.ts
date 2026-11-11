@@ -47,8 +47,8 @@ export async function keetAcceptanceHost(assets: string, evidence?: string) {
   await start();
   const facade = new Proxy({} as Partner, { get(_target, key) {
     if (key === 'subscribe') return (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener); };
-    if (key === 'submitShared') return async (input: Parameters<Partner['submitShared']>[0]) => {
-      const receipt = await partner.submitShared(input); submissions.push(input.text); return receipt;
+    if (key === 'submitNativeDelivery') return async (input: Parameters<Partner['submitNativeDelivery']>[0]) => {
+      const receipt = await partner.submitNativeDelivery(input); submissions.push(input.text); return receipt;
     };
     const value = partner[key as keyof Partner]; return typeof value === 'function' ? value.bind(partner) : value;
   } });

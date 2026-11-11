@@ -1,102 +1,43 @@
-# Native durable submissions — CFL spec #3437
+# Native-confirmed submissions — CFL spec #5707
 
-Codex remains the execution/history owner. CFL's public adapter implements App's
-`lamplit.chat.v2`, view version 2 and `/api/chat/socket`; transport stays version 1.
-Receipts are `{ operationId, state: submitted|failed, messageId, turnId, error }`.
-Lookup returns a receipt or `null`, meaning no definitive result. There is no old
-wire fallback, `ChatMessage.delivery`, or `InputRecovery.state`.
+CFL's `/api/chat/socket` consumes the published App `lamplit.chat.v2` contract.
+The App immediately displays the Human's message and retains confirmed failures
+locally. A receipt contains the operation ID, positive attempt number, submitted
+or failed state, message and turn IDs, and error. Lookup returns the same receipt
+or null when the outcome is unknown. Proven results are also pushed to subscribed
+connections, even when the chat view has not changed.
 
-Validated input, images and immutable identity commit atomically before native
-start/steer. That admission proves `submitted`; official user items are evidence
-of consumption, not a prerequisite for submission success. A rolled-back admission
-may durably record `failed` without creating timeline/album membership. If failure
-recording itself cannot commit, the call raises and lookup remains unresolved.
-Identity/ownership/replacement conflicts raise without rewriting any original
-receipt. Same ID and full content return the original result without execution.
+A submitted receipt requires a matching user item in the native thread history.
+An acknowledgement that a start or steer was queued is not sufficient. A failed
+receipt requires a definite failure before dispatch or a proven native rejection;
+missing history, timeout, disconnect or interruption alone remain unknown. Unknown
+inputs are not automatically replayed. An explicit retry after a definite failure
+uses the same operation ID and a higher persisted attempt number. CFL stores the
+identity fingerprint and attempt state, not a recoverable failed message body.
 
-Native invalid-request rejection or confirmed pre-processing withdrawal may add
-recoverable text/images while retaining the admitted `submitted` receipt. Internal
-unresolved/reconciliation, consumed-input segments and native draft bookkeeping
-remain intact; ambiguous errors or missing items never create public recovery.
-Reply failure/stop publish independent notices. A deliberate edited replacement
-uses a new UUID and atomically retires only eligible recovery sources. Original
-bytes remain available through authenticated operation-owned staging/native media.
+Messages steer the active turn immediately. A stopped turn does not by itself prove
+that an in-flight steer was discarded. When the owner cannot prove a particular
+outcome, the receipt stays unknown. Attachment staging remains scoped to the owner,
+session and operation, and is revalidated before dispatch or retry.
 
-## Separate source packaging and frozen native acceptance
+## File input representation
 
-The historical acceptance used App PR16 commit
-`3aaa48a384549f72cc417a6cb3e6108fe0999b37`. Current CFL packaging follows
-[published contract preparation](default-shared-frontend.md); record current
-source and contract hashes separately from these historical frozen artifacts.
-The following acceptance artifacts remain unchanged.
+Human files are staged in the Partner workspace. CFL appends their ordered names
+and workspace-relative paths to the same Codex user text as the Human's message:
 
-Native acceptance consumes the immutable Orc-approved App archive, never freshly
-rebuilt resources or the moving adjacent tree:
-
-| Artifact | SHA256 | Files |
-| --- | --- | ---: |
-| Archive | `a921c9d47f041cf6978653c5af6cda5d65a28e6cde3ceb5e91b0ecb5a5c301d1` | — |
-| Browser manifest | `c926f668688238298a7e83cb81bd092ce6d1443951559df02dc3e492cd0bc58a` | 265 |
-| Contracts manifest | `9f3b08860aed9f215cedf66bb2628d4145b32827948b089c42daebc91cd731e3` | 26 |
-| Acceptance manifest | `a9a69d563f2ca8d61fd03e210d14a72264c5f0282cf9ddf2ef7daef25f1bd42f` | 35 |
-| Packaged submission runner | `9a2a91b0d952cd5c27a88c5fe734a64df9844528aa8ca9d440936a7ef6bce118` | 1 |
-
-Extract to a test-owned location. Check SOURCE_HEAD and every manifest entry
-relative to browser, contracts/package and acceptance, before and after install
-and acceptance. Install contracts/package first, then acceptance, with a test-owned
-Bun cache. Do not edit any App file, DTO, runner or manifest to accommodate CFL.
-
-```sh
-node apps/partner/tests/image-send-recovery-fixture.ts /absolute/frozen/browser
+```text
+<original text>\n\nFiles (paths relative to workspace):\n<JSON array of {name,path}>
 ```
 
-The host prints origin/control URLs and uses actual Partner admission, SQLite,
-media and socket; the official engine is fake. Timing controls hold actual RPCs or
-outgoing update frames without modifying payloads. The fixture seeds a real SQLite
-rollback trigger for the approved rejection captions; failed receipts/recovery are
-produced by the native admission handler. Withdrawal uses a definite fake native
-invalid-request before consumption. Reply completion/failure and recovery
-consumption use fake official engine commands through normal reconciliation.
-No manufactured public DTOs or submission rows are inserted by controls.
+CFL reconstructs the exact suffix from scoped staging and input-file metadata and
+verifies the complete original submission fingerprint before hiding it from the
+chat projection. It does not remove a marker merely because the Human typed it.
+Codex's raw history and hooks can see the paths and names. Missing historical
+files are shown as missing attachments; they do not change the recorded text.
 
-From the immutable extracted acceptance directory:
-
-```sh
-APP_ACCEPTANCE_URL=<origin>/ \
-APP_ACCEPTANCE_CONTROL_URL=<control-url> \
-APP_ACCEPTANCE_EVIDENCE=/absolute/test-owned/submissions \
-bun optimistic-send-browser.mjs
-```
-
-Run `images-browser.mjs` with the same host; use existing Keet, text/voice, panels,
-compact and search native hosts for their affected surfaces. The control route is
-test-only; the submission runner accepts the printed image-control URL. Recorded
-CFL-native results establish CFL local evidence only. Orc owns actual cross-repo
-joint acceptance and merge. No live state, credentials, providers, external sends,
-service operations, deployment or native rebuild/release belongs to this fixture.
-
-## Failed-message actions — spec #4007
-
-CFL implements App's mandatory `finalizeSubmission`, `retryFailed`, `deleteFailed`.
-Original submit, retry and finalization share the local input-admission serializer.
-SQLite admission checks retained rejection before inserting an input. Finalization
-returns submitted for durable local admission, including queued/executing/completed
-input; it records failed only after durable nonadmission. Unknown retry association
-returns null. Transport loss and a deadline alone never imply failure.
-
-Retry binds source/session/new attempt, uses server-owned text and exact original
-image bytes, and creates operation-owned references through existing image storage.
-Missing or changed originals reject the whole retry. Duplicate attempts return the
-same receipt; changed source/payload conflicts. A failed retry retires its previous
-failed presentation while preserving both rejection proofs. Delete acknowledges
-failed presentation/recovery removal only; rejection, immutable identity and media
-survive reopen. Accepted/raced sources return deleted false. Native mutations
-recheck the existing authenticated owner and captured session at the final boundary.
-Independent withdrawal recovery and reply-failure notices retain their semantics.
-
-For current acceptance use the approved App #4006 archive/contract hashes and
-equal-tree merged source recorded in IMPORTS. Preserve artifact SOURCE_HEAD
-`a04fe43db0fecd73150b4512fffdc35f00a92e77`; it is distinct from source pin
-`e09b4800139d6a3902bb3e029dc8f01410c85404`. The same native image fixture now
-supports the frozen optimistic runner's lost-finalization acknowledgement and
-delete-failure controls; all receipts still come from actual Partner/SQLite.
+The previous server-side failed-draft, finalize, retry and deletion socket flows
+are retired. Existing database records are not migrated or deleted by this change.
+Historical App acceptance artifacts are attributed in [IMPORTS](IMPORTS.md); they
+do not verify the current contract. Use test-owned Partner workspaces and fake
+app-servers for automated tests. The separate real-native protocol probe uses a
+loopback provider and requires its own resource approval.

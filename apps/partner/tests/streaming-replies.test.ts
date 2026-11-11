@@ -17,7 +17,7 @@ function activePreview(view: ChatView | undefined) {
 for (const mode of ['read', 'history'] as const) test(`${mode}: native completion during the receipt lookup keeps both messages`, async () => {
   const f = await fixture(); f.appServer.env.FAKE_STREAM_FIXTURE = 'true';
   const partner = await f.createPartner(), backend = createCodexChatBackend(partner);
-  const original = partner.chatReceipt;
+  const original = partner.chatVisible;
   let entered!: () => void, release!: () => void, armed = false;
   const reading = new Promise<void>(resolve => { entered = resolve; });
   const gate = new Promise<void>(resolve => { release = resolve; });
@@ -30,7 +30,7 @@ for (const mode of ['read', 'history'] as const) test(`${mode}: native completio
     await eventually(async () => partner.streamingReply()?.text === 'partial');
     const first = await backend.read();
     const replyId = activePreview(first)!.id;
-    partner.chatReceipt = async id => {
+    partner.chatVisible = async id => {
       if (armed) { armed = false; entered(); await gate; }
       return original(id);
     };
@@ -50,7 +50,7 @@ for (const mode of ['read', 'history'] as const) test(`${mode}: native completio
   } finally {
     release();
     if (pending) await pending.catch(() => {});
-    partner.chatReceipt = original;
+    partner.chatVisible = original;
     await f.close();
   }
 });
@@ -113,7 +113,7 @@ test('final native body completes atomically on the shared socket while executio
   const connect = () => openChat(new WebSocket(`ws://127.0.0.1:${port}/api/chat/socket`), v => { view = v; observed.push(v); }, () => {});
   let client = await connect();
   try {
-    await client.submit({ operationId: crypto.randomUUID(), text: 'Test-owned final body input' });
+    await client.submit({ operationId: crypto.randomUUID(), text: 'Test-owned final body input' }).catch(() => {});
     await eventually(async () => !!(await f.nativeState()).streamingItem);
     await f.streamCommand({ action: 'advance', text: 'Final body\nexact tail' });
     await eventually(async () => activePreview(view)?.text === 'Final body\nexact tail');
@@ -157,7 +157,7 @@ for (const ending of ['complete', 'stop', 'fail'] as const) test(`held official 
   let client = await connect(); let appClosed = false;
   try {
     const input = { operationId: crypto.randomUUID(), text: 'Test-owned sentence acceptance input' };
-    assert.equal((await client.submit(input)).state, 'submitted');
+    await client.submit(input).catch(() => {});
     await eventually(async () => !!(await f.nativeState()).streamingItem);
     await f.streamCommand({ action: 'advance', text: '第一行。同行第二句。\r' });
     await eventually(async () => activePreview(view)?.text === '第一行。同行第二句。\r');
@@ -216,7 +216,7 @@ for (const ending of ['complete', 'stop', 'fail'] as const) test(`held official 
     const reopened = await createCodexChatBackend(partner).read();
     assert.equal(reopened.streamingReply, undefined);
     assert.equal(reopened.messages.filter(m => m.role === 'agent').length, ending === 'complete' ? 1 : 0);
-    assert.equal((await partner.chatReceipt(input.operationId))?.state, 'submitted');
+    assert.equal(await partner.chatVisible(input.operationId), true);
   } finally { client.close(); if (!appClosed) await app.close(); await f.close(); }
 });
 

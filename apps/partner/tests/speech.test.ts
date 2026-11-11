@@ -61,11 +61,7 @@ test('oversized messages are rejected before admission with a definite validatio
   const app = createWebServer(partner, join(f.directory, 'assets'));
   app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening');
   try {
-    const response = await fetch(`http://127.0.0.1:${(app.server.address() as { port: number }).port}/api/messages`, {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ id: crypto.randomUUID(), input: 'a'.repeat(16001) }),
-    });
-    assert.equal(response.status, 422); assert.equal((await response.json()).code, 'invalid_message');
+    await assert.rejects(partner.submitNativeDelivery({ operationId: crypto.randomUUID(), text: 'a'.repeat(16001) }));
     assert.equal((await partner.snapshot()).messages.length, 0); assert.equal((await f.requests()).filter(request => request.method === 'turn/start' || request.method === 'turn/steer').length, 0);
   } finally { await app.close(); await f.close(); }
 });

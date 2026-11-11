@@ -25,7 +25,6 @@ function status(op: FileReservation) {
 }
 export function createFileOperations(store: Store, attachments: string) {
   const active = new Set<string>();
-  const readers = new Map<string, number>();
   const root = join(resolve(attachments), '.file-operations');
   async function exclusive<T>(id: string, action: () => Promise<T>): Promise<T> {
     if (active.has(id) || active.size >= 4) throw new Error('Upload busy');
@@ -57,59 +56,13 @@ export function createFileOperations(store: Store, attachments: string) {
     if (!/^[a-f0-9]{32}$/u.test(key)) throw new Error('Invalid file directory');
     return join(root, key);
   }
-  async function cleanup(id: string, key: string) {
-    const bound = await store.retirementBoundFiles(id, key);
-    if (!bound) return;
-    await privateRoot();
-    const path = directory(key);
-    const before = await lstat(path, { bigint: true }).catch(error => { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined; throw error; });
-    if (before) {
-      const checked = await privateDirectory(path);
-      if (checked.dev !== before.dev || checked.ino !== before.ino) throw new Error('File directory changed');
-      const entries = await readdir(path);
-      for (const entry of entries) {
-        if (!/^p[0-5](?:\.tmp|-[a-f0-9]{64}\.file)$/u.test(entry)) throw new Error('Unknown file directory entry');
-        const file = await lstat(join(path, entry), { bigint: true });
-        if (!file.isFile() || file.uid !== before.uid) throw new Error('Unknown file directory entry');
-        const recorded = bound.find(item => item.path === join(path, entry));
-        if (recorded) {
-          await verifyStoredFile(recorded, attachments);
-          const checkedFile = await lstat(join(path, entry), { bigint: true });
-          if (!checkedFile.isFile() || checkedFile.dev !== file.dev || checkedFile.ino !== file.ino || checkedFile.size !== file.size || checkedFile.mtimeNs !== file.mtimeNs || checkedFile.ctimeNs !== file.ctimeNs) throw new Error('Retirement file changed');
-        }
-      }
-      if (!await store.retirementSafe(id, key)) return;
-      for (const entry of entries) await unlink(join(path, entry));
-      await syncDirectory(path);
-      const after = await privateDirectory(path);
-      if (after.dev !== before.dev || after.ino !== before.ino) throw new Error('File directory changed');
-      await rmdir(path);
-    }
-    await syncDirectory(root);
-    await store.finishFileRetirement(id, key);
-  }
-  async function expire() {
-    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
-    for (const item of await store.pendingFileRetirements()) {
-      if (active.has(item.operationId) || readers.has(item.operationId) || active.size >= 4) continue;
-      active.add(item.operationId);
-      try { await cleanup(item.operationId, item.dirKey); } catch { /* retain the fence and quota */ } finally { active.delete(item.operationId); }
-    }
-    for (const candidate of await store.expiredFileReservations(cutoff)) {
-      const id = candidate.reservation.manifest.operationId;
-      if (active.has(id) || readers.has(id) || active.size >= 4) continue;
-      active.add(id);
-      try { if (await store.beginFileRetirement(candidate, cutoff)) await cleanup(id, candidate.reservation.dirKey); }
-      catch { /* uncertain data remains charged */ } finally { active.delete(id); }
-    }
-  }
   async function get(id: string, owner: Owner) { return store.fileReservation(id, owner.ownerId, owner.sessionId); }
   return {
     async reserve(value: unknown, owner: Owner, guard: Guard) {
       const manifest = validateManifest(value);
       if (manifest.sessionId !== owner.sessionId) throw new Error('Wrong session');
       return exclusive(manifest.operationId, async () => {
-        await guard.check(); await expire(); await guard.check();
+        await guard.check();
         const previous = await get(manifest.operationId, owner);
         if (previous) return status(await store.reserveFiles(manifest, owner.ownerId, previous.dirKey, guard.commit));
         await privateRoot();
@@ -136,9 +89,9 @@ export function createFileOperations(store: Store, attachments: string) {
       });
     },
     async protectRead<T>(id: string, action: () => Promise<T>): Promise<T | undefined> {
+      // An operation being mutated by an upload must not be observed concurrently.
       if (active.has(id)) return undefined;
-      readers.set(id, (readers.get(id) ?? 0) + 1);
-      try { return await action(); } finally { const remaining = readers.get(id)! - 1; if (remaining) readers.set(id, remaining); else readers.delete(id); }
+      return action();
     },
     async status(id: string, owner: Owner) { const op = await get(id, owner); return op ? status(op) : null; },
     async receive(id: string, fileId: string, source: AsyncIterable<Uint8Array>, owner: Owner, guard: Guard) {

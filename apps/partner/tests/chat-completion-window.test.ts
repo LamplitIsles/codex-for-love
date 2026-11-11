@@ -10,7 +10,6 @@ for (const finishDuringRead of [true, false]) test(`two-message window remains c
   const reading = new Promise<void>(resolve => { entered = resolve; });
   const gate = new Promise<void>(resolve => { release = resolve; });
   const partner = {
-    async sharedRecovery() { return []; },
     async sharedImageLimits() { return false; },
     async sharedFileLimits() { return false; },
     async snapshot() {
@@ -24,7 +23,7 @@ for (const finishDuringRead of [true, false]) test(`two-message window remains c
         ] }],
       });
     },
-    async chatReceipt() { if (hold) { entered(); await gate; } return { state: 'submitted' }; },
+    async chatVisible() { if (hold) { entered(); await gate; } return true; },
     streamingReply() { return complete ? undefined : { id: 'b', turnId: 'turn', text: 'B' }; },
     replyCompletion() { return undefined; },
   } as unknown as Partner;
@@ -48,7 +47,7 @@ for (const finishDuringRead of [true, false]) test(`two-message window remains c
 test('an unsettled projection does not publish a missing message or resurrect an obsolete stream', async () => {
   let snapshots = 0, settled = false;
   const partner = {
-    async sharedRecovery() { return []; }, async sharedImageLimits() { return false; }, async sharedFileLimits() { return false; },
+    async sharedImageLimits() { return false; }, async sharedFileLimits() { return false; },
     async snapshot() {
       snapshots++;
       return { sessionId: 'fixture-session', name: 'Mica', cancellable: [], context: null, lifecycle: { latest: null }, hasMore: false, before: null,
@@ -57,7 +56,7 @@ test('an unsettled projection does not publish a missing message or resurrect an
           { kind: 'user', sourceIds: ['a'], position: 0 }, { kind: 'text', itemId: 'b', text: settled ? 'final' : 'obsolete', textState: settled ? 'complete' : 'streaming', position: 1 },
         ] }] };
     },
-    async chatReceipt() { return { state: 'submitted' }; },
+    async chatVisible() { return true; },
     streamingReply() { return undefined; }, replyCompletion() { return undefined; },
   } as unknown as Partner;
   const backend = createCodexChatBackend(partner);
@@ -75,7 +74,7 @@ test('repeated completion during receipt lookup exhausts retries without publish
   let snapshots = 0;
   let streaming: { id: string; turnId: string; text: string } | undefined;
   const partner = {
-    async sharedRecovery() { return []; }, async sharedImageLimits() { return false; }, async sharedFileLimits() { return false; },
+    async sharedImageLimits() { return false; }, async sharedFileLimits() { return false; },
     async snapshot() {
       const id = `b${++snapshots}`;
       streaming = { id, turnId: 'turn', text: 'B' };
@@ -85,7 +84,7 @@ test('repeated completion during receipt lookup exhausts retries without publish
           { kind: 'user', sourceIds: ['a'], position: 0 }, { kind: 'text', itemId: id, text: 'B', textState: 'streaming', position: 1 },
         ] }] };
     },
-    async chatReceipt() { streaming = undefined; return { state: 'submitted' }; },
+    async chatVisible() { streaming = undefined; return true; },
     streamingReply() { return streaming; }, replyCompletion() { return undefined; },
   } as unknown as Partner;
   await assert.rejects(createCodexChatBackend(partner).read(), /chat projection.*changed/i);
@@ -98,7 +97,7 @@ test('a session change during receipt lookup cannot return the old session previ
   const reading = new Promise<void>(resolve => { entered = resolve; });
   const gate = new Promise<void>(resolve => { release = resolve; });
   const partner = {
-    async sharedRecovery() { return []; }, async sharedImageLimits() { return false; }, async sharedFileLimits() { return false; },
+    async sharedImageLimits() { return false; }, async sharedFileLimits() { return false; },
     async snapshot() {
       const current = session;
       return { sessionId: current, name: 'Mica', cancellable: [current], context: null, lifecycle: { latest: null }, hasMore: false, before: null,
@@ -107,7 +106,7 @@ test('a session change during receipt lookup cannot return the old session previ
           { kind: 'user', sourceIds: [`a-${current}`], position: 0 }, { kind: 'text', itemId: 'b', text: current, textState: 'streaming', position: 1 },
         ] }] };
     },
-    async chatReceipt() { if (hold) { entered(); await gate; } return { state: 'submitted' }; },
+    async chatVisible() { if (hold) { entered(); await gate; } return true; },
     streamingReply() { return { id: 'b', turnId: session, text: session }; }, replyCompletion() { return undefined; },
   } as unknown as Partner;
   const pending = createCodexChatBackend(partner).read();
@@ -124,7 +123,7 @@ for (const steer of [false, true]) test(`a ${steer ? 'steer' : 'new turn'} start
   const reading = new Promise<void>(resolve => { entered = resolve; });
   const gate = new Promise<void>(resolve => { release = resolve; });
   const partner = {
-    async sharedRecovery() { return []; }, async sharedImageLimits() { return false; }, async sharedFileLimits() { return false; },
+    async sharedImageLimits() { return false; }, async sharedFileLimits() { return false; },
     async snapshot() {
       const turn = steer ? 'old' : 'new';
       return structuredClone({ sessionId: 'session', name: 'Mica', cancellable: [started ? turn : 'old'], context: null, lifecycle: { latest: null }, hasMore: false, before: null,
@@ -137,7 +136,7 @@ for (const steer of [false, true]) test(`a ${steer ? 'steer' : 'new turn'} start
           { kind: 'user', sourceIds: ['c'], position: 0 }, { kind: 'text', itemId: 'b', text: 'B', textState: 'streaming', position: 1 },
         ] }] : [])] });
     },
-    async chatReceipt() { if (hold) { entered(); await gate; } return { state: 'submitted' }; },
+    async chatVisible() { if (hold) { entered(); await gate; } return true; },
     streamingReply() { return started ? { id: 'b', turnId: steer ? 'old' : 'new', text: 'B' } : undefined; }, replyCompletion() { return undefined; },
   } as unknown as Partner;
   const backend = createCodexChatBackend(partner);
@@ -156,7 +155,7 @@ test('stream text growth during receipt lookup does not rescan history', async (
   const reading = new Promise<void>(resolve => { entered = resolve; });
   const gate = new Promise<void>(resolve => { release = resolve; });
   const partner = {
-    async sharedRecovery() { return []; }, async sharedImageLimits() { return false; }, async sharedFileLimits() { return false; },
+    async sharedImageLimits() { return false; }, async sharedFileLimits() { return false; },
     async snapshot() {
       snapshots++;
       return { sessionId: 'session', name: 'Mica', cancellable: ['turn'], context: null, lifecycle: { latest: null }, hasMore: false, before: null,
@@ -165,7 +164,7 @@ test('stream text growth during receipt lookup does not rescan history', async (
           { kind: 'user', sourceIds: ['a'], position: 0 }, { kind: 'text', itemId: 'b', text, textState: 'streaming', position: 1 },
         ] }] };
     },
-    async chatReceipt() { entered(); await gate; return { state: 'submitted' }; },
+    async chatVisible() { entered(); await gate; return true; },
     streamingReply() { return { id: 'b', turnId: 'turn', text }; }, replyCompletion() { return undefined; },
   } as unknown as Partner;
   const pending = createCodexChatBackend(partner).read();
@@ -180,7 +179,7 @@ test('single-view host disconnects after an exhausted inconsistent invalidation'
   let unstable = false;
   let notify!: () => void;
   const partner = {
-    async sharedRecovery() { return []; }, async sharedImageLimits() { return false; }, async sharedFileLimits() { return false; },
+    async sharedImageLimits() { return false; }, async sharedFileLimits() { return false; },
     async snapshot() {
       return { sessionId: 'session', name: 'Mica', cancellable: [], context: null, lifecycle: { latest: null }, hasMore: false, before: null,
         messages: [{ id: 'a', input: 'A', sequence: 1, created: 1, turnId: 'turn', inputImages: [], delivery: 'submitted' }],
@@ -188,7 +187,7 @@ test('single-view host disconnects after an exhausted inconsistent invalidation'
           { kind: 'user', sourceIds: ['a'], position: 0 }, ...(unstable ? [{ kind: 'text', itemId: 'b', text: 'obsolete', textState: 'streaming', position: 1 }] : []),
         ] }] };
     },
-    async chatReceipt() { return { state: 'submitted' }; },
+    async chatVisible() { return true; },
     streamingReply() { return undefined; }, replyCompletion() { return undefined; },
     subscribeChat(listener: (event: { type: 'change' }) => void) { notify = () => listener({ type: 'change' }); return () => {}; },
   } as unknown as Partner;

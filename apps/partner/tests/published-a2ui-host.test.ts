@@ -33,8 +33,9 @@ function wav() {
 test('published validator and actual Companion MCP accept supported UI and reject unsafe input', async () => {
   const f = await fixture(), client = new Client({ name: 'published-ui-test', version: '1' });
   const script = fileURLToPath(new URL('../runtime/companion-mcp.ts', import.meta.url));
-  await client.connect(new StdioClientTransport({ command: process.execPath, args: [script, f.workspace], stderr: 'ignore' }));
   try {
+    await client.connect(new StdioClientTransport({ command: process.execPath, args: [script, f.workspace], stderr: 'ignore',
+      env: { PATH: process.env.PATH!, HOME: f.directory, NODE_OPTIONS: process.env.NODE_OPTIONS ?? '' } }));
     assert.deepEqual(validateA2UISurface(surface), surface);
     const sent = await client.callTool({ name: 'send_ui', arguments: { ui: surface } });
     assert.notEqual(sent.isError, true);
@@ -104,7 +105,7 @@ test('published host delivers UI, bounded fallback and later text patches with w
   const client = await openChat(new WebSocket(origin.replace('http:', 'ws:') + '/api/chat/socket'), next => { view = next; }, () => {});
   try {
     await eventually(async () => !!view);
-    const operationId = crypto.randomUUID(); await client.submit({ operationId, text: 'live ui' });
+    const operationId = crypto.randomUUID(); await client.submit({ operationId, text: 'live ui' }).catch(() => {});
     await eventually(async () => !!(await f.nativeState()).active);
     const turnId = (await f.nativeState()).active as string;
     await f.streamCommand({ action: 'timeline', entries: [

@@ -132,7 +132,7 @@ test('text and voice control reset replaces the partner and leaves a usable publ
     assert.equal(initial.executions, 0); assert.deepEqual(initial.takes, []);
     client = await connect();
     await eventually(async () => view?.sessionId === initial.sessionId);
-    await client.submit({ operationId: crypto.randomUUID(), text: 'before fixture reset' });
+    await client.submit({ operationId: crypto.randomUUID(), text: 'before fixture reset' }).catch(() => {});
     await eventually(async () => view?.messages.some(m => m.text === 'before fixture reset') === true);
     await control('complete');
     await eventually(async () => view?.messages.some(m => m.text === '完整回复' && m.textState === 'complete') === true);
@@ -142,7 +142,7 @@ test('text and voice control reset replaces the partner and leaves a usable publ
     client.close(); view = undefined; client = await connect();
     await eventually(async () => view?.sessionId === reset.sessionId);
     assert.equal(view!.messages.some(m => m.text === 'before fixture reset'), false);
-    await client.submit({ operationId: crypto.randomUUID(), text: 'after fixture reset' });
+    await client.submit({ operationId: crypto.randomUUID(), text: 'after fixture reset' }).catch(() => {});
     await eventually(async () => view?.messages.some(m => m.text === 'after fixture reset') === true);
   } finally { client?.close(); await host.close(); await rm(root, { recursive: true, force: true }); }
 });

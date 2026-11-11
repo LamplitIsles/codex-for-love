@@ -2,7 +2,7 @@
 import { once } from 'node:events';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { mkdir, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import WebSocket from 'ws';
 import { openChat } from '@lamplit/contracts/client';
@@ -59,8 +59,8 @@ async function initializePostAcceptanceHost(assets: string, evidence: string | u
   await start();
   const facade = new Proxy({} as Partner, { get(_target, key) {
     if (key === 'subscribe') return (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener); };
-    if (key === 'submitShared') return async (input: Parameters<Partner['submitShared']>[0]) => {
-      const receipt = await partner.submitShared(input); submissions.push(input.text); return receipt;
+    if (key === 'submitNativeDelivery') return async (input: Parameters<Partner['submitNativeDelivery']>[0]) => {
+      const receipt = await partner.submitNativeDelivery(input); submissions.push(input.text); return receipt;
     };
     const value = partner[key as keyof Partner]; return typeof value === 'function' ? value.bind(partner) : value;
   } });
@@ -140,9 +140,16 @@ async function initializePostAcceptanceHost(assets: string, evidence: string | u
         for (const item of older) { await incoming(item); }
         historical = older;
         off(); await partner.close();
+        const ids = Array.from({ length: 31 }, () => crypto.randomUUID());
         const store = new Store(partnerPaths(f.workspace).database);
-        try { for (let n = 0; n < 31; n++) await store.ensureMessage(crypto.randomUUID(), clock); }
+        try { for (const id of ids) await store.ensureMessage(id, clock); }
         finally { await store.close(); }
+        const statePath = f.appServer.env.FAKE_SERVER_STATE!;
+        const state = JSON.parse(await readFile(statePath, 'utf8')) as { turns: unknown[] };
+        state.turns.push(...ids.map((id, index) => ({ id: `history-seed-${index}`, status: 'completed', items: [
+          { type: 'userMessage', id: `item-${id}`, clientId: id, content: [{ type: 'text', text: `history seed ${index}` }] },
+        ] })));
+        await writeFile(statePath, JSON.stringify(state));
         await start(); await observe(); await incoming(initial); first = initial;
       } else { await incoming(entry); first ??= entry; }
     } else if (input.action === 'complete') {

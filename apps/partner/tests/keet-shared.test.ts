@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
 import { join } from 'node:path';
+import { readFile, writeFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import sharp from 'sharp';
 import { openChat } from '@lamplit/contracts/client';
@@ -60,7 +61,7 @@ test('native Keet ingress retains display source, private context, images and re
         : '\n[Keet images: 1 present; 1 unavailable. Image bytes are not included in Group context.]'));
       assert.deepEqual(m.source, { kind: 'keet', channel: entry.destination.kind, senderLabel: entry.senderLabel, destination: entry.destination.groupName });
       assert.equal(m.operationId, id);
-      assert.equal((await partner.chatReceipt(id))?.state, 'submitted');
+      assert.equal(await partner.chatVisible(id), true);
       assert.equal(m.images?.length ?? 0, entry.destination.kind === 'dm' ? 1 : 0);
       assert.equal(m.role, 'user'); visible.set(id, m);
     }
@@ -73,17 +74,24 @@ test('native Keet ingress retains display source, private context, images and re
     assert.match(JSON.stringify(starts), /native-only context sentinel/);
     assert.doesNotMatch(JSON.stringify(view), /native-only context sentinel|owned-fake-kfa-key|reactionContext|localTime|deviceId/);
     await assert.rejects(client.submit({ operationId: randomUUID(), text: 'forged', source: { kind: 'keet', channel: 'dm', senderLabel: 'Forge', destination: 'Peer' } } as never));
-    const webId = randomUUID(); await client.submit({ operationId: webId, text: 'ordinary web' });
+    const webId = randomUUID(); await client.submit({ operationId: webId, text: 'ordinary web' }).catch(() => {});
     await eventually(async () => view?.messages.some(m => m.id === webId && m.turnId !== null) === true);
     assert.equal(view!.messages.find(m => m.id === webId)!.source, undefined);
     client.close(); view = undefined; client = await connect();
     await eventually(async () => [...visible.keys()].every(id => view?.messages.some(m => m.id === id)));
     for (const [id, before] of visible) assert.deepEqual(view!.messages.find(m => m.id === id), before);
     client.close(); await app.close(); await partner.close();
-    // Only later test-owned native metadata is seeded; Keet records came through real ingress.
+    // Seed later test-owned native history; Keet records came through real ingress.
+    const ids = Array.from({ length: 51 }, () => randomUUID());
     const store = new Store(partnerPaths(f.workspace).database);
-    try { for (let n = 0; n < 51; n++) await store.ensureMessage(randomUUID(), Date.now()); }
+    try { for (const id of ids) await store.ensureMessage(id, Date.now()); }
     finally { await store.close(); }
+    const statePath = f.appServer.env.FAKE_SERVER_STATE!;
+    const state = JSON.parse(await readFile(statePath, 'utf8')) as { turns: unknown[] };
+    state.turns.push(...ids.map((id, index) => ({ id: `later-${index}`, status: 'completed', items: [
+      { type: 'userMessage', id: `item-${id}`, clientId: id, content: [{ type: 'text', text: `later ${index}` }] },
+    ] })));
+    await writeFile(statePath, JSON.stringify(state));
     partner = await f.createPartner(); app = createWebServer(partner, join(f.directory, 'assets')); await listen();
     client = await connect(); await eventually(async () => !!view?.before);
     assert(!view!.messages.some(m => m.source?.kind === 'keet'));
@@ -115,4 +123,34 @@ test('shared reminder keeps native source and ordinary display text', async () =
     assert.deepEqual(m.source, { kind: 'reminder', reminderId: alarm.id, occurrenceId: m.id });
     assert.equal(m.role, 'user');
   } finally { await f.close(); }
+});
+
+test('reminder text survives native acknowledgement during a snapshot', async () => {
+  const f = await fixture();
+  let clock = Date.parse('2026-09-30T00:00:00Z');
+  createAlarm(partnerPaths(f.workspace).alarms, 'Bring tea', { kind: 'once', at: '2026-09-30T09:00:00+08:00' }, clock);
+  clock += 61 * 60_000;
+  await writeFile(join(f.directory, 'control.json'), JSON.stringify({ hold: true, holdMethods: ['turn/start'] }));
+  const original = Store.prototype.outcomes;
+  let reached!: () => void, release!: () => void;
+  const held = new Promise<void>(resolve => { reached = resolve; });
+  const released = new Promise<void>(resolve => { release = resolve; });
+  let gated = false;
+  Store.prototype.outcomes = async function(ids) {
+    const result = await original.call(this, ids);
+    if (!gated && ids.some(id => id.startsWith('alarm:'))) {
+      gated = true; reached(); await released;
+    }
+    return result;
+  };
+  try {
+    const partner = await f.createPartner({ now: () => clock });
+    await eventually(async () => (await f.requests()).some(request => request.method === 'turn/start'));
+    const pendingSnapshot = partner.snapshot({}, false);
+    await held;
+    await f.holdProvider(true);
+    await eventually(async () => (await partner.snapshot()).messages.some(message => message.alarm && message.turnId !== null && message.input === 'Bring tea'));
+    release();
+    assert.equal((await pendingSnapshot).messages.find(message => message.alarm)?.input, 'Bring tea');
+  } finally { release(); Store.prototype.outcomes = original; await f.close(); }
 });

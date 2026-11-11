@@ -97,7 +97,7 @@ test('synthetic host persists real HTTP and WebSocket interactions and resets on
     assert.deepEqual(new Set(albumBytes.map(bytes => bytes.toString('base64'))), new Set(chatBytes.map(bytes => bytes.toString('base64'))));
     const reminders = await chat.reminders({ sessionId: input.sessionId });
     assert.deepEqual(new Set(reminders.reminders.map(r => r.schedule.kind)), new Set(['once', 'interval', 'daily', 'weekly']));
-    await chat.submit({ operationId: crypto.randomUUID(), text: '持久化测试消息' });
+    await chat.submit({ operationId: crypto.randomUUID(), text: '持久化测试消息' }).catch(() => {});
     await eventually(async () => view?.messages.some(m => m.text.includes('【模拟回复】这是本地开发夹具')) === true);
     chat.close(); client = undefined; await host.close(); host = undefined;
     // Simulate an older workspace: add the missing avatar without losing interaction data.
@@ -139,7 +139,7 @@ test('a stopped fixture can append example UI without replacing chat or backgrou
   try {
     host = await startDevelopment(root, 0);
     chat = await openChat(new WebSocket(host.origin.replace('http', 'ws') + '/api/chat/socket'), v => { view = v; }, () => {});
-    await chat.submit({ operationId: crypto.randomUUID(), text: '保留这条消息' });
+    await chat.submit({ operationId: crypto.randomUUID(), text: '保留这条消息' }).catch(() => {});
     await eventually(async () => view?.messages.some(m => m.text.includes('【模拟回复】这是本地开发夹具')) === true);
     const source = await readFile(new URL('./fixtures/frontend-development/coffee.jpg', import.meta.url));
     const upload = await fetch(host.origin + '/api/background-settings/landscape', { method: 'POST', headers: { origin: host.origin, 'content-type': 'image/jpeg' }, body: new Uint8Array(source) });

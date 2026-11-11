@@ -65,42 +65,32 @@ A message may include up to six files, each at most 100,000,000 bytes and
 unknown media types are accepted. Original bytes are kept under opaque names in
 `.lamplit/attachments/`; the supplied filename is metadata, never a storage
 path or download header. Downloads are served as private, non-cacheable binary
-attachments. Files remain associated with their operation across history,
-recovery and explicit failed retries; an uncertain submission must be inspected
-or finalized rather than automatically resent. Files do not enter the image
-library. Partner receives one untrusted fact per file containing its
-workspace-relative path and complete name. A local file check that fails
-before native submission is recoverable; an uncertain dispatched request still
-requires inspection. Temporary upload files can remain after a process is
-interrupted; an upload may need to be selected again. Protect and back up the
+attachments. Files remain associated with their operation across history and
+explicit failed retries; uncertain submissions are never automatically resent.
+Files do not enter the image library. Partner receives the verified filenames and
+workspace-relative paths appended to the same user message. A local file check
+that fails before dispatch is a definite failed attempt. Temporary upload files
+can remain after a process is interrupted; an upload may need to be selected again. Protect and back up the
 workspace and its SQLite database together.
 
 The streaming file-operation API reserves a session-scoped ordered manifest at
 `/api/chat/file-operations`, receives raw bytes for each file, and completes the
 operation only after every file has been verified. The JSON manifest body is
-limited to 32,768 bytes. At most 16 unadmitted operations may reserve
-800,000,000 bytes in total; four operations may upload and four files may be
-downloaded concurrently. When a new reservation is created, reservations idle
-for 24 hours may be retired if no admission, failure, retry or other reference
-protects their file paths. Staged images and their bytes are preserved, and any
-image path overlapping a file prevents its retirement. A permanent operation identity fence is
-committed before cleanup. Cleanup resumes after interruption and quota remains
-charged until it completes. Failed, referenced or ambiguous reservations and
-files whose ownership cannot be verified remain charged and need investigation;
-enough of them can block new reservations. When all files from a successful
-retry are referenced by durable history, their original reservation no longer
-counts against the unadmitted quota.
+limited to 32,768 bytes; four operations may upload and four files may be
+downloaded concurrently. Uploads have no cumulative reservation quota and are
+not automatically deleted. Abandoned or interrupted uploads can therefore
+remain on disk; monitor workspace storage as it grows.
 
 Each upload operation owns a private directory under
 `.lamplit/attachments/.file-operations`. One cooperating Partner owns the
 database and these directories. Workspace writers are trusted and must not
-modify the managed directories during upload or cleanup. Partner does not change
+modify the managed directories during upload. Partner does not change
 existing workspace permissions. A crash before a reservation is recorded can
 leave an unregistered empty directory; it is not automatically removed. Partner
 refuses to start with an incompatible upload reservation schema and preserves
 its existing data.
 
-An owner inspecting a retired file operation receives HTTP 410 with error code
+An owner inspecting a previously retired file operation receives HTTP 410 with error code
 `file_operation_retired`. A new operation requires an explicit user action;
 inspect an uncertain submission before taking that action. Partner requires
 matching published App streaming contracts and refuses to start without them.
@@ -585,15 +575,18 @@ does not update any running instance.
 
 `GET /api/chat/appearance` supplies the configured name, avatars and horizontal/vertical
 backgrounds to the shared UI. Successful replies end quietly; failure and stop notices
-remain visible. Text and selected images appear immediately as normal outgoing bubbles, before
-upload or receipt. Offline sends retain the draft. Definite failure before durable
-admission leaves a failed bubble with direct Retry/Delete actions; newer draft text
-and images stay intact. Expired dispatched input requests durable finalization;
-missing proof stays pending. Retry uses the server's original text/image bytes
-under a new attempt identity. Delete confirms removal of the failed presentation,
-retaining its rejection fence across reopen. Ambiguous delivery is reconciled
-without automatic replay. Independent native withdrawal still offers recovery.
-See [submission semantics and immutable acceptance](docs/native-durable-submissions.md).
+remain visible. Text and selected images appear immediately as normal outgoing
+bubbles. The frontend retains failed input for explicit retry or removal. If file
+upload fails before submission and the page still has the selected files, retry
+uses a new operation ID while keeping the same visible bubble. After a dispatched
+attempt definitely fails, an explicit retry uses the same operation ID and a new
+attempt number. Unknown delivery is reconciled without automatic replay. See
+[submission semantics](docs/native-durable-submissions.md).
+
+Existing `failed_submissions`, `retry_attempts` and `deleted_failures` tables and
+rows may remain in the database and contain earlier message text. New databases
+do not create them, and server-side recovery no longer reads or replays them.
+This change does not migrate or delete existing rows or uploaded files.
 
 The official app-server remains the sole execution/history owner. Completed
 message IDs are presentation metadata; no reply text is duplicated in a new
@@ -617,14 +610,10 @@ Partner partial without restarting execution. Completion replaces that preview
 with the official completed message; stop/failure/session change removes it and
 late deltas cannot restore it. SDK transport/process restart does not automatically
 replay a turn or restore unpersisted tokens; only retained official history can
-be recovered. Sending ends when CFL
-commits the validated input, attachment metadata and immutable operation identity
-together in SQLite. The `submitted` receipt means the input is retained; native
-start/steer and history reconciliation continue independently. It does not
-promise exactly-once Codex execution. Native activity drives typing before
-reply completion, and official user items establish consumption. Reconnect
-lookup and same-operation retries recover the saved receipt without resubmitting
-ambiguous native input. Lookup returns `null` while no definitive result exists; it never authorizes recovery or replay. Failure and stop produce independent timeline
+be recovered. A `submitted` receipt requires a matching official user item in
+native history. Local admission and a queued steer acknowledgement are not enough.
+Lookup returns `null` while the outcome is unknown; no automatic replay follows.
+Failure and stop produce independent timeline
 notices; successful replies end quietly. Completed messages survive reconnect and restart.
 Browser origins must match the configured canonical origin, and browser access requires a Passkey session. See [shared frontend preparation](docs/default-shared-frontend.md) for build and
 connection commands.
@@ -646,11 +635,9 @@ sets `textState: 'complete'`. The optional `streamingReply` is omitted when the
 matching timeline slot is present.
 
 Image uploads echo each draft ID and order with its validated resource reference.
-For a manually retried failed image submission, the receipt exposes the verified
-source-to-attempt attachment mapping, including through lookup and finalization.
-An unbound attempt remains unknown and is never automatically resent. The new
-shared contract must be published and pinned before the standard CFL release
-build; local source-based checks are not release artifact provenance.
+For a manually retried failed image submission, CFL revalidates the original
+operation-scoped attachments before dispatch. The receipt carries the same
+operation ID and an incremented attempt; unknown attempts are never replayed.
 
 The app owns the public TypeScript/TypeBox schemas. CFL implements six bounded
 reads on `lamplit.chat.v2` over that same connection:
@@ -811,7 +798,7 @@ privileged storage manipulation or extreme metadata reuse.
 The pinned App contract supplies the workspace media references. Actual iOS
 WebKit playback still requires device validation.
 
-### Shared image sending and recovery
+### Shared image sending
 
 The shared slice accepts PNG/JPEG/WebP/GIF: six images, 5 MiB each, 20 MiB
 original bytes total and 160-character filenames. It serves existing generated
@@ -822,9 +809,9 @@ bytes, including image-only messages and active-turn steering.
 Authenticated `POST /api/chat/images` stages an immutable ordered upload under
 this Partner session and operation UUID, returning each draft's `id` and `order`
 with its operation-owned `ref`. Upload does not admit a message or add
-album membership. `/api/chat/socket` submit binds text, ordered references and
-replacement IDs atomically to native admission. Exact retries reconcile without
-execution; changed identity, incomplete references and foreign operations fail.
+album membership. `/api/chat/socket` submit binds text and ordered references to
+the operation identity. Explicit retry after definite failure uses a new attempt;
+changed identity, incomplete references and foreign operations fail.
 Authenticated `GET /api/chat/media/{id}/{original|preview|model}` returns private
 media with `Cache-Control: private, max-age=2592000` and a strong ETag, or a
 non-cacheable error. Native-origin originals need no uploaded variants. When a
@@ -835,15 +822,10 @@ changes, permission revocation or an account switch in the same browser. Private
 caching does not guarantee account isolation, encryption, retention or offline access;
 chat history still requires a connection.
 
-Recovery refreshes official history and exposes only confirmed recoverable text/images.
-Definite rolled-back admission returns `failed`; a durably received input remains
-`submitted` after a verified native rejection or pre-processing withdrawal and may
-offer recovery. Internal errors, lost responses and unresolved native input never
-create a recovery offer. Replies fail or stop independently of submission. Failed web
-messages use direct Retry/Delete, without restoring Composer input. Missing original
-bytes block the whole retry; deletion remains available. Independent withdrawal
-recovery still supports restore/edit with a fresh UUID and eligible sources;
-consumed/replaced/deleted inputs cannot return.
+Only a confirmed native history item establishes submission. The frontend retains
+definite failures for explicit retry or removal; missing original bytes prevent
+dispatch until repaired. Unknown outcomes remain pending without automatic replay.
+Replies fail or stop independently of submission.
 The shared App at `/` uses these native routes.
 
 See [the shared image protocol and isolated acceptance recipe](docs/image-send-recovery.md).
@@ -865,12 +847,12 @@ fresh native usage arrives; fresh usage in a complete snapshot stays visible.
 
 `compact({ sessionId })` returns `{ sessionId, accepted }`; a true result means
 native admission. The adapter rechecks authorization, session and native
-idle/pending/recovery guards after asynchronous prerequisites. Busy work is
+idle and pending-work guards after asynchronous prerequisites. Busy work is
 refused without a compact queue. Exact bare `/compact` uses this operation and
 cannot enter ordinary submit; images refuse and retain the editable selection.
 Lost replies and reconnects reconcile observations without automatic replay.
 
-Current native compaction, image/recovery and panel runners use canonical `/`
+Current native compaction and panel runners use canonical `/`
 and the approved full artifact. See [current acceptance commands](docs/default-shared-frontend.md).
 Controls are test-only entry points, absent from production routing; native quiet
 compaction behavior and the five-minute reminder interval remain unchanged.

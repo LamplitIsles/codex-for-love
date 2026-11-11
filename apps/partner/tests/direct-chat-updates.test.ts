@@ -33,7 +33,8 @@ test('the first visible delta keeps its started position before a later consumed
     await partner.submit(first, 'initial input');
     await eventually(async () => !!(await f.nativeState()).streamingItem);
     const second = crypto.randomUUID();
-    assert.equal((await partner.submitShared({ operationId: second, text: 'later steer' })).state, 'submitted');
+    await partner.submitNativeDelivery({ operationId: second, text: 'later steer' });
+    await eventually(async () => (await partner.lookupNativeDelivery(second))?.state === 'submitted');
     await eventually(async () => await f.consumed(second));
     await eventually(async () => (await partner.snapshot()).results.some(result => result.sourceIds.includes(second)));
     await f.streamCommand({ action: 'advance', text: 'first visible line\n' });
@@ -75,7 +76,8 @@ test('cancelling initial host read closes its subscription without cancelling an
   const f = await fixture(); f.appServer.env.FAKE_STREAM_FIXTURE = 'true';
   const partner = await f.createPartner();
   const id = crypto.randomUUID();
-  assert.equal((await partner.submitShared({ operationId: id, text: 'retained' })).state, 'submitted');
+  await partner.submitNativeDelivery({ operationId: id, text: 'retained' });
+  await eventually(async () => (await partner.lookupNativeDelivery(id))?.state === 'submitted');
   await eventually(async () => (await f.requests()).some(request => request.method === 'turn/start'));
   let release!: () => void, entered!: () => void, finished!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });
@@ -92,7 +94,7 @@ test('cancelling initial host read closes its subscription without cancelling an
     await assert.rejects(opening, /cancelled/i);
     assert.equal(subscriptions, 0);
     release(); await done;
-    assert.equal((await partner.chatReceipt(id))?.state, 'submitted');
+    assert.equal((await partner.lookupNativeDelivery(id))?.state, 'submitted');
     assert.equal((await f.requests()).filter(request => request.method === 'turn/start').length, 1);
   } finally { release(); await f.close(); }
 });
@@ -106,13 +108,13 @@ for (const scenario of [
 ] as const) test(`a ${scenario.followup} ${scenario.timing} a failed structural read recovers on a new socket`, { timeout: 30_000 }, async () => {
   const f = await fixture(); f.appServer.env.FAKE_STREAM_FIXTURE = 'true';
   const partner = await f.createPartner();
-  const snapshot = partner.snapshot.bind(partner), recovery = partner.sharedRecovery.bind(partner);
+  const snapshot = partner.snapshot.bind(partner);
   let armed = false, failures = 0, reads = 0;
   let release!: () => void, entered!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });
   const reading = new Promise<void>(resolve => { entered = resolve; });
-  partner.sharedRecovery = async (...args) => { reads++; return recovery(...args); };
   partner.snapshot = async (...args) => {
+    reads++;
     if (armed && partner.streamingReply()?.text === 'first line\n') {
       armed = false; failures++;
       if (scenario.timing === 'during') { entered(); await gate; }
@@ -135,7 +137,7 @@ for (const scenario of [
     const closed = once(socket, 'close');
     client = await openChat(socket, value => { view = value; }, () => {});
     const id = crypto.randomUUID();
-    assert.equal((await client.submit({ operationId: id, text: 'input' })).state, 'submitted');
+    await client.submit({ operationId: id, text: 'input' }).catch(() => {});
     await eventually(async () => !!(await f.nativeState()).streamingItem && view?.messages.some(message => message.id === id) === true);
     const native = await f.nativeState();
     const item = native.turns.find((turn: { id: string }) => turn.id === native.active).items.find((value: { id: string }) => value.id === native.streamingItem);
@@ -209,12 +211,10 @@ test('native reply updates use one source without reading the page on each delta
   f.appServer.env.FAKE_TIMELINE_USER_START = 'true';
   const partner = await f.createPartner();
   const counts = { snapshot: 0, receipt: 0, image: 0, recovery: 0 };
-  const snapshot = partner.snapshot.bind(partner), receipt = partner.chatReceipt.bind(partner), image = partner.sharedImageRef.bind(partner);
-  const recovery = partner.sharedRecovery.bind(partner);
+  const snapshot = partner.snapshot.bind(partner), receipt = partner.chatVisible.bind(partner), image = partner.sharedImageRef.bind(partner);
   partner.snapshot = async (...args) => { counts.snapshot++; return snapshot(...args); };
-  partner.chatReceipt = async (...args) => { counts.receipt++; return receipt(...args); };
+  partner.chatVisible = async (...args) => { counts.receipt++; return receipt(...args); };
   partner.sharedImageRef = async (...args) => { counts.image++; return image(...args); };
-  partner.sharedRecovery = async (...args) => { counts.recovery++; return recovery(...args); };
   const app = createWebServer(partner, join(f.directory, 'assets'));
   app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening');
   let view: ChatView | undefined;
@@ -222,10 +222,10 @@ test('native reply updates use one source without reading the page on each delta
   try {
     client = await openChat(new WebSocket(`ws://127.0.0.1:${(app.server.address() as { port: number }).port}/api/chat/socket`), value => { view = value; }, () => {});
     const operationId = crypto.randomUUID();
-    assert.equal((await client.submit({ operationId, text: 'input' })).state, 'submitted');
+    await client.submit({ operationId, text: 'input' }).catch(() => {});
     await eventually(async () => !!(await f.nativeState()).streamingItem && view?.messages.some(message => message.id === operationId) === true);
     const steerId = crypto.randomUUID();
-    assert.equal((await client.submit({ operationId: steerId, text: 'steer before text' })).state, 'submitted');
+    await client.submit({ operationId: steerId, text: 'steer before text' }).catch(() => {});
     await eventually(async () => await f.consumed(steerId));
     await eventually(async () => view?.messages.some(message => message.id === steerId) === true);
     await f.streamCommand({ action: 'advance', text: 'first line\n' });

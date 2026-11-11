@@ -31,7 +31,7 @@ async function probeFailedHost() {
   }
   const child = spawn(process.execPath, ['--input-type=module', '-e', script, join(root, 'missing')], {
     detached: true, stdio: ['ignore', 'pipe', 'pipe'],
-    env: { PATH: process.env.PATH, HOME: root, TMPDIR: root, NODE_DISABLE_COMPILE_CACHE: '1' },
+    env: { PATH: process.env.PATH, HOME: root, TMPDIR: root, NODE_DISABLE_COMPILE_CACHE: '1', NODE_OPTIONS: process.env.NODE_OPTIONS ?? '' },
   });
   const closed = once(child, 'close');
   let output = '', stage = 'initialization';
@@ -82,11 +82,12 @@ test('Post native browser history control puts the retained older source in one 
       await incoming('initial'); await incoming('older', true);
       client = await openChat(new WebSocket(host.origin.replace('http:', 'ws:') + '/api/chat/socket', { headers: { Cookie: 'post-test-owner=1' } }) as unknown as globalThis.WebSocket, value => { view = value; }, () => {});
       for (let n = 0; n < 7; n++) await incoming(`later-${n}`);
-      await client.submit({ operationId: crypto.randomUUID(), text: 'owned ordinary web input' });
+      await client.submit({ operationId: crypto.randomUUID(), text: 'owned ordinary web input' }).catch(() => {});
       await host.action({ action: 'complete' });
       await eventually(async () => !!view?.messages.some(m => m.role === 'agent' && m.text === '普通回复' && m.textState === 'complete' && !!m.ends?.length));
       await host.action({ action: 'reminder' }); await incoming('reconnect');
-      await eventually(async () => !!view?.messages.some(m => m.text === 'reconnect original') && !!view?.before);
+      try { await eventually(async () => !!view?.messages.some(m => m.text === 'reconnect original') && !!view?.before); }
+      catch (error) { throw new Error(`Post reconnect view: ${JSON.stringify(view)}`, { cause: error }); }
       assert(!view!.messages.some(m => m.text === 'older original'), 'older source is actually outside the live public page');
       const page = await client.history(view!.before!);
       const next = page.before ? await client.history(page.before) : undefined;

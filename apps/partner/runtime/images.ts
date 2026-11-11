@@ -16,7 +16,6 @@ export const imageLimits: ImageAttachmentLimits = {
   maxImageBytes: 5 * 1024 * 1024,
   maxMessageImageBytes: 20 * 1024 * 1024,
 };
-export const messageBodyLimit = Math.ceil(imageLimits.maxMessageImageBytes / 3) * 4 + 128 * 1024;
 export const imageInputSchema = z.object({
   type: z.literal('image'),
   mediaType: z.enum(['image/png', 'image/jpeg', 'image/webp', 'image/gif']),

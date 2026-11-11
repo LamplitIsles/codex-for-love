@@ -22,10 +22,10 @@ export function createCodexChatBackend(partner: Partner, authorize: () => Promis
     // for native history; known activity and durable receipts are independent.
     const snapshotStream = partner.streamingReply();
     const snapshot = await partner.snapshot(options.before === undefined ? {} : { before: options.before }, false);
-    const receipts = new Map(await Promise.all(snapshot.messages.map(async m => [m.id, await partner.chatReceipt(m.id)] as const)));
+    const visible = new Map(await Promise.all(snapshot.messages.map(async m => [m.id, await partner.chatVisible(m.id)] as const)));
     const ordered: Array<{ order: number; position?: number; message: ChatMessage; fileIds?: string[] }> = [];
     for (const m of snapshot.messages) {
-      if (m.delivery === 'replaced' || receipts.get(m.id)?.state !== 'submitted') continue;
+      if (m.delivery === 'replaced' || !visible.get(m.id)) continue;
       const images = (await Promise.all(m.inputImages.map(image => partner.sharedImageRef(image.id)))).filter((ref): ref is ImageRef => !!ref);
       const post = m.post;
       // Post image checkpoints and input_images share content order. Suppress a
@@ -105,7 +105,6 @@ export function createCodexChatBackend(partner: Partner, authorize: () => Promis
     return project(p, streamingReply);
   }
   async function readView(): Promise<ChatView> {
-    const recovery = await partner.sharedRecovery(false);
     const images = await partner.sharedImageLimits();
     const files = await partner.sharedFileLimits();
     return consistentPage(undefined, (p, streamingReply) => {
@@ -119,7 +118,7 @@ export function createCodexChatBackend(partner: Partner, authorize: () => Promis
         ...(streamingReply && !replyCompletedTurnId && !p.messages.some(m => m.id === streamingReply.id) ? { streamingReply } : {}),
         contextUsage: { tokens: p.snapshot.context?.activeTokens ?? null, capacity: p.snapshot.context?.windowTokens ?? null },
         compaction: p.snapshot.lifecycle.latest ? { id: p.snapshot.lifecycle.latest.nativeId ?? null, status: p.snapshot.lifecycle.latest.status } : null,
-        messages: p.messages, before: p.before, capabilities: { ...capabilities, images, files, workspaceImages: true }, recovery };
+        messages: p.messages, before: p.before, capabilities: { ...capabilities, images, files, workspaceImages: true } };
     });
   }
   function overlay(view: ChatView): ChatView {
@@ -143,7 +142,7 @@ export function createCodexChatBackend(partner: Partner, authorize: () => Promis
           current = next;
           if (waitingReply && next.messages.some(message => message.id === waitingReply)) waitingReply = undefined;
           changed?.({ type: 'update', scope, window: { messages: next.messages, before: next.before }, state: {
-            activeTurnId: next.activeTurnId, name: next.name, capabilities: next.capabilities, recovery: next.recovery,
+            activeTurnId: next.activeTurnId, name: next.name, capabilities: next.capabilities,
             contextUsage: next.contextUsage, compaction: next.compaction,
             streamingReply: next.streamingReply ?? null, replyCompletedTurnId: next.replyCompletedTurnId ?? null,
           } });
@@ -210,11 +209,12 @@ export function createCodexChatBackend(partner: Partner, authorize: () => Promis
     },
     async history(before) { return consistentPage(before, p => ({ messages: p.messages, before: p.before })); },
     compact: input => partner.compact({ ...input, authorize }),
-    submit: input => partner.submitShared(input, authorize, authorizeCommit),
-    finalizeSubmission: input => partner.finalizeSubmission(input, authorize, authorizeCommit),
-    retryFailed: input => partner.retryFailed(input, authorize, authorizeCommit),
-    deleteFailed: input => partner.deleteFailed(input, authorize, authorizeCommit),
-    lookup: id => partner.chatReceipt(id),
+    async submit(input) {
+      const receipt = await partner.submitNativeDelivery(input, authorize, authorizeCommit);
+      if (!receipt) throw new Error('Delivery outcome is unknown');
+      return receipt;
+    },
+    lookup: id => partner.lookupNativeDelivery(id, authorize, authorizeCommit),
     async stop(id) { if (authorizeCommit && !authorizeCommit()) throw new Error('Unauthorized'); return partner.chatStop(id); },
     async relationship() { return partner.relationship(); },
     async relationshipHistory(input) {
@@ -250,6 +250,7 @@ export function createCodexChatBackend(partner: Partner, authorize: () => Promis
       changed = listener;
       const off = partner.subscribeChat(observation => {
         if (closed) return;
+        if (observation.type === 'delivery') { changed?.({ type: 'deliveryResult', scope, receipt: observation.receipt }); return; }
         if (observation.type === 'delta') replyUpdate(observation.reply.id, observation.reply.turnId, observation.reply.text, 'streaming');
         else if (observation.type === 'completed') replyUpdate(observation.id, observation.turnId, observation.text, 'complete');
         else if (observation.type === 'change') refresh();

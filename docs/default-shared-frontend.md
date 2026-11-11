@@ -166,8 +166,6 @@ From the repository root, start a fixture using the extracted `browser` director
 ```sh
 node apps/partner/tests/text-voice-acceptance-host.ts <browser>
 node apps/partner/tests/panels-acceptance-host.ts <browser> <evidence>
-IMAGE_FIXTURE_EVIDENCE=<evidence> \
-  node apps/partner/tests/image-send-recovery-fixture.ts <browser>
 COMPACT_FIXTURE_EVIDENCE=<evidence> \
   node apps/partner/tests/quiet-compaction-fixture.ts <browser>
 TMPDIR=/tmp CFL_ACCEPTANCE_FLICKLOG_BIN=<test-owned-unchanged-rust-release-binary> \

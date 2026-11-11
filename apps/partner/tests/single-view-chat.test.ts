@@ -20,7 +20,7 @@ test('single shared view publishes raw reply updates and only materialized image
   try {
     client = await openChat(new WebSocket(`ws://127.0.0.1:${(app.server.address() as { port: number }).port}/api/chat/socket`), value => { view = value; }, () => {});
     const operationId = crypto.randomUUID();
-    assert.equal((await client.submit({ operationId, text: 'fixture input' })).state, 'submitted');
+    await client.submit({ operationId, text: 'fixture input' }).catch(() => {});
     await eventually(async () => !!(await f.nativeState()).streamingItem);
     await f.streamCommand({ action: 'advance', text: 'first line\nsecond' });
     await eventually(async () => view?.messages.some(message => message.text === 'first line\nsecond') === true);

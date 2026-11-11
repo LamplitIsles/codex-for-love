@@ -19,8 +19,7 @@ test('native localImage input is admitted once, keeps visible text clean, and su
   const url = `http://127.0.0.1:${(app.server.address() as { port: number }).port}`;
   const id = randomUUID();
   try {
-    const response = await fetch(`${url}/api/messages`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id, input: '', images: [photo] }) });
-    assert.equal(response.status, 202);
+    await partner.submit(id, '', [photo]);
     await eventually(async () => ((await partner.snapshot()).results?.[0]?.answers.length ?? 0) > 0);
     const view = await partner.snapshot();
     assert.equal(view.messages[0]?.input, '');
@@ -50,9 +49,7 @@ test('invalid image bytes are rejected before native turn admission', async () =
   const url = `http://127.0.0.1:${(app.server.address() as { port: number }).port}`;
   try {
     for (const data of [Buffer.from('GIF89a').toString('base64'), 'not-base64!']) {
-      const response = await fetch(`${url}/api/messages`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: randomUUID(), input: '', images: [{ ...photo, data }] }) });
-      assert.equal(response.status, 422);
-      assert.equal((await response.json()).code, 'invalid_message');
+      await assert.rejects(partner.submit(randomUUID(), '', [{ ...photo, data }]));
     }
     assert.equal((await partner.snapshot()).messages.length, 0);
     assert.equal((await f.requests()).filter((request) => request.method === 'turn/start' || request.method === 'turn/steer').length, 0);

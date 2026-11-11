@@ -52,7 +52,7 @@ for (const status of ['failed', 'interrupted']) {
 }
 
 for (const beforeStarted of [false, true]) for (const stop of [false, true]) {
-  test(`messages queued ${beforeStarted ? 'before compact started notification' : 'during compact'} ${stop ? 'return to an editable draft on stop' : 'continue in order after completion'}`, async () => {
+  test(`messages rejected ${beforeStarted ? 'before compact started notification' : 'during compact'} are not automatically replayed ${stop ? 'after stop' : 'after completion'}`, async () => {
     const f = await fixture();
     f.appServer.env.FAKE_REJECT_STEER = 'true';
     f.appServer.env.FAKE_REJECT_STEER_KIND = 'compact';
@@ -64,9 +64,9 @@ for (const beforeStarted of [false, true]) for (const stop of [false, true]) {
       await partner.compact();
       if (beforeStarted) assert.deepEqual((await partner.snapshot()).cancellable, []);
       else await eventually(async () => (await partner.snapshot()).cancellable.length === 1);
-      await partner.submit(ids[0]!, 'first queued text');
-      await partner.submit(ids[1]!, '', [photo]);
-      assert.deepEqual((await partner.snapshot()).messages.map(message => message.delivery), ['queued', 'queued']);
+      await partner.submit(ids[0]!, 'first queued text').catch(error => assert.match(String(error), /steer|compact/i));
+      await partner.submit(ids[1]!, '', [photo]).catch(error => assert.match(String(error), /steer|compact/i));
+      assert.equal((await partner.snapshot()).messages.some(message => ids.some(id => id === message.id)), false);
       if (beforeStarted) {
         assert.equal((await f.requests()).some(request => request.method === 'turn/start' || request.method === 'turn/steer'), false);
         await f.holdCompaction(true);
@@ -76,22 +76,15 @@ for (const beforeStarted of [false, true]) for (const stop of [false, true]) {
         await partner.cancel((await partner.snapshot()).cancellable[0]!);
         const view = await partner.snapshot();
         assert.equal(view.lifecycle.latest?.status, 'failed');
-        assert.deepEqual(view.draft?.sourceIds, ids);
-        assert.equal(view.draft?.input, 'first queued text\n');
-        assert.equal(view.draft?.images[0]?.name, 'queued.png');
+        assert.equal('draft' in view, false);
         assert.equal((await f.requests()).filter(request => request.method === 'turn/start').length, 0);
       } else {
         await f.holdCompaction(false);
         await eventually(async () => (await partner.snapshot()).lifecycle.latest?.status === 'complete');
-        assert.equal((await partner.snapshot()).messages.some(message => message.delivery === 'unresolved'), false, 'successful compact must not restore queued messages as unresolved drafts');
-        await eventually(async () => (await partner.snapshot()).results?.some(result => result.answers.length > 0 && ids.every(id => result.sourceIds.includes(id))) === true);
         const view = await partner.snapshot();
-        assert.deepEqual(view.messages.map(message => message.delivery), ['acknowledged', 'acknowledged']);
-        assert.equal(view.messages[1]?.inputImages[0]?.name, 'queued.png');
-        assert.equal(view.draft, undefined);
+        assert.equal('draft' in view, false);
         const starts = (await f.requests()).filter(request => request.method === 'turn/start');
-        assert.equal(starts.length, 1);
-        assert.equal((starts[0]!.params as { clientUserMessageId: string }).clientUserMessageId, `merged:${ids.join(',')}`);
+        assert.equal(starts.length, 0);
       }
     } finally { await f.close(); }
   });

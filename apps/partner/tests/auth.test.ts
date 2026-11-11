@@ -128,9 +128,9 @@ for (const revocation of ['logout', 'recovery'] as const) test(`${revocation} pr
     let seen: (() => void) | undefined;
     const entered = new Promise<void>(resolve => { seen = resolve; });
     let entries = 0;
-    auth.authorize = req => { const result = originalAuthorize(req); if (result && ['/api/messages', '/api/cancel'].includes(req.url ?? '')) { entries++; if (entries === 2) seen!(); } return result; };
+    auth.authorize = req => { const result = originalAuthorize(req); if (result && req.url === '/api/cancel') { entries++; if (entries === 2) seen!(); } return result; };
     for (const [path, type, content] of [
-      ['/api/messages', 'application/json', JSON.stringify({ id: crypto.randomUUID(), input: 'delayed' })],
+      ['/api/cancel', 'application/json', JSON.stringify({ id: 'other-turn' })],
       ['/api/cancel', 'application/json', JSON.stringify({ id: 'turn' })],
     ]) {
       const req = request({ host: '127.0.0.1', port, path, method: 'POST', headers: { origin, cookie, 'content-type': type } });
@@ -162,11 +162,11 @@ test('serialized human admission rechecks authorization inside the store transac
   const id = crypto.randomUUID();
   let checks = 0;
   try {
-    await assert.rejects(partner.submit(id, 'never admitted', [], [], () => ++checks < 4), /Unauthorized/);
+    await assert.rejects(partner.submit(id, 'never admitted', [], () => ++checks < 4), /Unauthorized/);
     assert.equal(checks, 4);
     assert.equal((await partner.snapshot()).messages.some(message => message.id === id), false);
     const sharedId = crypto.randomUUID();
-    await assert.rejects(partner.submitShared({ operationId: sharedId, text: 'revoked socket' }, async () => true, () => false), /Unauthorized/);
+    await assert.rejects(partner.submitNativeDelivery({ operationId: sharedId, text: 'revoked socket' }, async () => true, () => false), /Unauthorized/);
     assert.equal((await partner.snapshot()).messages.some(message => message.id === sharedId), false);
     assert.equal((await f.requests()).some(request => request.method === 'turn/start'), false);
   } finally { await f.close(); }

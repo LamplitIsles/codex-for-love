@@ -111,7 +111,7 @@ for (const shared of [false, true]) {
     const h = await quietCompactionFixture('');
     try {
       const id = crypto.randomUUID();
-      const submission = shared ? h.partner.submitShared({ operationId: id, text: 'first queued text' }) : h.partner.submit(id, 'first queued text');
+      const submission = shared ? h.partner.submitNativeDelivery({ operationId: id, text: 'first queued text' }) : h.partner.submit(id, 'first queued text');
       const compact = h.partner.compact({ sessionId: 'fixture-session' });
       const results = await Promise.allSettled([submission, compact]);
       assert.equal(results[0]!.status, 'fulfilled');
@@ -129,8 +129,8 @@ for (const shared of [false, true]) {
 test('failed shared prerequisites and failed native admission release pending human markers', async () => {
   const h = await quietCompactionFixture('');
   try {
-    await assert.rejects(h.partner.submitShared({ operationId: '', text: 'invalid shared input' }));
-    await assert.rejects(h.partner.submitShared({ operationId: crypto.randomUUID(), text: 'invalid replacement', replacementSourceIds: ['not-owned'] }));
+    await assert.rejects(h.partner.submitNativeDelivery({ operationId: '', text: 'invalid shared input' }));
+    await assert.rejects(h.partner.submitNativeDelivery({ operationId: crypto.randomUUID(), text: 'invalid replacement', replacementSourceIds: ['not-owned'] } as never));
     await h.f.rejectStart(true);
     const submission = h.partner.submit(crypto.randomUUID(), 'failed human admission');
     assert.equal((await h.partner.compact({ sessionId: 'fixture-session' })).accepted, false);

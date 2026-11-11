@@ -16,7 +16,7 @@ for (let index = 0; index < process.execArgv.length; index++) {
   if (arg === '--import') imports.push(arg, process.execArgv[++index]!);
   else if (arg.startsWith('--import=')) imports.push(arg);
 }
-for (const boundary of ['directory', 'writing', 'publication', 'bound', 'removed'] as const) test(`private operation directory survives SIGKILL at ${boundary}`, { timeout: 45_000 }, async () => {
+for (const boundary of ['directory', 'writing', 'publication', 'bound'] as const) test(`private operation directory survives SIGKILL at ${boundary}`, { timeout: 45_000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'cfl-directory-crash-'));
   const operationId = crypto.randomUUID(), child = spawn(process.execPath, [...imports, childScript], { env: { ...process.env, CFL_FAKE_ROOT: root, CFL_FAKE_ID: operationId, CFL_FAKE_BOUNDARY: boundary }, stdio: ['ignore', 'ignore', 'pipe', 'ipc'] });
   let errors = ''; child.stderr!.on('data', chunk => { errors += String(chunk); });
@@ -35,18 +35,18 @@ for (const boundary of ['directory', 'writing', 'publication', 'bound', 'removed
         assert.deepEqual((await ops.status(operationId, owner))?.uploaded, ['f']);
         assert.equal((await ops.complete(operationId, owner, guard)).files[0]?.ref.size, 4);
       } else {
-        if (boundary === 'writing' || boundary === 'publication') {
-          const replacement = { sessionId: 'session', operationId: crypto.randomUUID(), files: [{ id: 'f', name: 'f', mediaType: '', size: 4 }] };
-          await ops.reserve(replacement, owner, guard);
-          await ops.receive(replacement.operationId, 'f', (async function* () { yield Buffer.from('data'); })(), owner, guard);
-          await ops.complete(replacement.operationId, owner, guard);
-          const staged = await store.stagedFiles(replacement.operationId, owner.ownerId, owner.sessionId);
-          assert.equal(await readFile(staged!.files[0]!.path, 'utf8'), 'data');
-        }
-        Date.now = () => realNow() + 25 * 60 * 60 * 1000;
+        const replacement = { sessionId: 'session', operationId: crypto.randomUUID(), files: [{ id: 'f', name: 'f', mediaType: '', size: 4 }] };
+        await ops.reserve(replacement, owner, guard);
+        await ops.receive(replacement.operationId, 'f', (async function* () { yield Buffer.from('data'); })(), owner, guard);
+        await ops.complete(replacement.operationId, owner, guard);
+        const staged = await store.stagedFiles(replacement.operationId, owner.ownerId, owner.sessionId);
+        assert.equal(await readFile(staged!.files[0]!.path, 'utf8'), 'data');
+        // Staging is never retired or deleted, so a later reservation is unaffected
+        // and the crashed operation keeps whatever it durably recorded.
+        const before = await ops.status(operationId, owner);
+        Date.now = () => realNow() + 30 * 24 * 60 * 60 * 1000;
         await ops.reserve({ sessionId: 'session', operationId: crypto.randomUUID(), files: [{ id: 'f', name: 'f', mediaType: '', size: 0 }] }, owner, guard);
-        await assert.rejects(ops.status(operationId, owner), /retired/);
-        assert.equal((await store.pendingFileRetirements()).length, 0);
+        assert.deepEqual(await ops.status(operationId, owner), before);
       }
     } finally { Date.now = realNow; await store.close(); }
   } finally { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); await rm(root, { recursive: true, force: true }); }

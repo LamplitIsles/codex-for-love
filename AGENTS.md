@@ -29,6 +29,27 @@ scratch and UI guides and browser matrices in App.
 
 Official Codex app-server owns execution, model history, queue, authentication and compaction. Keep one execution owner; remove obsolete naco/DSH paths. Docker, generic migration and deployment cutover are outside this implementation; the explicitly authorized one-time converter for a user-supplied, already-compacted DSH log is the narrow exception documented by its task spec.
 
+### Human message delivery model
+
+Design message delivery around three internal states: sending, accepted by Codex,
+and confirmed failed. Show an outgoing message immediately as a normal message;
+only confirmed failure needs a failure indicator and retry or discard action.
+CFL storing an input is not Codex acceptance. A lost response or timeout leaves
+the outcome unknown; reconcile it without assuming failure or replaying an
+unknown admission. A Codex queue acknowledgement alone does not prove that
+the input was durably accepted. If stopping a turn definitively removes a queued
+input before processing, treat that input as failed for retry or discard.
+
+The originating frontend owns failed messages and retries the same message;
+retain its local copy while needed to resolve delivery or until the user
+discards it. After a reload during attachment upload, requiring the user to
+select the original file again is acceptable. Do not add persistent CFL
+failed-draft or recovery records solely to support retry. For each CFL SQLite
+record, identify its necessary purpose, such as deduplication or data needed by
+an active execution, and avoid duplicating Codex-owned history or queue state.
+Treat this as the target model when changing delivery; existing behavior may
+differ.
+
 When an owner can browse a finite conversation-owned collection, Companion MCP must offer the Partner equivalent bounded discovery over the same membership. Material inspected with native tools must never be silently added to that collection.
 
 For host-local Partner installation, deployment, acceptance, or recovery, read

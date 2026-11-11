@@ -125,7 +125,7 @@ export async function textVoiceHost(assets: string, sentenceEvidence?: string) {
     else if (input.action === 'start') {
       if (native.active) throw new Error('Provider already held');
       const operationId = crypto.randomUUID();
-      await partner.submitShared({ operationId, text: 'Test-owned sentence acceptance input' });
+      await partner.submitNativeDelivery({ operationId, text: 'Test-owned sentence acceptance input' });
       await eventually(async () => {
         const current = await f.nativeState();
         return !!current.active && !!current.streamingItem && current.streamingItem !== native.streamingItem;

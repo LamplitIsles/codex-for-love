@@ -110,7 +110,7 @@ test('fake live completion invalidates the view and preserves missed-start UI be
     await eventually(async () => (await partner.snapshot()).results.some(result => result.turnId === turnId && result.revision > revision));
     const revised = (await backend.read()).messages.filter(message => message.id === uiId(turnId, 'missed-ui'));
     assert.equal(revised.length, 1); assert.deepEqual(uiValue(revised[0]), surface('revised'));
-    const steer = crypto.randomUUID(); await partner.submitShared({ operationId: steer, text: 'steer' });
+    const steer = crypto.randomUUID(); await partner.submitNativeDelivery({ operationId: steer, text: 'steer' });
     await eventually(async () => await f.consumed(steer));
     await eventually(async () => (await partner.snapshot()).results.some(result => result.sourceIds.includes(steer)));
     const live = await allMessages(backend);

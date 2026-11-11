@@ -14,7 +14,7 @@ test('reservation and completion reject standalone durable submission identities
   const filePath = (manifest: FileManifest) => `/private/.file-operations/${key(manifest)}/p0-${'a'.repeat(64)}.file`;
   let store = new Store(path);
   try {
-    const collisionAtReserve = [make(), make()], collisionAtComplete = [make(), make()], mixed = make();
+    const collisionAtReserve = [make()], collisionAtComplete = [make()], mixed = make();
     for (const manifest of collisionAtComplete) {
       await store.reserveFiles(manifest, 'owner', key(manifest));
       await store.recordFileUpload(manifest, 'owner', 'file', { digest: 'a'.repeat(64), path: filePath(manifest), attachmentId: 'b'.repeat(64) });
@@ -25,12 +25,7 @@ test('reservation and completion reject standalone durable submission identities
     await store.close();
     const db = new DatabaseSync(path);
     try {
-      for (const [index, table] of ['shared_submissions', 'deleted_failures'].entries()) {
-        for (const manifest of [collisionAtReserve[index]!, collisionAtComplete[index]!]) {
-          if (table === 'shared_submissions') db.prepare('INSERT INTO shared_submissions VALUES(?,?,?)').run(manifest.operationId, 'session', 'fingerprint');
-          else db.prepare('INSERT INTO deleted_failures VALUES(?)').run(manifest.operationId);
-        }
-      }
+      for (const manifest of [...collisionAtReserve, ...collisionAtComplete]) db.prepare('INSERT INTO shared_submissions VALUES(?,?,?)').run(manifest.operationId, 'session', 'fingerprint');
     } finally { db.close(); }
     store = new Store(path);
     const payload = (manifest: FileManifest): StagedFiles => ({ files: [{ id: 'b'.repeat(64), operation_id: manifest.operationId, owner_id: 'owner', session_id: 'session', position: 0, name: 'file', media_type: '', size: 0, path: filePath(manifest) }], refs: [{ attachmentId: 'b'.repeat(64), name: 'file', mediaType: '', size: 0, availability: 'available' }] });

@@ -9,8 +9,7 @@ import { createChatSocket } from './chat.ts';
 import { sendWorkspaceMedia } from './workspace-media-http.ts';
 import { createVoiceHost, type VoiceDependencies } from './voice.ts';
 import { VOICE_CAPABILITY_PATH, VOICE_STREAM_PATH } from '@lamplit/contracts/voice';
-import { MAX_MESSAGE_LENGTH } from "./message-input.ts";
-import { InvalidImageInput, imageInputSchema, messageBodyLimit } from './images.ts';
+import { InvalidImageInput } from './images.ts';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { extname } from 'node:path';
 import { processLog } from './logging.ts';
@@ -534,14 +533,6 @@ export function createWebServer(partner: Partner, assets: string, options: { aut
         const metadata = asset.manifest.clips[activity as typeof PET_ACTIVITIES[number]];
         response.writeHead(200, { 'content-type': 'image/webp', 'cache-control': 'no-store', 'x-pet-frame-count': String(metadata.frameCount), 'x-pet-fps': String(metadata.fps), 'x-pet-loop': String(metadata.loop) });
         response.end(asset.data); return;
-      }
-      if (path === '/api/messages' && request.method === 'POST') {
-        const parsed = z.object({ id: z.uuid(), input: z.string().trim().max(MAX_MESSAGE_LENGTH), images: z.array(imageInputSchema).max(5).default([]), replaces: z.array(z.uuid()).max(20).default([]) }).strict().refine(value => value.input.length > 0 || value.images.length > 0).safeParse(await body(request, messageBodyLimit));
-        if (!parsed.success) return json(response, { error: '消息内容无效，请检查文字长度和图片后重新发送。', code: 'invalid_message' }, 422);
-        if (!stillAuthorized(request)) return unauthorized();
-        const { id, input, images, replaces } = parsed.data;
-        await partner.submit(id, input, images, replaces, () => stillAuthorized(request));
-        return humanJson({ id }, 202);
       }
       if (path === '/api/compact' && request.method === 'POST') {
         const { sessionId } = await partner.snapshot();

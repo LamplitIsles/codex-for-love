@@ -87,7 +87,7 @@ test('a rejected one-shot start retries when Codex becomes available', async () 
     const partner = await f.createPartner({ now: () => clock });
     await eventually(async () => (await f.requests()).some(request => request.method === 'turn/start'));
     await partner.checkAlarms();
-    assert.equal((await partner.snapshot()).draft, undefined);
+    assert.equal('draft' in await partner.snapshot(), false);
     await f.rejectStart(false);
     await partner.checkAlarms();
     await eventually(async () => (await partner.snapshot()).results?.some(result => result.answers.length > 0) === true);
@@ -107,14 +107,14 @@ test('an ambiguous one-shot start waits for restart reconciliation and never bec
     const alarm = createAlarm(partnerPaths(f.workspace).alarms, 'Resume the picnic reminder', { kind: 'once', at: '2026-09-30T09:00:00+08:00' }, clock - 2 * 60 * 60_000);
     partner = await f.createPartner({ now: () => clock });
     await eventually(async () => (await partner!.snapshot()).messages.some(message => message.id === `alarm:${alarm.id}:${alarm.nextAt}` && message.delivery === 'unresolved'));
-    assert.equal((await partner.snapshot()).draft, undefined);
+    assert.equal('draft' in await partner.snapshot(), false);
     await partner.checkAlarms();
     assert.equal((await f.requests()).filter(request => request.method === 'turn/start').length, 1);
     await partner.close();
     f.appServer.env!.FAKE_HOLD_METHOD = '';
     partner = await f.createPartner({ now: () => clock });
     await eventually(async () => (await partner!.snapshot()).results?.some(result => result.sourceIds.includes(`alarm:${alarm.id}:${alarm.nextAt}`) && result.answers.length > 0) === true);
-    assert.equal((await partner.snapshot()).draft, undefined);
+    assert.equal('draft' in await partner.snapshot(), false);
     assert.equal((await f.requests()).filter(request => request.method === 'turn/start').length, 2);
     assert.equal(listAlarms(partnerPaths(f.workspace).alarms).length, 0);
   } finally { await f.close(); }

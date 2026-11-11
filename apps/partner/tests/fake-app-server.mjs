@@ -56,7 +56,7 @@ function threadRecord(cwd, model) {
     ephemeral: false,
     model: model ?? null,
     modelProvider: 'fixture',
-    historyMode: 'paginated',
+    historyMode: process.env.FAKE_HISTORY_MODE ?? 'paginated',
     preview: '',
     projectId: null,
     sessionId: 'session-fake',
@@ -420,6 +420,11 @@ async function handle(request) {
       }
       return { thread: threadRecord(p.cwd, p.model), model: p.model, modelProvider: 'fixture', serviceTier: selectTier(p), cwd: p.cwd, runtimeWorkspaceRoots: [], instructionSources: [], approvalPolicy: 'never', approvalsReviewer: 'user', sandbox: { type: 'dangerFullAccess' }, activePermissionProfile: null, reasoningEffort: null, multiAgentMode: 'explicitRequestOnly' };
     }
+    case 'thread/read': {
+      const hidden = control().hiddenHistoryClientIds ?? [];
+      const turns = state.turns.map(turn => ({ ...turnView(turn, 'full'), items: turn.items.filter(item => !hidden.includes(item.clientId)) }));
+      return { thread: { ...threadRecord(process.cwd()), ...(control().historyReadWrongThread ? { id: 'wrong-thread' } : {}), turns } };
+    }
     case 'thread/turns/list': {
       if (process.env.FAKE_HISTORY_ERROR) {
         const error = new Error(process.env.FAKE_HISTORY_ERROR);
@@ -430,8 +435,13 @@ async function handle(request) {
       return page(turns, p);
     }
     case 'thread/items/list': {
+      if (control().historyItemsError) rpcError(-32603, 'fixture history read failure');
+      if (control().historyItemsEmptyPage) return { data: [], nextCursor: '1', backwardsCursor: null };
+      if (control().historyItemsRepeatedCursor) return { data: [{ turnId: 'cursor-turn', item: userItem([{ type: 'text', text: 'unrelated' }], 'unrelated') }], nextCursor: '1', backwardsCursor: null };
       const turns = p.turnId ? state.turns.filter((turn) => turn.id === p.turnId) : state.turns;
-      const items = turns.flatMap((turn) => turn.items.map((item) => ({ turnId: turn.id, item })));
+      const hidden = control().hiddenHistoryClientIds ?? [];
+      const overrides = control().historyContentOverrides ?? {};
+      const items = turns.flatMap((turn) => turn.items.filter(item => !hidden.includes(item.clientId)).map((item) => ({ turnId: turn.id, item: Object.hasOwn(overrides, item.clientId) ? { ...item, content: overrides[item.clientId] } : item })));
       return page(items, p);
     }
     case 'turn/start': {

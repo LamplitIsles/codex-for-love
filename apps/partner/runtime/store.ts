@@ -13,6 +13,7 @@ import type { CompactBoundary, ContextObservation } from './continuity.ts';
 /** UI/domain metadata only. Official Codex owns the conversation transcript. */
 export type MessageMeta = { id: string; created: number; sequence: number; revision: number };
 export type PendingMessage = MessageMeta & { input: string };
+export type DeliveryAttempt = { attempt: number; state: 'unknown' | 'failed' | 'accepted' };
 export type StoredInput = { input: string; images: StoredImage[] };
 /** Non-body ownership metadata for an acknowledged source input. */
 export type StoredInputSegment = {
@@ -34,7 +35,6 @@ export type StagedFiles = { files: StoredFile[]; refs: FileRef[] };
 export type FileManifest = { sessionId: string; operationId: string; files: Array<{ id: string; name: string; mediaType: string; size: number }> };
 export type FileReservationRow = { file_id: string; position: number; digest: string | null; path: string | null; attachment_id: string | null };
 export type FileReservation = { manifest: FileManifest; status: 'uploading' | 'complete'; dirKey: string; files: FileReservationRow[]; staged?: StagedFiles };
-export type RetirementCandidate = { ownerId: string; sessionId: string; reservation: FileReservation };
 export class FileOperationRetired extends Error {
   constructor() { super('File operation retired; start a new attempt explicitly.'); }
 }
@@ -84,7 +84,6 @@ export class Store {
   private readonly db: DatabaseSync;
   private writes: Promise<unknown> = Promise.resolve();
   private closed = false;
-  private fileExpiryCursor = 0;
 
   constructor(path: string) {
     this.db = new DatabaseSync(path);
@@ -106,7 +105,6 @@ export class Store {
           dir_key TEXT NOT NULL CHECK(length(dir_key) = 32 AND dir_key NOT GLOB '*[^0-9a-f]*')
         );
         CREATE INDEX IF NOT EXISTS file_upload_operations_scope ON file_upload_operations(owner_id,session_id,status);
-        CREATE INDEX IF NOT EXISTS file_upload_operations_expiry ON file_upload_operations(status,updated_at);
         CREATE TABLE IF NOT EXISTS file_upload_files (
           operation_id TEXT NOT NULL REFERENCES file_upload_operations(operation_id) ON DELETE CASCADE,
           file_id TEXT NOT NULL,
@@ -133,11 +131,12 @@ export class Store {
           state TEXT NOT NULL CHECK(state IN ('cleanup_pending','retired')),
           retired_at INTEGER NOT NULL CHECK(retired_at >= 0)
         );
-        CREATE INDEX IF NOT EXISTS file_upload_retirements_pending ON file_upload_retirements(state,retired_at);
-        CREATE TABLE IF NOT EXISTS failed_submissions (operation_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, fingerprint TEXT NOT NULL, payload TEXT NOT NULL, error TEXT NOT NULL, replaced_by TEXT);
-        CREATE TABLE IF NOT EXISTS deleted_failures (operation_id TEXT PRIMARY KEY);
-        CREATE TABLE IF NOT EXISTS retry_attempts (attempt_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, source_id TEXT NOT NULL, payload TEXT);
         CREATE TABLE IF NOT EXISTS shared_submissions (operation_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, fingerprint TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS delivery_attempts (
+          operation_id TEXT PRIMARY KEY REFERENCES shared_submissions(operation_id),
+          attempt INTEGER NOT NULL CHECK(attempt BETWEEN 1 AND 9007199254740991),
+          state TEXT NOT NULL CHECK(state IN ('unknown','failed','accepted'))
+        );
         CREATE TABLE IF NOT EXISTS rejected_inputs (message_id TEXT PRIMARY KEY, error TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS chat_completed_items (turn_id TEXT NOT NULL, item_id TEXT PRIMARY KEY);
         CREATE TABLE IF NOT EXISTS chat_timeline_slots (
@@ -377,8 +376,9 @@ export class Store {
     return this.transaction(() => Number((this.db.prepare('SELECT COALESCE(MAX(revision), 0) AS value FROM message_revisions').get() as { value: number }).value));
   }
 
-  async admit(id: string, input: string, images: readonly StoredImage[] = [], shared?: { sessionId: string; input: Submission }, authorize?: () => Promise<void>, beforeCommit?: () => void, fileScope?: { ownerId: string; sessionId: string; files: StoredFile[] }): Promise<MessageMeta> {
+  async admit(id: string, input: string, images: readonly StoredImage[] = [], shared?: { sessionId: string; input: Submission }, authorize?: () => Promise<void>, beforeCommit?: () => void, fileScope?: { ownerId: string; sessionId: string; files: StoredFile[] }, nativeDelivery = false): Promise<MessageMeta> {
     return this.transaction(async () => {
+      if (nativeDelivery && !shared) throw new Error('Native delivery requires a shared identity');
       this.assertNotRetired(id);
       this.assertPathsNotRetired(fileScope?.files ?? []);
       this.assertPathsNotRetired(images);
@@ -386,9 +386,6 @@ export class Store {
       if (authorize) await authorize();
       const reservedFiles = this.db.prepare('SELECT owner_id,session_id,status FROM file_upload_operations WHERE operation_id=?').get(id) as { owner_id: string; session_id: string; status: string } | undefined;
       if (reservedFiles && (reservedFiles.status !== 'complete' || !fileScope || fileScope.ownerId !== reservedFiles.owner_id || fileScope.sessionId !== reservedFiles.session_id)) throw identityConflict();
-      if (this.db.prepare('SELECT 1 FROM failed_submissions WHERE operation_id=?').get(id)) throw identityConflict();
-      const retry = this.db.prepare('SELECT session_id,payload FROM retry_attempts WHERE attempt_id=?').get(id) as { session_id: string; payload: string | null } | undefined;
-      if (retry && (!shared || retry.session_id !== shared.sessionId || retry.payload !== JSON.stringify(shared.input))) throw identityConflict();
       const fingerprint = createHash('sha256').update(JSON.stringify([input, images.map((image) => image.id).sort()])).digest('hex');
       const existing = this.db.prepare('SELECT sequence,id,created,fingerprint FROM message_meta WHERE id=?').get(id) as { sequence: number; id: string; created: number; fingerprint: string | null } | undefined;
       if (existing) {
@@ -411,23 +408,19 @@ export class Store {
         } else if (row || shared.input.files?.length) throw identityConflict();
       }
       if (shared) {
-        for (const sourceId of shared.input.replacementSourceIds ?? []) {
-          if (this.db.prepare('SELECT 1 FROM deleted_failures WHERE operation_id=?').get(sourceId)) throw new Error('Replacement source is not eligible');
-          if ((!this.db.prepare('SELECT 1 FROM pending_inputs p JOIN rejected_inputs r ON r.message_id=p.message_id WHERE p.message_id=?').get(sourceId)
-            || this.db.prepare("SELECT 1 FROM message_outcomes WHERE message_id=? AND status='replaced'").get(sourceId))
-            && !this.db.prepare('SELECT 1 FROM failed_submissions WHERE operation_id=? AND replaced_by IS NULL AND operation_id NOT IN (SELECT operation_id FROM deleted_failures)').get(sourceId)) throw new Error('Replacement source is not eligible');
-        }
-        this.db.prepare('INSERT INTO shared_submissions(operation_id,session_id,fingerprint) VALUES(?,?,?)').run(id, shared.sessionId, createHash('sha256').update(JSON.stringify(shared.input)).digest('hex'));
-        for (const sourceId of shared.input.replacementSourceIds ?? []) {
-          if (this.db.prepare('UPDATE failed_submissions SET replaced_by=? WHERE operation_id=? AND replaced_by IS NULL').run(id, sourceId).changes) continue;
-          this.db.prepare("INSERT INTO message_outcomes(message_id,status,error) VALUES(?,'replaced','replaced') ON CONFLICT(message_id) DO UPDATE SET status='replaced',error='replaced'").run(sourceId);
-          this.db.prepare('DELETE FROM pending_inputs WHERE message_id=?').run(sourceId);
-          this.addRevision(sourceId);
+        const sharedFingerprint = createHash('sha256').update(JSON.stringify(shared.input)).digest('hex');
+        const reserved = this.db.prepare('SELECT session_id,fingerprint FROM shared_submissions WHERE operation_id=?').get(id) as { session_id: string; fingerprint: string } | undefined;
+        if (reserved) {
+          const attempt = this.db.prepare('SELECT state FROM delivery_attempts WHERE operation_id=?').get(id) as { state: string } | undefined;
+          if (!nativeDelivery || reserved.session_id !== shared.sessionId || reserved.fingerprint !== sharedFingerprint || attempt?.state !== 'unknown') throw identityConflict();
+        } else {
+          this.db.prepare('INSERT INTO shared_submissions(operation_id,session_id,fingerprint) VALUES(?,?,?)').run(id, shared.sessionId, sharedFingerprint);
+          if (nativeDelivery) this.db.prepare("INSERT INTO delivery_attempts(operation_id,attempt,state) VALUES(?,1,'unknown')").run(id);
         }
       }
       const created = Date.now();
       this.db.prepare('INSERT INTO message_meta(id,created,fingerprint) VALUES(?,?,?)').run(id, created, fingerprint);
-      this.db.prepare('INSERT INTO pending_inputs(message_id,input) VALUES(?,?)').run(id, input);
+      if (!nativeDelivery) this.db.prepare('INSERT INTO pending_inputs(message_id,input) VALUES(?,?)').run(id, input);
       for (const image of images) {
         this.db.prepare('INSERT INTO input_images(id,operation_id,name,media_type,path) VALUES(?,?,?,?,?)')
           .run(image.id, id, image.name, image.media_type, image.path);
@@ -453,13 +446,10 @@ export class Store {
     return this.transaction(() => this.reservation(operationId, ownerId, sessionId));
   }
   private fileOperationIdentityTaken(id: string): boolean {
-    return !!this.db.prepare('SELECT 1 FROM staged_files WHERE operation_id=? UNION ALL SELECT 1 FROM message_meta WHERE id=? UNION ALL SELECT 1 FROM failed_submissions WHERE operation_id=? UNION ALL SELECT 1 FROM retry_attempts WHERE attempt_id=? UNION ALL SELECT 1 FROM shared_submissions WHERE operation_id=? UNION ALL SELECT 1 FROM deleted_failures WHERE operation_id=? UNION ALL SELECT 1 FROM file_upload_retirements WHERE operation_id=? LIMIT 1').get(id, id, id, id, id, id, id);
+    return !!this.db.prepare('SELECT 1 FROM staged_files WHERE operation_id=? UNION ALL SELECT 1 FROM message_meta WHERE id=? UNION ALL SELECT 1 FROM shared_submissions WHERE operation_id=? UNION ALL SELECT 1 FROM file_upload_retirements WHERE operation_id=? LIMIT 1').get(id, id, id, id);
   }
   private assertNotRetired(id: string): void {
     if (this.db.prepare('SELECT 1 FROM file_upload_retirements WHERE operation_id=?').get(id)) throw identityConflict();
-  }
-  private assertCompleteUpload(id: string): void {
-    if (this.db.prepare("SELECT 1 FROM file_upload_operations WHERE operation_id=? AND status<>'complete'").get(id)) throw identityConflict();
   }
   private assertPathsNotRetired(files: readonly { path: string }[]): void {
     for (const file of files) {
@@ -469,37 +459,6 @@ export class Store {
       const row = this.db.prepare('SELECT f.path,r.operation_id AS retired FROM file_upload_operations o LEFT JOIN file_upload_retirements r ON r.operation_id=o.operation_id LEFT JOIN file_upload_files f ON f.operation_id=o.operation_id AND f.path=? WHERE o.dir_key=?').get(path,key) as { path: string | null; retired: string | null } | undefined;
       if (!row?.path || row.retired) throw identityConflict();
     }
-  }
-  private imagesReferencePaths(paths: ReadonlySet<string>, dirKey: string): boolean {
-    const matches = (path: string) => paths.has(resolve(path)) || fileDirectoryKey(path) === dirKey;
-    for (const row of this.db.prepare('SELECT path FROM input_images').iterate() as Iterable<{ path: string }>) if (matches(row.path)) return true;
-    for (const row of this.db.prepare('SELECT payload FROM staged_images').iterate() as Iterable<{ payload: string }>) {
-      const staged = JSON.parse(row.payload) as StagedImages;
-      if (!Array.isArray(staged.images) || !Array.isArray(staged.variants)) return true;
-      for (const image of staged.images) if (typeof image.path !== 'string' || matches(image.path)) return true;
-      for (const variant of staged.variants) {
-        if (!variant || typeof variant !== 'object') return true;
-        if ('previewPath' in variant || 'modelPath' in variant) {
-          if (!('previewPath' in variant) || !('modelPath' in variant) || typeof variant.previewPath !== 'string' || typeof variant.modelPath !== 'string' || matches(variant.previewPath) || matches(variant.modelPath)) return true;
-        }
-      }
-    }
-    return false;
-  }
-  // Quota is for unadmitted uploads. A retry may give the same paths new IDs.
-  private filesInHistory(source: { operation_id: string; owner_id: string; session_id: string; status: string; dir_key: string; manifest: string }): boolean {
-    try {
-      if (source.status !== 'complete' || this.db.prepare('SELECT 1 FROM file_upload_retirements WHERE operation_id=?').get(source.operation_id)) return false;
-      const manifest = JSON.parse(source.manifest) as FileManifest;
-      const files = this.db.prepare('SELECT file_id,position,name,media_type,size,digest,path,attachment_id,uploaded_at FROM file_upload_files WHERE operation_id=? ORDER BY position').all(source.operation_id) as Array<{ file_id: string; position: number; name: string; media_type: string; size: number; digest: string | null; path: string | null; attachment_id: string | null; uploaded_at: number | null }>;
-      if (manifest.operationId !== source.operation_id || manifest.sessionId !== source.session_id || !Array.isArray(manifest.files) || !files.length || files.length > 6 || manifest.files.length !== files.length) return false;
-      const shared = this.db.prepare('SELECT 1 FROM input_files i JOIN message_meta m ON m.id=i.operation_id JOIN shared_submissions s ON s.operation_id=i.operation_id AND s.session_id=i.session_id WHERE i.owner_id=? AND i.session_id=? AND i.position=? AND i.path=? AND i.name=? AND i.media_type=? AND i.size=? LIMIT 1');
-      return files.every((file, index) => {
-        const entry = manifest.files[index];
-        if (!entry || file.file_id !== entry.id || file.position !== index || file.name !== JSON.stringify(entry.name) || file.media_type !== JSON.stringify(entry.mediaType) || file.size !== entry.size || !file.path || !file.digest || !file.attachment_id || file.uploaded_at === null || fileDirectoryKey(file.path) !== source.dir_key || basename(file.path) !== `p${index}-${file.digest}.file`) return false;
-        return !!shared.get(source.owner_id,source.session_id,index,file.path,file.name,file.media_type,file.size);
-      });
-    } catch { return false; }
   }
   async reserveFiles(manifest: FileManifest, ownerId: string, dirKey: string, beforeCommit?: () => void): Promise<FileReservation> {
     return this.transaction(() => {
@@ -511,14 +470,6 @@ export class Store {
       }
       if (this.db.prepare('SELECT 1 FROM file_upload_operations WHERE operation_id=? UNION ALL SELECT 1 FROM file_upload_retirements WHERE operation_id=?').get(manifest.operationId, manifest.operationId)) throw new FileOperationNotFound();
       if (this.fileOperationIdentityTaken(manifest.operationId)) throw identityConflict();
-      // Retirements retain their reservation charge until cleanup is durable.
-      // Direct shared admission commits the message and its input files atomically.
-      const charged = this.db.prepare("SELECT o.operation_id,o.owner_id,o.session_id,o.status,o.dir_key,o.manifest,(SELECT COALESCE(sum(size),0) FROM file_upload_files f WHERE f.operation_id=o.operation_id) AS bytes FROM file_upload_operations o WHERE NOT EXISTS (SELECT 1 FROM file_upload_retirements r WHERE r.operation_id=o.operation_id AND r.state='retired') AND NOT (o.status='complete' AND NOT EXISTS (SELECT 1 FROM file_upload_retirements r WHERE r.operation_id=o.operation_id) AND EXISTS (SELECT 1 FROM shared_submissions s JOIN message_meta m ON m.id=s.operation_id WHERE s.operation_id=o.operation_id AND s.session_id=o.session_id))").iterate() as Iterable<{ operation_id: string; owner_id: string; session_id: string; status: string; dir_key: string; manifest: string; bytes: number }>;
-      let count = 0, bytes = manifest.files.reduce((sum, file) => sum + file.size, 0);
-      for (const row of charged) if (!this.filesInHistory(row)) {
-        count++; bytes += row.bytes;
-        if (count >= 16 || bytes > 800_000_000) throw new Error('File reservation quota exceeded');
-      }
       const now = Date.now();
       this.db.prepare("INSERT INTO file_upload_operations(operation_id,owner_id,session_id,manifest,status,created_at,updated_at,dir_key) VALUES(?,?,?,?, 'uploading',?,?,?)").run(manifest.operationId, ownerId, manifest.sessionId, JSON.stringify(manifest), now, now, dirKey);
       const insert = this.db.prepare('INSERT INTO file_upload_files(operation_id,file_id,position,name,media_type,size) VALUES(?,?,?,?,?,?)');
@@ -561,94 +512,6 @@ export class Store {
   async hasFileDirectoryKey(key: string): Promise<boolean> {
     return this.transaction(() => !!this.db.prepare('SELECT 1 FROM file_upload_operations WHERE dir_key=?').get(key));
   }
-  async expiredFileReservations(cutoff: number): Promise<RetirementCandidate[]> {
-    return this.transaction(() => {
-      const candidates: RetirementCandidate[] = [];
-      const query = this.db.prepare(`SELECT o.rowid AS scan_id,o.operation_id,o.owner_id,o.session_id FROM file_upload_operations o
-        WHERE o.rowid>? AND o.updated_at<?
-          AND NOT EXISTS (SELECT 1 FROM file_upload_retirements WHERE operation_id=o.operation_id)
-          AND NOT EXISTS (SELECT 1 FROM message_meta WHERE id=o.operation_id)
-          AND NOT EXISTS (SELECT 1 FROM shared_submissions WHERE operation_id=o.operation_id)
-          AND NOT EXISTS (SELECT 1 FROM pending_inputs WHERE message_id=o.operation_id)
-          AND NOT EXISTS (SELECT 1 FROM input_files WHERE operation_id=o.operation_id)
-          AND NOT EXISTS (SELECT 1 FROM failed_submissions WHERE operation_id=o.operation_id)
-          AND NOT EXISTS (SELECT 1 FROM deleted_failures WHERE operation_id=o.operation_id)
-          AND NOT EXISTS (SELECT 1 FROM retry_attempts WHERE attempt_id=o.operation_id OR source_id=o.operation_id)
-        ORDER BY o.rowid LIMIT 32`);
-      let rows = query.all(this.fileExpiryCursor, cutoff) as Array<{ scan_id: number; operation_id: string; owner_id: string; session_id: string }>;
-      if (!rows.length && this.fileExpiryCursor) rows = query.all(0, cutoff) as typeof rows;
-      this.fileExpiryCursor = rows.length ? rows[rows.length - 1]!.scan_id : 0;
-      for (const row of rows) try {
-        const reservation = this.reservation(row.operation_id, row.owner_id, row.session_id);
-        if (reservation && this.retirementUnreferenced(row.operation_id, reservation.dirKey)) candidates.push({ ownerId: row.owner_id, sessionId: row.session_id, reservation });
-      } catch { /* retain uncertain data */ }
-      return candidates;
-    });
-  }
-  private retirementUnreferenced(id: string, key: string): boolean {
-    if (this.db.prepare('SELECT 1 FROM message_meta WHERE id=? UNION ALL SELECT 1 FROM shared_submissions WHERE operation_id=? UNION ALL SELECT 1 FROM pending_inputs WHERE message_id=? UNION ALL SELECT 1 FROM input_files WHERE operation_id=? UNION ALL SELECT 1 FROM failed_submissions WHERE operation_id=? UNION ALL SELECT 1 FROM deleted_failures WHERE operation_id=? UNION ALL SELECT 1 FROM retry_attempts WHERE attempt_id=? OR source_id=? LIMIT 1').get(id,id,id,id,id,id,id,id)) return false;
-    const own = this.db.prepare('SELECT path,attachment_id FROM file_upload_files WHERE operation_id=?').all(id) as Array<{ path: string | null; attachment_id: string | null }>;
-    const paths = new Set(own.flatMap(file => file.path ? [resolve(file.path)] : []));
-    const ids = own.flatMap(file => file.attachment_id ? [file.attachment_id] : []);
-    const matches = (path: string) => paths.has(resolve(path)) || fileDirectoryKey(path) === key;
-    if (this.imagesReferencePaths(paths, key)) return false;
-    for (const row of this.db.prepare('SELECT path FROM input_files UNION ALL SELECT path FROM file_upload_files WHERE path IS NOT NULL AND operation_id<>?').iterate(id) as Iterable<{ path: string }>) if (matches(row.path)) return false;
-    for (const row of this.db.prepare('SELECT payload FROM staged_files WHERE operation_id<>?').iterate(id) as Iterable<{ payload: string }>) {
-      const staged = JSON.parse(row.payload) as StagedFiles;
-      if (!Array.isArray(staged.files) || !Array.isArray(staged.refs)) return false;
-      if (staged.files.some(file => matches(file.path) || ids.includes(file.id)) || staged.refs.some(ref => ids.includes(ref.attachmentId))) return false;
-    }
-    for (const row of this.db.prepare('SELECT payload FROM failed_submissions').iterate() as Iterable<{ payload: string }>) {
-      const failure = JSON.parse(row.payload) as Submission;
-      if (failure.replacementSourceIds && (!Array.isArray(failure.replacementSourceIds) || failure.replacementSourceIds.includes(id))) return false;
-      if (failure.files && (!Array.isArray(failure.files) || failure.files.some(file => ids.includes(file.attachmentId)))) return false;
-    }
-    return true;
-  }
-  async beginFileRetirement(candidate: RetirementCandidate, cutoff: number): Promise<boolean> {
-    return this.transaction(() => {
-      const id = candidate.reservation.manifest.operationId;
-      const row = this.db.prepare('SELECT updated_at FROM file_upload_operations WHERE operation_id=? AND owner_id=? AND session_id=?').get(id,candidate.ownerId,candidate.sessionId) as { updated_at: number } | undefined;
-      if (!row || row.updated_at >= cutoff || JSON.stringify(this.reservation(id,candidate.ownerId,candidate.sessionId)) !== JSON.stringify(candidate.reservation)) return false;
-      const own = this.db.prepare('SELECT payload FROM staged_files WHERE operation_id=?').get(id) as { payload: string } | undefined;
-      if (candidate.reservation.status === 'uploading' ? !!own : !own || JSON.stringify(JSON.parse(own.payload)) !== JSON.stringify(candidate.reservation.staged)) return false;
-      const uploaded = candidate.reservation.files.filter(file => file.path !== null);
-      if (uploaded.some(file => !file.digest || !file.attachment_id || fileDirectoryKey(file.path!) !== candidate.reservation.dirKey || basename(file.path!) !== `p${file.position}-${file.digest}.file`)) return false;
-      if (candidate.reservation.staged && (candidate.reservation.staged.files.length !== uploaded.length || candidate.reservation.staged.refs.length !== uploaded.length || candidate.reservation.staged.files.some((file, index) => {
-        const row = uploaded[index], entry = candidate.reservation.manifest.files[index], ref = candidate.reservation.staged!.refs[index];
-        return !row || !entry || !ref || file.path !== row.path || file.id !== row.attachment_id || file.operation_id !== id || file.owner_id !== candidate.ownerId || file.session_id !== candidate.sessionId || file.position !== index || file.name !== entry.name || file.media_type !== entry.mediaType || file.size !== entry.size || ref.attachmentId !== file.id || ref.name !== file.name || ref.mediaType !== file.media_type || ref.size !== file.size || ref.availability !== 'available';
-      }))) return false;
-      if (!this.retirementUnreferenced(id,candidate.reservation.dirKey)) return false;
-      this.db.prepare('INSERT INTO file_upload_retirements(operation_id,owner_id,session_id,reason,state,retired_at) VALUES(?,?,?,?,?,?)').run(id,candidate.ownerId,candidate.sessionId,candidate.reservation.status === 'complete' ? 'abandoned_complete' : 'expired_uploading','cleanup_pending',Date.now());
-      this.db.prepare('DELETE FROM staged_files WHERE operation_id=?').run(id);
-      return true;
-    });
-  }
-  async pendingFileRetirements(): Promise<Array<{ operationId: string; dirKey: string }>> {
-    return this.transaction(() => (this.db.prepare("SELECT r.operation_id,o.dir_key FROM file_upload_retirements r JOIN file_upload_operations o ON o.operation_id=r.operation_id WHERE r.state='cleanup_pending' ORDER BY r.retired_at LIMIT 32").all() as Array<{ operation_id: string; dir_key: string }>).map(row => ({ operationId: row.operation_id, dirKey: row.dir_key })));
-  }
-  async retirementSafe(id: string, key: string): Promise<boolean> {
-    return this.transaction(() => !!this.db.prepare("SELECT 1 FROM file_upload_operations o JOIN file_upload_retirements r ON r.operation_id=o.operation_id WHERE o.operation_id=? AND o.dir_key=? AND r.state='cleanup_pending'").get(id,key) && this.retirementUnreferenced(id,key));
-  }
-  async retirementBoundFiles(id: string, key: string): Promise<StoredFile[] | undefined> {
-    return this.transaction(() => {
-      const op = this.db.prepare("SELECT o.owner_id,o.session_id,o.manifest FROM file_upload_operations o JOIN file_upload_retirements r ON r.operation_id=o.operation_id WHERE o.operation_id=? AND o.dir_key=? AND r.state='cleanup_pending'").get(id,key) as { owner_id: string; session_id: string; manifest: string } | undefined;
-      if (!op || !this.retirementUnreferenced(id,key)) return undefined;
-      const manifest = JSON.parse(op.manifest) as FileManifest;
-      const rows = this.db.prepare('SELECT position,digest,path,attachment_id FROM file_upload_files WHERE operation_id=? AND path IS NOT NULL ORDER BY position').all(id) as Array<{ position: number; digest: string; path: string; attachment_id: string }>;
-      return rows.map(row => {
-        const entry = manifest.files[row.position];
-        if (!entry || fileDirectoryKey(row.path) !== key || basename(row.path) !== `p${row.position}-${row.digest}.file`) throw identityConflict();
-        return { id: row.attachment_id, operation_id: id, owner_id: op.owner_id, session_id: op.session_id, position: row.position, name: entry.name, media_type: entry.mediaType, size: entry.size, path: row.path };
-      });
-    });
-  }
-  async finishFileRetirement(id: string, key: string): Promise<void> {
-    await this.transaction(() => {
-      if (!this.db.prepare("SELECT 1 FROM file_upload_operations o JOIN file_upload_retirements r ON r.operation_id=o.operation_id WHERE o.operation_id=? AND o.dir_key=? AND r.state='cleanup_pending'").get(id,key) || !this.retirementUnreferenced(id,key)) return;
-      this.db.prepare("UPDATE file_upload_retirements SET state='retired' WHERE operation_id=?").run(id);
-    });
-  }
   async stageFiles(operationId: string, ownerId: string, sessionId: string, fingerprint: string, payload: StagedFiles, beforeCommit?: () => void): Promise<void> {
     await this.transaction(() => {
       this.assertNotRetired(operationId);
@@ -656,7 +519,7 @@ export class Store {
       if (this.db.prepare('SELECT 1 FROM file_upload_operations WHERE operation_id=?').get(operationId)) throw identityConflict();
       const old = this.db.prepare('SELECT owner_id,session_id,fingerprint FROM staged_files WHERE operation_id=?').get(operationId) as { owner_id: string; session_id: string; fingerprint: string } | undefined;
       if (old) { if (old.owner_id !== ownerId || old.session_id !== sessionId || old.fingerprint !== fingerprint) throw identityConflict(); return; }
-      if (this.db.prepare('SELECT 1 FROM message_meta WHERE id=?').get(operationId)) throw identityConflict();
+      if (this.db.prepare('SELECT 1 FROM message_meta WHERE id=? UNION ALL SELECT 1 FROM shared_submissions WHERE operation_id=? LIMIT 1').get(operationId,operationId)) throw identityConflict();
       this.db.prepare('INSERT INTO staged_files(operation_id,owner_id,session_id,fingerprint,payload) VALUES(?,?,?,?,?)').run(operationId,ownerId,sessionId,fingerprint,JSON.stringify(payload));
     }, beforeCommit);
   }
@@ -687,7 +550,7 @@ export class Store {
       this.assertPathsNotRetired([...payload.images, ...variants]);
       const old = this.db.prepare('SELECT session_id,fingerprint FROM staged_images WHERE operation_id=?').get(operationId) as { session_id: string; fingerprint: string } | undefined;
       if (old) { if (old.session_id !== sessionId || old.fingerprint !== fingerprint) throw identityConflict(); return; }
-      if (this.db.prepare('SELECT 1 FROM message_meta WHERE id=?').get(operationId)) throw identityConflict();
+      if (this.db.prepare('SELECT 1 FROM message_meta WHERE id=? UNION ALL SELECT 1 FROM shared_submissions WHERE operation_id=? LIMIT 1').get(operationId,operationId)) throw identityConflict();
       this.db.prepare('INSERT INTO staged_images(operation_id,session_id,fingerprint,payload) VALUES(?,?,?,?)').run(operationId, sessionId, fingerprint, JSON.stringify(payload));
     }, beforeCommit);
   }
@@ -736,74 +599,54 @@ export class Store {
       return row?.fingerprint;
     });
   }
-  async failedSubmission(id: string, sessionId: string): Promise<{ input: Submission; error: string; replacedBy: string | null } | undefined> {
-    return this.transaction(() => {
-      const row = this.db.prepare('SELECT payload,error,replaced_by FROM failed_submissions WHERE operation_id=? AND session_id=?').get(id, sessionId) as { payload: string; error: string; replaced_by: string | null } | undefined;
-      return row ? { input: JSON.parse(row.payload), error: row.error, replacedBy: row.replaced_by } : undefined;
-    });
-  }
-  async failedSubmissions(sessionId: string): Promise<Submission[]> {
-    return this.transaction(() => (this.db.prepare('SELECT payload FROM failed_submissions WHERE session_id=? AND replaced_by IS NULL AND operation_id NOT IN (SELECT operation_id FROM deleted_failures) ORDER BY rowid DESC LIMIT 20').all(sessionId) as Array<{ payload: string }>).reverse().map(row => JSON.parse(row.payload)));
-  }
-  /** Record definite rolled-back admission, never an execution/transport outcome. */
-  async failSubmission(input: Submission, sessionId: string, error: string, beforeCommit?: () => void): Promise<void> {
-    await this.transaction(() => {
-      this.assertNotRetired(input.operationId);
-      if (input.files?.length) this.assertCompleteUpload(input.operationId);
-      for (const sourceId of input.replacementSourceIds ?? []) { this.assertNotRetired(sourceId); this.assertCompleteUpload(sourceId); }
-      for (const file of input.files ?? []) {
-        if (this.db.prepare('SELECT 1 FROM file_upload_files f JOIN file_upload_retirements r ON r.operation_id=f.operation_id WHERE f.attachment_id=?').get(file.attachmentId)) throw identityConflict();
-        const staged = this.db.prepare('SELECT payload FROM staged_files WHERE session_id=?').all(sessionId) as Array<{ payload: string }>;
-        if (!this.db.prepare('SELECT 1 FROM input_files WHERE id=? AND session_id=?').get(file.attachmentId,sessionId) && !staged.some(row => (JSON.parse(row.payload) as StagedFiles).refs.some(ref => ref.attachmentId === file.attachmentId && ref.name === file.name && ref.mediaType === file.mediaType && ref.size === file.size))) throw identityConflict();
-      }
-      if (this.db.prepare('SELECT 1 FROM message_meta WHERE id=?').get(input.operationId)) throw new Error('Cannot fail a durably admitted input');
+  /** Reserve identity before local preparation; no content or native dispatch. */
+  async reserveNativeDelivery(input: Submission, sessionId: string, ownerId: string, authorize?: () => Promise<void>, beforeCommit?: () => void): Promise<{ created: boolean; delivery: DeliveryAttempt } | undefined> {
+    return this.transaction(async () => {
+      if (authorize) await authorize();
+      const id = input.operationId;
       const fingerprint = createHash('sha256').update(JSON.stringify(input)).digest('hex');
-      const retry = this.db.prepare('SELECT session_id,source_id,payload FROM retry_attempts WHERE attempt_id=?').get(input.operationId) as { session_id: string; source_id: string; payload: string | null } | undefined;
-      if (retry && (retry.session_id !== sessionId || retry.payload !== JSON.stringify(input))) throw identityConflict();
-      const old = this.db.prepare('SELECT fingerprint,session_id FROM failed_submissions WHERE operation_id=?').get(input.operationId) as { fingerprint: string; session_id: string } | undefined;
-      if (old) { if (old.fingerprint !== fingerprint || old.session_id !== sessionId) throw identityConflict(); return; }
-      this.db.prepare('INSERT INTO failed_submissions(operation_id,session_id,fingerprint,payload,error) VALUES(?,?,?,?,?)').run(input.operationId, sessionId, fingerprint, JSON.stringify(input), error);
-      if (retry) this.db.prepare('UPDATE failed_submissions SET replaced_by=? WHERE operation_id=? AND session_id=? AND replaced_by IS NULL').run(input.operationId,retry.source_id,sessionId);
+      const existing = this.db.prepare('SELECT s.session_id,s.fingerprint,d.attempt,d.state FROM shared_submissions s LEFT JOIN delivery_attempts d ON d.operation_id=s.operation_id WHERE s.operation_id=?').get(id) as { session_id: string; fingerprint: string; attempt: number | null; state: DeliveryAttempt['state'] | null } | undefined;
+      if (existing) {
+        if (existing.session_id !== sessionId || existing.fingerprint !== fingerprint) throw identityConflict();
+        return existing.attempt && existing.state ? { created: false, delivery: { attempt: existing.attempt, state: existing.state } } : undefined;
+      }
+      this.assertNotRetired(id);
+      if (this.db.prepare('SELECT 1 FROM message_meta WHERE id=? LIMIT 1').get(id)) throw identityConflict();
+      const imageRow = this.db.prepare('SELECT session_id,payload FROM staged_images WHERE operation_id=?').get(id) as { session_id: string; payload: string } | undefined;
+      const images = imageRow ? JSON.parse(imageRow.payload) as StagedImages : undefined;
+      if (input.images?.length) {
+        if (!imageRow || imageRow.session_id !== sessionId || JSON.stringify(images?.refs) !== JSON.stringify(input.images) || images?.images.length !== input.images.length) throw identityConflict();
+      } else if (images?.refs.length) throw identityConflict();
+      const fileRow = this.db.prepare('SELECT owner_id,session_id,payload FROM staged_files WHERE operation_id=?').get(id) as { owner_id: string; session_id: string; payload: string } | undefined;
+      const files = fileRow ? JSON.parse(fileRow.payload) as StagedFiles : undefined;
+      const upload = this.db.prepare('SELECT owner_id,session_id,status FROM file_upload_operations WHERE operation_id=?').get(id) as { owner_id: string; session_id: string; status: string } | undefined;
+      if (input.files?.length) {
+        if (!fileRow || fileRow.owner_id !== ownerId || fileRow.session_id !== sessionId || JSON.stringify(files?.refs) !== JSON.stringify(input.files) || files?.files.length !== input.files.length || (upload && (upload.owner_id !== ownerId || upload.session_id !== sessionId || upload.status !== 'complete'))) throw identityConflict();
+      } else if (files?.refs.length || upload) throw identityConflict();
+      this.db.prepare('INSERT INTO shared_submissions(operation_id,session_id,fingerprint) VALUES(?,?,?)').run(id, sessionId, fingerprint);
+      this.db.prepare("INSERT INTO delivery_attempts(operation_id,attempt,state) VALUES(?,1,'unknown')").run(id);
+      return { created: true, delivery: { attempt: 1, state: 'unknown' } };
     }, beforeCommit);
   }
-  async retryAttempt(attemptId: string, sessionId: string, sourceId: string, bind = false, beforeCommit?: () => void): Promise<Submission | null | undefined> {
+  /** Durable attempt identity only; no message text or inferred native result. */
+  async deliveryAttempt(id: string, sessionId: string): Promise<DeliveryAttempt | undefined> {
     return this.transaction(() => {
-      if (bind) { this.assertNotRetired(attemptId); this.assertNotRetired(sourceId); this.assertCompleteUpload(attemptId); this.assertCompleteUpload(sourceId); }
-      const row = this.db.prepare('SELECT session_id,source_id,payload FROM retry_attempts WHERE attempt_id=?').get(attemptId) as { session_id: string; source_id: string; payload: string | null } | undefined;
-      if (row) {
-        if (row.session_id !== sessionId || row.source_id !== sourceId) throw identityConflict();
-        return row.payload ? JSON.parse(row.payload) : null;
-      }
-      if (bind) {
-        if (this.db.prepare('SELECT 1 FROM message_meta WHERE id=?').get(attemptId) || this.db.prepare('SELECT 1 FROM failed_submissions WHERE operation_id=?').get(attemptId)) throw identityConflict();
-        this.db.prepare('INSERT INTO retry_attempts(attempt_id,session_id,source_id) VALUES(?,?,?)').run(attemptId,sessionId,sourceId);
-      }
-      return undefined;
-    }, beforeCommit);
-  }
-  async retryBinding(attemptId: string, sessionId: string): Promise<{ sourceId: string; input: Submission | null } | undefined> {
-    return this.transaction(() => {
-      const row = this.db.prepare('SELECT source_id,payload FROM retry_attempts WHERE attempt_id=? AND session_id=?').get(attemptId, sessionId) as { source_id: string; payload: string | null } | undefined;
-      return row ? { sourceId: row.source_id, input: row.payload ? JSON.parse(row.payload) : null } : undefined;
+      const row = this.db.prepare('SELECT s.session_id,d.attempt,d.state FROM shared_submissions s LEFT JOIN delivery_attempts d ON d.operation_id=s.operation_id WHERE s.operation_id=?').get(id) as { session_id: string; attempt: number | null; state: DeliveryAttempt['state'] | null } | undefined;
+      if (row && row.session_id !== sessionId) throw identityConflict();
+      return row?.attempt && row.state ? { attempt: row.attempt, state: row.state } : undefined;
     });
   }
-  async bindRetry(input: Submission, beforeCommit?: () => void): Promise<void> {
-    await this.transaction(() => {
-      this.assertNotRetired(input.operationId);
-      const source = this.db.prepare('SELECT source_id FROM retry_attempts WHERE attempt_id=?').get(input.operationId) as { source_id: string } | undefined;
-      if (source) this.assertNotRetired(source.source_id);
-      this.db.prepare('UPDATE retry_attempts SET payload=? WHERE attempt_id=? AND payload IS NULL').run(JSON.stringify(input),input.operationId);
-    }, beforeCommit);
-  }
-  async failureDeleted(id: string): Promise<boolean> {
-    return this.transaction(() => !!this.db.prepare('SELECT 1 FROM deleted_failures WHERE operation_id=?').get(id));
-  }
-  async deleteFailed(id: string, sessionId: string, beforeCommit?: () => void): Promise<boolean> {
+  /** Caller must establish definitive failure or durable native acceptance first. */
+  async transitionDeliveryAttempt(id: string, sessionId: string, expectedAttempt: number, transition: 'failed' | 'accepted' | 'retry', beforeCommit?: () => void): Promise<DeliveryAttempt | undefined> {
+    if (!Number.isSafeInteger(expectedAttempt) || expectedAttempt < 1) throw new Error('Invalid delivery attempt');
     return this.transaction(() => {
-      if (this.db.prepare('SELECT 1 FROM message_meta WHERE id=?').get(id)) return false;
-      if (!this.db.prepare('SELECT 1 FROM failed_submissions WHERE operation_id=? AND session_id=? AND replaced_by IS NULL').get(id,sessionId)) return false;
-      this.db.prepare('INSERT OR IGNORE INTO deleted_failures(operation_id) VALUES(?)').run(id);
-      return true;
+      const row = this.db.prepare('SELECT s.session_id,d.attempt,d.state FROM shared_submissions s JOIN delivery_attempts d ON d.operation_id=s.operation_id WHERE s.operation_id=?').get(id) as { session_id: string; attempt: number; state: DeliveryAttempt['state'] } | undefined;
+      if (row && row.session_id !== sessionId) throw identityConflict();
+      if (!row || row.attempt !== expectedAttempt || row.state !== (transition === 'retry' ? 'failed' : 'unknown')) return undefined;
+      if (transition === 'retry' && row.attempt === Number.MAX_SAFE_INTEGER) throw new Error('Delivery attempt limit reached');
+      const result: DeliveryAttempt = { attempt: row.attempt + (transition === 'retry' ? 1 : 0), state: transition === 'retry' ? 'unknown' : transition };
+      this.db.prepare('UPDATE delivery_attempts SET attempt=?,state=? WHERE operation_id=?').run(result.attempt, result.state, id);
+      return result;
     }, beforeCommit);
   }
   async markRejected(ids: readonly string[], error: string): Promise<void> {
@@ -1015,7 +858,7 @@ export class Store {
   async markObserved(id: string, segment?: Omit<StoredInputSegment, 'message_id'>): Promise<void> {
     // Official history owns acknowledged conversational text. Retain only
     // the source-to-item split needed to reconstruct a merged user item;
-    // unresolved inputs keep their body in pending_inputs for draft recovery.
+    // Unresolved legacy and external inputs can retain their pending bodies.
     await this.transaction(() => {
       let changed = false;
       if (segment) {
@@ -1032,6 +875,16 @@ export class Store {
       const retired = this.db.prepare('DELETE FROM pending_inputs WHERE message_id=?').run(id).changes;
       if (retired) changed = true;
       if (changed) this.addRevision(id);
+    });
+  }
+
+  /** Check that no observed or replaced input contradicts a definite rejection. */
+  async confirmUnsubmittedInput(id: string): Promise<boolean> {
+    return this.transaction(() => {
+      return !!this.db.prepare(`SELECT 1 FROM message_meta WHERE id=?
+        AND NOT EXISTS (SELECT 1 FROM pending_inputs WHERE message_id=?)
+        AND NOT EXISTS (SELECT 1 FROM input_segments WHERE message_id=?)
+        AND NOT EXISTS (SELECT 1 FROM message_outcomes WHERE message_id=?)`).get(id, id, id, id);
     });
   }
 

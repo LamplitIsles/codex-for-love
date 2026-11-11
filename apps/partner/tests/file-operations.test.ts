@@ -18,6 +18,7 @@ import { FileOperationNotFound, FileOperationRetired } from '../runtime/store.ts
 import { FileRefSchema, validate } from '@lamplit/contracts';
 import { fixtureImage } from './panels-seed.ts';
 import { readTestFile, stageTestFiles } from './file-fixture.ts';
+import { imagePath } from '../runtime/images.ts';
 
 test('manifest enforces exact per-file and aggregate boundaries', () => {
   const manifest = { sessionId: 'session', operationId: crypto.randomUUID(), files: [{ id: 'one', name: 'one', mediaType: '', size: 100_000_000 }, { id: 'two', name: 'two', mediaType: '', size: 100_000_000 }] };
@@ -25,6 +26,8 @@ test('manifest enforces exact per-file and aggregate boundaries', () => {
   assert.throws(() => validateManifest({ ...manifest, files: [{ ...manifest.files[0]!, size: 100_000_001 }] }));
   assert.throws(() => validateManifest({ ...manifest, files: [...manifest.files, { id: 'three', name: 'three', mediaType: '', size: 1 }] }));
   assert.throws(() => validateManifest({ ...manifest, files: [manifest.files[0], manifest.files[0]] }));
+  assert.throws(() => validateManifest({ ...manifest, files: [...manifest.files, ...Array.from({ length: 5 }, (_, index) => ({ id: `x${index}`, name: 'x', mediaType: '', size: 0 }))] }));
+  assert.throws(() => validateManifest({ sessionId: 'session', operationId: crypto.randomUUID(), files: [{ id: 'one', name: 'one', mediaType: '', size: 100_000_000 }, { id: 'two', name: 'two', mediaType: '', size: 100_000_001 }] }));
 });
 
 test('manifest text limits count Unicode code points, including supplementary characters', () => {
@@ -133,8 +136,8 @@ test('streamed file and image staging can share an operation and be admitted tog
     await partner.fileOperationReserve(manifest, owner, async () => true, () => true);
     await partner.fileOperationReceive(operationId, 'file', (async function* () { yield Buffer.from('x'); })(), owner, async () => true, () => true);
     const files = await partner.fileOperationComplete(operationId, owner, async () => true, () => true);
-    await partner.submitShared({ operationId, text: 'mixed', images: image.images.map(item => item.ref), files: files.files.map(item => item.ref) });
-    assert.equal((await partner.chatReceipt(operationId))?.state, 'submitted');
+    await partner.submitNativeDelivery({ operationId, text: 'mixed', images: image.images.map(item => item.ref), files: files.files.map(item => item.ref) });
+    await eventually(async () => (await partner.lookupNativeDelivery(operationId))?.state === 'submitted');
   } finally { await partner.close(); await f.close(); }
 });
 
@@ -189,25 +192,26 @@ test('writable workspace permits uploads without changing permissions or existin
 });
 
 test('HTTP reports retired operations distinctly and never reuses their identity', async () => {
-  const f = await fixture(); const partner = await f.createPartner(); const realNow = Date.now;
+  const f = await fixture(); const partner = await f.createPartner();
   const app = createWebServer(partner, join(f.directory, 'assets'));
   app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening');
   const origin = `http://127.0.0.1:${(app.server.address() as { port: number }).port}`, root = `${origin}/api/chat/file-operations`;
+  const status = partner.fileOperationStatus, reserveOperation = partner.fileOperationReserve;
+  const operationId = crypto.randomUUID();
+  const manifest = { sessionId: 'session', operationId, files: [{ id: 'f', name: 'f', mediaType: '', size: 0 }] };
+  const reserve = () => fetch(root, { method: 'POST', headers: { origin, 'content-type': 'application/json' }, body: JSON.stringify(manifest) });
   try {
-    const sessionId = (await partner.snapshot()).sessionId, operationId = crypto.randomUUID();
-    const manifest = { sessionId, operationId, files: [{ id: 'f', name: 'f', mediaType: '', size: 0 }] };
-    const reserve = (input: typeof manifest) => fetch(root, { method: 'POST', headers: { origin, 'content-type': 'application/json' }, body: JSON.stringify(input) });
-    assert.equal((await reserve(manifest)).status, 200);
-    assert.equal((await fetch(`${root}/${operationId}/files/f`, { method: 'PUT', headers: { origin, 'content-type': 'application/octet-stream' }, body: '' })).status, 204);
-    assert.equal((await fetch(`${root}/${operationId}/complete`, { method: 'POST', headers: { origin } })).status, 200);
-    Date.now = () => realNow() + 25 * 60 * 60 * 1000;
-    assert.equal((await reserve({ ...manifest, operationId: crypto.randomUUID() })).status, 200);
-    for (const response of [await fetch(`${root}/${operationId}`), await reserve(manifest), await fetch(`${root}/${operationId}/complete`, { method: 'POST', headers: { origin } }), await fetch(`${root}/${operationId}/files/f`, { method: 'PUT', headers: { origin, 'content-type': 'application/octet-stream' }, body: '' })]) {
+    partner.fileOperationStatus = async () => { throw new FileOperationRetired(); };
+    partner.fileOperationReserve = async () => { throw new FileOperationRetired(); };
+    for (const response of [await fetch(`${root}/${operationId}`), await reserve(), await fetch(`${root}/${operationId}/complete`, { method: 'POST', headers: { origin } }), await fetch(`${root}/${operationId}/files/f`, { method: 'PUT', headers: { origin, 'content-type': 'application/octet-stream' }, body: '' })]) {
       assert.equal(response.status, 410);
       assert.deepEqual(await response.json(), { error: { code: 'file_operation_retired', message: 'File operation retired; start a new attempt explicitly.' } });
     }
+    partner.fileOperationStatus = async () => { throw new FileOperationNotFound(); };
+    partner.fileOperationReserve = async () => { throw new FileOperationNotFound(); };
     assert.equal((await fetch(`${root}/${crypto.randomUUID()}`)).status, 404);
-  } finally { Date.now = realNow; await app.close(); await f.close(); }
+    assert.equal((await reserve()).status, 404);
+  } finally { partner.fileOperationStatus = status; partner.fileOperationReserve = reserveOperation; await app.close(); await f.close(); }
 });
 
 test('retired and missing responses recheck authorization and session after a race', async () => {
@@ -230,7 +234,7 @@ test('retired and missing responses recheck authorization and session after a ra
 });
 
 test('HTTP operation status remains available when intake is disabled or reduced', async () => {
-  const f = await fixture(); const partner = await f.createPartner(); const realNow = Date.now, originalLimits = partner.sharedFileLimits;
+  const f = await fixture(); const partner = await f.createPartner(); const originalLimits = partner.sharedFileLimits;
   const app = createWebServer(partner, join(f.directory, 'assets'));
   app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening');
   const origin = `http://127.0.0.1:${(app.server.address() as { port: number }).port}`, root = `${origin}/api/chat/file-operations`;
@@ -238,19 +242,18 @@ test('HTTP operation status remains available when intake is disabled or reduced
   try {
     const sessionId = (await partner.snapshot()).sessionId;
     const make = (size: number) => ({ sessionId, operationId: crypto.randomUUID(), files: [{ id: 'f', name: 'f', mediaType: '', size }] });
-    const retired = make(0); assert.equal((await reserve(retired)).status, 200);
-    Date.now = () => realNow() + 25 * 60 * 60 * 1000;
+    const idle = make(0); assert.equal((await reserve(idle)).status, 200);
     const active = make(2); assert.equal((await reserve(active)).status, 200);
     const verifyStatus = async () => {
       const existing = await fetch(`${root}/${active.operationId}`); assert.equal(existing.status, 200); assert.deepEqual((await existing.json() as { manifest: unknown }).manifest, active);
-      assert.equal((await fetch(`${root}/${retired.operationId}`)).status, 410);
+      assert.equal((await fetch(`${root}/${idle.operationId}`)).status, 200);
       assert.equal((await fetch(`${root}/${crypto.randomUUID()}`)).status, 404);
     };
     partner.sharedFileLimits = async () => false;
     await verifyStatus();
     assert.equal((await reserve(make(0))).status, 503);
-    assert.equal((await reserve(retired)).status, 503);
-    assert.equal((await fetch(`${root}/${retired.operationId}/complete`, { method: 'POST', headers: { origin } })).status, 503);
+    assert.equal((await reserve(idle)).status, 503);
+    assert.equal((await fetch(`${root}/${idle.operationId}/complete`, { method: 'POST', headers: { origin } })).status, 503);
     assert.equal((await fetch(`${root}/${active.operationId}/files/f`, { method: 'PUT', headers: { origin, 'content-type': 'application/octet-stream' }, body: 'xx' })).status, 503);
     assert.equal((await fetch(`${root}/${active.operationId}/complete`, { method: 'POST', headers: { origin } })).status, 503);
     partner.sharedFileLimits = async () => ({ maxFilesPerMessage: 6, maxFileBytes: 1, maxMessageFileBytes: 1 });
@@ -258,7 +261,7 @@ test('HTTP operation status remains available when intake is disabled or reduced
     assert.equal((await reserve(make(2))).status, 503);
     assert.equal((await fetch(`${root}/${active.operationId}/files/f`, { method: 'PUT', headers: { origin, 'content-type': 'application/octet-stream' }, body: 'xx' })).status, 503);
     assert.equal((await fetch(`${root}/${active.operationId}/complete`, { method: 'POST', headers: { origin } })).status, 503);
-  } finally { Date.now = realNow; partner.sharedFileLimits = originalLimits; await app.close(); await f.close(); }
+  } finally { partner.sharedFileLimits = originalLimits; await app.close(); await f.close(); }
 });
 
 test('HTTP manifest accepts escaped six-file metadata and enforces 32,768-byte body limit', async () => {
@@ -424,126 +427,43 @@ test('slow HTTP download sockets stay bounded and release their slots on disconn
   } finally { for (const response of responses) response.destroy(); await app.close(); await f.close(); }
 });
 
-test('retirement resumes after a directory sync failure and restart', async () => {
-  const f = await fixture(); let partner = await f.createPartner(); const realNow = Date.now, originalOpen = fs.open;
+test('staging has no global operation or byte quota', async () => {
+  const f = await fixture(); const partner = await f.createPartner();
   try {
-    const sessionId = (await partner.snapshot()).sessionId, owner = { ownerId: 'owner', sessionId }, operationId = crypto.randomUUID();
-    const manifest = { sessionId, operationId, files: [{ id: 'a', name: 'a', mediaType: '', size: 1 }] };
-    await partner.fileOperationReserve(manifest, owner, async () => true, () => true);
-    await partner.fileOperationReceive(operationId, 'a', (async function* () { yield Buffer.from('a'); })(), owner, async () => true, () => true);
-    await partner.fileOperationComplete(operationId, owner, async () => true, () => true);
-    const attachments = join(f.workspace, '.lamplit', 'attachments'), root = join(attachments, '.file-operations'); let injected = false;
-    const oldDirectory = join(root, (await fs.readdir(root))[0]!);
-    fs.open = async (...args: Parameters<typeof fs.open>) => {
-      const handle = await originalOpen(...args);
-      if (args[0] === root) { const sync = handle.sync.bind(handle); handle.sync = async () => { if (!injected) { injected = true; throw new Error('injected sync failure'); } await sync(); }; }
-      return handle;
-    };
-    syncBuiltinESMExports(); Date.now = () => realNow() + 25 * 60 * 60 * 1000;
-    await partner.fileOperationReserve({ ...manifest, operationId: crypto.randomUUID() }, owner, async () => true, () => true);
-    assert.equal(injected, true);
-    await assert.rejects(partner.fileOperationStatus(operationId, owner, async () => true), /retired/);
-    fs.open = originalOpen; syncBuiltinESMExports();
-    await partner.close(); partner = await f.createPartner();
-    await partner.fileOperationReserve({ ...manifest, operationId: crypto.randomUUID() }, owner, async () => true, () => true);
-    await assert.rejects(partner.fileOperationReserve(manifest, owner, async () => true, () => true), /retired/);
-    await assert.rejects(partner.submitShared({ operationId, text: 'late', files: [] }), /identity|retired|different/i);
-    await assert.rejects(fs.lstat(oldDirectory), { code: 'ENOENT' });
-  } finally { fs.open = originalOpen; syncBuiltinESMExports(); Date.now = realNow; await partner.close(); await f.close(); }
+    const sessionId = (await partner.snapshot()).sessionId, owner = { ownerId: 'owner', sessionId };
+    const manifest = (size: number) => ({ sessionId, operationId: crypto.randomUUID(), files: [{ id: 'a', name: 'a', mediaType: '', size }, { id: 'b', name: 'b', mediaType: '', size: 100_000_000 - size }] });
+    const operations: string[] = [];
+    for (let index = 0; index < 24; index++) {
+      const input = manifest(100_000_000);
+      operations.push(input.operationId);
+      assert.deepEqual((await partner.fileOperationReserve(input, owner, async () => true, () => true)).uploaded, []);
+    }
+    for (const operationId of operations) assert.ok(await partner.fileOperationStatus(operationId, owner, async () => true));
+  } finally { await partner.close(); await f.close(); }
 });
 
-test('unknown directory entries keep retirement charged and remain untouched', async () => {
+test('abandoned staging and its files are retained indefinitely', async () => {
   const f = await fixture(); const partner = await f.createPartner(); const realNow = Date.now;
   try {
     const sessionId = (await partner.snapshot()).sessionId, owner = { ownerId: 'owner', sessionId }, operationId = crypto.randomUUID();
     const manifest = { sessionId, operationId, files: [{ id: 'a', name: 'a', mediaType: '', size: 1 }] };
     await partner.fileOperationReserve(manifest, owner, async () => true, () => true);
     await partner.fileOperationReceive(operationId, 'a', (async function* () { yield Buffer.from('a'); })(), owner, async () => true, () => true);
-    await partner.fileOperationComplete(operationId, owner, async () => true, () => true);
-    const root = join(f.workspace, '.lamplit', 'attachments', '.file-operations'), dir = join(root, (await fs.readdir(root))[0]!);
-    const keep = join(dir, 'unrelated'); await fs.writeFile(keep, 'keep');
-    Date.now = () => realNow() + 25 * 60 * 60 * 1000;
+    const root = join(f.workspace, '.lamplit', 'attachments', '.file-operations'), directory = join(root, (await fs.readdir(root))[0]!);
+    const path = join(directory, (await fs.readdir(directory)).find(name => name.startsWith('p0-'))!);
+    const unrelated = join(f.workspace, '.lamplit', 'attachments', 'unrelated.file'); await fs.writeFile(unrelated, 'keep');
+    Date.now = () => realNow() + 30 * 24 * 60 * 60 * 1000;
     await partner.fileOperationReserve({ ...manifest, operationId: crypto.randomUUID() }, owner, async () => true, () => true);
-    await assert.rejects(partner.fileOperationStatus(operationId, owner, async () => true), /retired/);
-    assert.equal(await fs.readFile(keep, 'utf8'), 'keep');
-    assert.ok((await fs.readdir(dir)).some(name => name.startsWith('p0-')));
-  } finally { Date.now = realNow; await partner.close(); await f.close(); }
-});
-
-test('changed published bytes are retained and retirement keeps its quota', async () => {
-  const f = await fixture(); const partner = await f.createPartner(); const realNow = Date.now;
-  try {
-    const sessionId = (await partner.snapshot()).sessionId, owner = { ownerId: 'owner', sessionId }, operationId = crypto.randomUUID();
-    const manifest = { sessionId, operationId, files: [{ id: 'a', name: 'a', mediaType: '', size: 1 }] };
-    await partner.fileOperationReserve(manifest, owner, async () => true, () => true);
-    await partner.fileOperationReceive(operationId, 'a', (async function* () { yield Buffer.from('a'); })(), owner, async () => true, () => true);
-    await partner.fileOperationComplete(operationId, owner, async () => true, () => true);
-    const root = join(f.workspace, '.lamplit', 'attachments', '.file-operations'), dir = join(root, (await fs.readdir(root))[0]!);
-    const path = join(dir, (await fs.readdir(dir)).find(name => name.startsWith('p0-'))!); await fs.writeFile(path, 'z');
-    Date.now = () => realNow() + 25 * 60 * 60 * 1000;
-    for (let i = 0; i < 15; i++) await partner.fileOperationReserve({ ...manifest, operationId: crypto.randomUUID() }, owner, async () => true, () => true);
-    await assert.rejects(partner.fileOperationReserve({ ...manifest, operationId: crypto.randomUUID() }, owner, async () => true, () => true), /quota/);
-    await assert.rejects(partner.fileOperationStatus(operationId, owner, async () => true), /retired/);
-    assert.equal(await fs.readFile(path, 'utf8'), 'z');
-  } finally { Date.now = realNow; await partner.close(); await f.close(); }
-});
-
-test('files outside an operation directory are never deleted by name alone', async () => {
-  const f = await fixture(); const partner = await f.createPartner(); const realNow = Date.now;
-  try {
-    const sessionId = (await partner.snapshot()).sessionId, owner = { ownerId: 'owner', sessionId }, operationId = crypto.randomUUID();
-    const manifest = { sessionId, operationId, files: [{ id: 'a', name: 'a', mediaType: '', size: 0 }] };
-    await partner.fileOperationReserve(manifest, owner, async () => true, () => true);
-    const path = join(f.workspace, '.lamplit', 'attachments', `.upload-${operationId}-${crypto.randomUUID()}.tmp`);
-    await fs.writeFile(path, 'unverified'); Date.now = () => realNow() + 25 * 60 * 60 * 1000;
-    await partner.fileOperationReserve({ ...manifest, operationId: crypto.randomUUID() }, owner, async () => true, () => true);
-    await assert.rejects(partner.fileOperationStatus(operationId, owner, async () => true), /retired/);
-    assert.equal(await fs.readFile(path, 'utf8'), 'unverified');
-  } finally { Date.now = realNow; await partner.close(); await f.close(); }
-});
-
-test('expiry removes only the inactive operation’s owned files and releases its reservation', async () => {
-  const f = await fixture(); const partner = await f.createPartner(); const realNow = Date.now;
-  try {
-    const sessionId = (await partner.snapshot()).sessionId, owner = { ownerId: 'owner', sessionId }, operationId = crypto.randomUUID();
-    const manifest = { sessionId, operationId, files: [{ id: 'a', name: 'a', mediaType: '', size: 1 }, { id: 'b', name: 'b', mediaType: '', size: 1 }] };
-    await partner.fileOperationReserve(manifest, owner, async () => true, () => true);
-    await partner.fileOperationReceive(operationId, 'a', (async function* () { yield Buffer.from('a'); })(), owner, async () => true, () => true);
-    const attachments = join(f.workspace, '.lamplit', 'attachments');
-    const operationRoot = join(attachments, '.file-operations'), oldDirectory = join(operationRoot, (await fs.readdir(operationRoot))[0]!);
-    assert.equal((await fs.readdir(oldDirectory)).filter(name => name.startsWith('p0-')).length, 1);
-    const unrelated = join(attachments, 'unrelated.file'); await fs.writeFile(unrelated, 'keep');
-    Date.now = () => realNow() + 25 * 60 * 60 * 1000;
-    await partner.fileOperationReserve({ ...manifest, operationId: crypto.randomUUID() }, owner, async () => true, () => true);
-    await assert.rejects(partner.fileOperationStatus(operationId, owner, async () => true), /retired/);
-    await assert.rejects(fs.lstat(oldDirectory), { code: 'ENOENT' });
+    assert.equal(await fs.readFile(path, 'utf8'), 'a');
     assert.equal(await fs.readFile(unrelated, 'utf8'), 'keep');
+    assert.deepEqual((await partner.fileOperationStatus(operationId, owner, async () => true))?.uploaded, ['a']);
+    const completed = await partner.fileOperationComplete(operationId, owner, async () => true, () => true);
+    assert.equal(completed.files[0]?.ref.size, 1);
+    assert.equal(await fs.readFile(path, 'utf8'), 'a');
   } finally { Date.now = realNow; await partner.close(); await f.close(); }
 });
 
-test('unfinished reservation count is bounded without charging exact duplicates twice', async () => {
-  const f = await fixture(); const partner = await f.createPartner();
-  try {
-    const sessionId = (await partner.snapshot()).sessionId, owner = { ownerId: 'owner', sessionId };
-    const manifest = () => ({ sessionId, operationId: crypto.randomUUID(), files: [{ id: 'a', name: 'a', mediaType: '', size: 0 }] });
-    const initial = manifest();
-    await partner.fileOperationReserve(initial, owner, async () => true, () => true);
-    await partner.fileOperationReserve(initial, owner, async () => true, () => true);
-    for (let i = 1; i < 16; i++) await partner.fileOperationReserve(manifest(), owner, async () => true, () => true);
-    await assert.rejects(partner.fileOperationReserve(manifest(), owner, async () => true, () => true), /quota/);
-  } finally { await partner.close(); await f.close(); }
-});
-
-test('declared reservation bytes are capped across operations', async () => {
-  const f = await fixture(); const partner = await f.createPartner();
-  try {
-    const sessionId = (await partner.snapshot()).sessionId, owner = { ownerId: 'owner', sessionId };
-    for (let i = 0; i < 4; i++) await partner.fileOperationReserve({ sessionId, operationId: crypto.randomUUID(), files: [{ id: 'a', name: 'a', mediaType: '', size: 100_000_000 }, { id: 'b', name: 'b', mediaType: '', size: 100_000_000 }] }, owner, async () => true, () => true);
-    await assert.rejects(partner.fileOperationReserve({ sessionId, operationId: crypto.randomUUID(), files: [{ id: 'c', name: 'c', mediaType: '', size: 1 }] }, owner, async () => true, () => true), /quota/);
-  } finally { await partner.close(); await f.close(); }
-});
-
-test('abandoned completed reservations release quota while failed and admitted files remain', async () => {
+test('failed and admitted attachments remain readable while an abandoned operation is retained', async () => {
   const f = await fixture(); const partner = await f.createPartner(); const realNow = Date.now;
   try {
     const sessionId = (await partner.snapshot()).sessionId, owner = { ownerId: 'owner', sessionId };
@@ -555,103 +475,25 @@ test('abandoned completed reservations release quota while failed and admitted f
       await partner.fileOperationReceive(operationId, 'f', (async function* () { yield Buffer.from('x'); })(), owner, async () => true, () => true);
       results.push({ ...await partner.fileOperationComplete(operationId, owner, async () => true, () => true), images: image.images.map(item => item.ref) });
     }
-    const failed = results[1]!, admitted = results[2]!;
-    await partner.finalizeSubmission({ sessionId, submission: { operationId: failed.operationId, text: 'failed', files: failed.files.map(item => item.ref), images: failed.images } });
-    assert.equal((await partner.deleteFailed({ sessionId, operationId: failed.operationId })).deleted, true);
-    await partner.submitShared({ operationId: admitted.operationId, text: 'admitted', files: admitted.files.map(item => item.ref), images: admitted.images });
-    Date.now = () => realNow() + 25 * 60 * 60 * 1000;
+    const [abandoned, failed, admitted] = results;
+    const failedImage = imagePath(f.workspace, { id: failed!.images[0]!.attachmentId, media_type: failed!.images[0]!.mediaType });
+    await fs.writeFile(failedImage, Buffer.from('changed'));
+    await partner.submitNativeDelivery({ operationId: failed!.operationId, text: 'failed', files: failed!.files.map(item => item.ref), images: failed!.images });
+    await eventually(async () => (await partner.lookupNativeDelivery(failed!.operationId))?.state === 'failed');
+    await fs.writeFile(failedImage, fixtureImage);
+    await partner.submitNativeDelivery({ operationId: admitted!.operationId, text: 'admitted', files: admitted!.files.map(item => item.ref), images: admitted!.images });
+    Date.now = () => realNow() + 30 * 24 * 60 * 60 * 1000;
     await partner.fileOperationReserve({ sessionId, operationId: crypto.randomUUID(), files: [{ id: 'f', name: 'new', mediaType: '', size: 0 }] }, owner, async () => true, () => true);
-    await assert.rejects(partner.fileOperationStatus(results[0]!.operationId, owner, async () => true), /retired/);
-    assert.ok((await partner.fileOperationStatus(failed.operationId, owner, async () => true))?.result);
-    assert.ok((await partner.fileOperationStatus(admitted.operationId, owner, async () => true))?.result);
+    for (const kept of [abandoned!, failed!, admitted!]) assert.ok((await partner.fileOperationStatus(kept.operationId, owner, async () => true))?.result);
     const attachments = join(f.workspace, '.lamplit', 'attachments');
-    for (const protectedOp of [failed, admitted]) { const opened = await partner.openSharedFile(protectedOp.files[0]!.ref.attachmentId, owner); assert.ok(opened); await opened.handle.close(); }
+    for (const kept of [failed!, admitted!]) { const opened = await partner.openSharedFile(kept.files[0]!.ref.attachmentId, owner); assert.ok(opened); await opened.handle.close(); }
     for (const item of results) assert.deepEqual((await partner.sharedMedia(item.images[0]!.attachmentId, 'original'))?.bytes, fixtureImage);
+    for (const item of results) { const directory = join(attachments, '.file-operations'); assert.ok((await fs.readdir(directory)).length >= 3); }
   } finally { Date.now = realNow; await partner.close(); await f.close(); }
 });
 
-test('expired completed operations free a full count quota', async () => {
-  const f = await fixture(); const partner = await f.createPartner(); const realNow = Date.now;
-  try {
-    const sessionId = (await partner.snapshot()).sessionId, owner = { ownerId: 'owner', sessionId };
-    const make = () => ({ sessionId, operationId: crypto.randomUUID(), files: [{ id: 'f', name: 'empty', mediaType: '', size: 0 }] });
-    for (let i = 0; i < 16; i++) {
-      const manifest = make(); await partner.fileOperationReserve(manifest, owner, async () => true, () => true);
-      await partner.fileOperationReceive(manifest.operationId, 'f', (async function* () {})(), owner, async () => true, () => true);
-      await partner.fileOperationComplete(manifest.operationId, owner, async () => true, () => true);
-    }
-    await assert.rejects(partner.fileOperationReserve(make(), owner, async () => true, () => true), /quota/);
-    Date.now = () => realNow() + 25 * 60 * 60 * 1000;
-    await partner.fileOperationReserve(make(), owner, async () => true, () => true);
-  } finally { Date.now = realNow; await partner.close(); await f.close(); }
-});
-
-test('expired idle uploads reclaim quota behind many successful retry sources', async () => {
-  const f = await fixture(); await f.holdProvider(true); const partner = await f.createPartner(); const realNow = Date.now;
-  try {
-    const sessionId = (await partner.snapshot()).sessionId, owner = { ownerId: 'owner', sessionId };
-    const data = Buffer.from('source'), sources: Array<{ operationId: string; ref: string; retryRef: string }> = [];
-    for (let i = 0; i < 33; i++) {
-      const operationId = crypto.randomUUID();
-      const staged = await stageTestFiles(partner, sessionId, operationId, [{ id: 'f', name: 'f', mediaType: '', bytes: data }]);
-      assert.equal((await partner.finalizeSubmission({ sessionId, submission: { operationId, text: 'retry', files: staged.files.map(item => item.ref) } }))?.state, 'failed');
-      const retry = await partner.retryFailed({ sessionId, operationId, attemptId: crypto.randomUUID() });
-      assert.equal(retry.state, 'submitted');
-      sources.push({ operationId, ref: staged.files[0]!.ref.attachmentId, retryRef: retry.retryFiles!.files[0]!.ref.attachmentId });
-    }
-    const failedId = crypto.randomUUID(), failed = await stageTestFiles(partner, sessionId, failedId, [{ id: 'f', name: 'f', mediaType: '', bytes: data }]);
-    assert.equal((await partner.finalizeSubmission({ sessionId, submission: { operationId: failedId, text: 'failed', files: failed.files.map(item => item.ref) } }))?.state, 'failed');
-    const make = () => ({ sessionId, operationId: crypto.randomUUID(), files: [{ id: 'f', name: 'empty', mediaType: '', size: 0 }] });
-    const idle: string[] = [];
-    for (let i = 0; i < 15; i++) {
-      const operationId = crypto.randomUUID(); idle.push(operationId);
-      await stageTestFiles(partner, sessionId, operationId, [{ id: 'f', name: 'empty', mediaType: '', bytes: Buffer.alloc(0) }]);
-    }
-    await assert.rejects(partner.fileOperationReserve(make(), owner, async () => true, () => true), /quota/);
-    Date.now = () => realNow() + 25 * 60 * 60 * 1000;
-    await partner.fileOperationReserve(make(), owner, async () => true, () => true);
-    for (const operationId of idle) await assert.rejects(partner.fileOperationStatus(operationId, owner, async () => true), /retired/);
-    assert.ok((await partner.fileOperationStatus(failedId, owner, async () => true))?.result);
-    assert.deepEqual(await readTestFile(partner, failed.files[0]!.ref.attachmentId, owner), data);
-    for (const source of sources) {
-      assert.ok((await partner.fileOperationStatus(source.operationId, owner, async () => true))?.result);
-      assert.deepEqual(await readTestFile(partner, source.ref, owner), data);
-      assert.deepEqual(await readTestFile(partner, source.retryRef, owner), data);
-    }
-  } finally { Date.now = realNow; await partner.close(); await f.close(); }
-});
-
-test('expired mixed image and file staging frees quota while retaining image bytes', async () => {
-  const f = await fixture(); const partner = await f.createPartner(); const realNow = Date.now;
-  try {
-    const sessionId = (await partner.snapshot()).sessionId, owner = { ownerId: 'owner', sessionId }, operationId = crypto.randomUUID();
-    const imageInput = (id: string) => ({ sessionId, operationId: id, images: [{ id: 'photo', order: 0, name: 'photo.png', mediaType: 'image/png' as const, original: fixtureImage.toString('base64'), preview: Buffer.from([255, 216, 255, 217]).toString('base64'), model: Buffer.from([255, 216, 255, 217]).toString('base64') }] });
-    const mixed = await partner.uploadImages(imageInput(operationId));
-    const unrelated = await partner.uploadImages(imageInput(crypto.randomUUID()));
-    const mixedId = mixed.images[0]!.ref.attachmentId, unrelatedId = unrelated.images[0]!.ref.attachmentId;
-    const beforeMixed = await partner.sharedMedia(mixedId, 'original'), beforeOther = await partner.sharedMedia(unrelatedId, 'original');
-    assert.deepEqual(beforeMixed?.bytes, fixtureImage); assert.deepEqual(beforeOther?.bytes, fixtureImage);
-    const manifest = { sessionId, operationId, files: [{ id: 'f', name: 'file', mediaType: '', size: 1 }] };
-    const make = () => ({ sessionId, operationId: crypto.randomUUID(), files: [{ id: 'f', name: 'empty', mediaType: '', size: 0 }] });
-    await partner.fileOperationReserve(manifest, owner, async () => true, () => true);
-    await partner.fileOperationReceive(operationId, 'f', (async function* () { yield Buffer.from('x'); })(), owner, async () => true, () => true);
-    const completed = await partner.fileOperationComplete(operationId, owner, async () => true, () => true);
-    const root = join(f.workspace, '.lamplit', 'attachments', '.file-operations'), oldDirectory = join(root, (await fs.readdir(root))[0]!);
-    for (let i = 0; i < 15; i++) await partner.fileOperationReserve(make(), owner, async () => true, () => true);
-    await assert.rejects(partner.fileOperationReserve(make(), owner, async () => true, () => true), /quota/);
-    Date.now = () => realNow() + 25 * 60 * 60 * 1000;
-    await partner.fileOperationReserve(make(), owner, async () => true, () => true);
-    await assert.rejects(partner.fileOperationStatus(operationId, owner, async () => true), /retired/);
-    await assert.rejects(partner.uploadImages(imageInput(operationId)), /different content/);
-    await assert.rejects(partner.submitShared({ operationId, text: 'late', files: completed.files.map(file => file.ref), images: mixed.images.map(image => image.ref) }));
-    assert.deepEqual((await partner.sharedMedia(mixedId, 'original'))?.bytes, beforeMixed?.bytes);
-    assert.deepEqual((await partner.sharedMedia(unrelatedId, 'original'))?.bytes, beforeOther?.bytes);
-    await assert.rejects(fs.lstat(oldDirectory), { code: 'ENOENT' });
-  } finally { Date.now = realNow; await partner.close(); await f.close(); }
-});
-
-test('active uploads remain protected past the expiry cutoff', async () => {
-  const f = await fixture(); const partner = await f.createPartner(); const realNow = Date.now;
+test('an upload in flight is not reported as uploaded before it is recorded', async () => {
+  const f = await fixture(); const partner = await f.createPartner();
   let release!: () => void, started!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; }), entered = new Promise<void>(resolve => { started = resolve; });
   try {
@@ -659,12 +501,11 @@ test('active uploads remain protected past the expiry cutoff', async () => {
     const manifest = { sessionId, operationId: crypto.randomUUID(), files: [{ id: 'f', name: 'f', mediaType: '', size: 1 }] };
     await partner.fileOperationReserve(manifest, owner, async () => true, () => true);
     const pending = partner.fileOperationReceive(manifest.operationId, 'f', (async function* () { started(); await gate; yield Buffer.from('x'); })(), owner, async () => true, () => true);
-    await entered; Date.now = () => realNow() + 25 * 60 * 60 * 1000;
-    await partner.fileOperationReserve({ ...manifest, operationId: crypto.randomUUID() }, owner, async () => true, () => true);
+    await entered;
     assert.deepEqual((await partner.fileOperationStatus(manifest.operationId, owner, async () => true))?.uploaded, []);
     release(); await pending;
     assert.deepEqual((await partner.fileOperationStatus(manifest.operationId, owner, async () => true))?.uploaded, ['f']);
-  } finally { release(); Date.now = realNow; await partner.close(); await f.close(); }
+  } finally { release(); await partner.close(); await f.close(); }
 });
 
 test('four active uploads bound concurrent file writes', async () => {
@@ -708,67 +549,47 @@ test('private directory streaming waits for each bounded write before pulling an
   } finally { fs.open = originalOpen; syncBuiltinESMExports(); await partner.close(); await f.close(); }
 });
 
-test('an explicit reservation retry protects its own expired operation', async () => {
+test('an idempotent reservation after a long idle returns the same operation', async () => {
   const f = await fixture(); const partner = await f.createPartner(); const realNow = Date.now;
   try {
     const sessionId = (await partner.snapshot()).sessionId, owner = { ownerId: 'owner', sessionId };
     const manifest = { sessionId, operationId: crypto.randomUUID(), files: [{ id: 'f', name: 'f', mediaType: '', size: 0 }] };
     await partner.fileOperationReserve(manifest, owner, async () => true, () => true);
-    Date.now = () => realNow() + 25 * 60 * 60 * 1000;
+    Date.now = () => realNow() + 30 * 24 * 60 * 60 * 1000;
     assert.deepEqual((await partner.fileOperationReserve(manifest, owner, async () => true, () => true)).uploaded, []);
-    await partner.fileOperationReserve({ ...manifest, operationId: crypto.randomUUID() }, owner, async () => true, () => true);
     assert.ok(await partner.fileOperationStatus(manifest.operationId, owner, async () => true));
+    await assert.rejects(partner.fileOperationReserve({ ...manifest, files: [{ id: 'f', name: 'changed', mediaType: '', size: 0 }] }, owner, async () => true, () => true), /different content/);
   } finally { Date.now = realNow; await partner.close(); await f.close(); }
 });
 
-test('a staged download being opened protects the operation from retirement', async () => {
-  const f = await fixture(); const partner = await f.createPartner(); const realNow = Date.now, originalOpen = fs.open;
-  let release!: () => void, entered!: () => void;
-  const gate = new Promise<void>(resolve => { release = resolve; }), started = new Promise<void>(resolve => { entered = resolve; });
+test('a submission cannot observe an operation while its upload is being recorded', async () => {
+  const f = await fixture(); const partner = await f.createPartner();
+  let release!: () => void, started!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; }), entered = new Promise<void>(resolve => { started = resolve; });
   try {
     const sessionId = (await partner.snapshot()).sessionId, owner = { ownerId: 'owner', sessionId };
     const manifest = { sessionId, operationId: crypto.randomUUID(), files: [{ id: 'f', name: 'f', mediaType: '', size: 1 }] };
     await partner.fileOperationReserve(manifest, owner, async () => true, () => true);
-    await partner.fileOperationReceive(manifest.operationId, 'f', (async function* () { yield Buffer.from('x'); })(), owner, async () => true, () => true);
+    const pending = partner.fileOperationReceive(manifest.operationId, 'f', (async function* () { started(); await gate; yield Buffer.from('x'); })(), owner, async () => true, () => true);
+    await entered;
+    await assert.rejects(partner.submitNativeDelivery({ operationId: manifest.operationId, text: 'send' }), /Upload busy/);
+    release(); await pending;
     const result = await partner.fileOperationComplete(manifest.operationId, owner, async () => true, () => true);
-    fs.open = async (...args: Parameters<typeof fs.open>) => {
-      if (/\/p0-[a-f0-9]{64}\.file$/u.test(String(args[0]))) { entered(); await gate; }
-      return originalOpen(...args);
-    };
-    syncBuiltinESMExports();
-    const download = partner.openSharedFile(result.files[0]!.ref.attachmentId, owner);
-    await started; Date.now = () => realNow() + 25 * 60 * 60 * 1000;
-    await partner.fileOperationReserve({ ...manifest, operationId: crypto.randomUUID() }, owner, async () => true, () => true);
-    assert.ok((await partner.fileOperationStatus(manifest.operationId, owner, async () => true))?.result);
-    release(); const opened = await download; assert.ok(opened);
-    try { assert.equal((await opened.handle.readFile()).toString(), 'x'); } finally { await opened.handle.close(); }
-  } finally { release(); fs.open = originalOpen; syncBuiltinESMExports(); Date.now = realNow; await partner.close(); await f.close(); }
+    await partner.submitNativeDelivery({ operationId: manifest.operationId, text: 'send', files: result.files.map(file => file.ref) });
+    await eventually(async () => (await partner.lookupNativeDelivery(manifest.operationId))?.state === 'submitted');
+  } finally { release(); await partner.close(); await f.close(); }
 });
 
-test('an active submission cannot be retired while its authorization waits', async () => {
-  const f = await fixture(); const partner = await f.createPartner(); const realNow = Date.now;
-  let release!: () => void, entered!: () => void;
-  const gate = new Promise<void>(resolve => { release = resolve; }), started = new Promise<void>(resolve => { entered = resolve; });
-  try {
-    const sessionId = (await partner.snapshot()).sessionId, owner = { ownerId: 'owner', sessionId };
-    const manifest = { sessionId, operationId: crypto.randomUUID(), files: [{ id: 'f', name: 'f', mediaType: '', size: 1 }] };
-    await partner.fileOperationReserve(manifest, owner, async () => true, () => true);
-    await partner.fileOperationReceive(manifest.operationId, 'f', (async function* () { yield Buffer.from('x'); })(), owner, async () => true, () => true);
-    const result = await partner.fileOperationComplete(manifest.operationId, owner, async () => true, () => true);
-    const submission = partner.submitShared({ operationId: manifest.operationId, text: 'send', files: result.files.map(file => file.ref) }, async () => { entered(); await gate; return true; });
-    await started; Date.now = () => realNow() + 25 * 60 * 60 * 1000;
-    await partner.fileOperationReserve({ ...manifest, operationId: crypto.randomUUID() }, owner, async () => true, () => true);
-    assert.ok((await partner.fileOperationStatus(manifest.operationId, owner, async () => true))?.result);
-    release(); assert.equal((await submission).state, 'submitted');
-  } finally { release(); Date.now = realNow; await partner.close(); await f.close(); }
-});
-
-test('raw upload applies backpressure at the 100,000,000/200,000,000-byte boundaries', async () => {
+// Per-file 100,000,000 and per-message 200,000,000 limits are covered by
+// 'manifest enforces exact per-file and aggregate boundaries'; this case proves
+// one bounded write per pulled chunk, so it keeps a 64 MB temp footprint.
+test('raw upload writes each chunk before pulling the next for multi-megabyte files', async () => {
   const f = await fixture(); const partner = await f.createPartner();
   const originalOpen = fs.open; let writes = 0, pulled = 0, writing = false;
+  const size = 32_000_000, chunkSize = 64 * 1024;
   try {
     const sessionId = (await partner.snapshot()).sessionId, owner = { ownerId: 'owner', sessionId }, operationId = crypto.randomUUID();
-    const manifest = { sessionId, operationId, files: [{ id: 'large', name: 'large.bin', mediaType: '', size: 100_000_000 }, { id: 'large2', name: 'large2.bin', mediaType: '', size: 100_000_000 }] };
+    const manifest = { sessionId, operationId, files: [{ id: 'large', name: 'large.bin', mediaType: '', size }, { id: 'large2', name: 'large2.bin', mediaType: '', size }] };
     await partner.fileOperationReserve(manifest, owner, async () => true, () => true);
     fs.open = async (...args: Parameters<typeof fs.open>) => {
       const handle = await originalOpen(...args);
@@ -783,14 +604,16 @@ test('raw upload applies backpressure at the 100,000,000/200,000,000-byte bounda
     };
     syncBuiltinESMExports();
     async function* source() {
-      const chunk = Buffer.alloc(64 * 1024, 0x51); let remaining = 100_000_000;
-      while (remaining) { assert.equal(writing, false); assert.equal(pulled, writes); const size = Math.min(chunk.length, remaining); pulled++; remaining -= size; yield chunk.subarray(0, size); }
+      const chunk = Buffer.alloc(chunkSize, 0x51); let remaining = size;
+      while (remaining) { assert.equal(writing, false); assert.equal(pulled, writes); const length = Math.min(chunk.length, remaining); pulled++; remaining -= length; yield chunk.subarray(0, length); }
     }
     await partner.fileOperationReceive(operationId, 'large', source(), owner, async () => true, () => true);
     await partner.fileOperationReceive(operationId, 'large2', source(), owner, async () => true, () => true);
-    assert.ok(writes > 1000);
+    assert.equal(pulled, 2 * Math.ceil(size / chunkSize));
+    assert.equal(writes, pulled);
     const completed = await partner.fileOperationComplete(operationId, owner, async () => true, () => true);
-    assert.equal(completed.files[0]!.ref.size, 100_000_000);
-    assert.equal(completed.files[1]!.ref.size, 100_000_000);
+    assert.equal(completed.files[0]!.ref.size, size);
+    assert.equal(completed.files[1]!.ref.size, size);
+    assert.deepEqual((await partner.fileOperationStatus(operationId, owner, async () => true))?.uploaded, ['large', 'large2']);
   } finally { fs.open = originalOpen; syncBuiltinESMExports(); await partner.close(); await f.close(); }
 });

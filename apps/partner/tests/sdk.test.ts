@@ -289,41 +289,6 @@ test('accepted native steer reconciles a dropped response without duplicating th
   }
 });
 
-test('pre-acceptance timeout remains an editable unresolved draft across reopen and requires deliberate replacement', async () => {
-  const f = await fixture();
-  f.appServer.env!.FAKE_HOLD_METHOD = 'turn/start';
-  f.appServer.requestTimeoutMs = 2_000;
-  let partner = await f.createPartner();
-  const id = randomUUID();
-  try {
-    await assert.rejects(partner.submit(id, 'uncertain before acceptance'), (error: unknown) => error instanceof AppServerRequestTimeoutError);
-    const unresolved = await partner.snapshot();
-    assert.equal(unresolved.messages.find((message) => message.id === id)?.delivery, 'unresolved');
-    assert.equal(unresolved.draft?.sourceIds.join(','), id);
-    assert.equal((await f.requests()).filter((request) => request.method === 'turn/start').length, 1);
-
-    await partner.close();
-    f.appServer.env!.FAKE_HOLD_METHOD = '';
-    partner = await f.createPartner();
-    const reopened = await partner.snapshot();
-    assert.equal(reopened.draft?.sourceIds.join(','), id);
-    assert.equal(reopened.messages.find((message) => message.id === id)?.delivery, 'unresolved');
-    await assert.rejects(partner.submit(id, 'uncertain before acceptance'), /delivery is unresolved/);
-    assert.equal((await f.requests()).filter((request) => request.method === 'turn/start').length, 1);
-
-    const replacement = randomUUID();
-    await partner.submit(replacement, 'deliberate replacement', [], [id]);
-    await eventually(async () => (await partner.snapshot()).results?.some((result) => result.sourceIds.includes(replacement) && result.answers.length > 0) === true);
-    const completed = await partner.snapshot();
-    assert.equal(completed.messages.find((message) => message.id === id)?.delivery, 'replaced');
-    assert.equal(completed.draft, undefined);
-    assert.equal((await f.requests()).filter((request) => request.method === 'turn/start').length, 2);
-  } finally {
-    await partner.close();
-    await f.close();
-  }
-});
-
 test('closing rejects an in-flight SDK RPC and a fresh Partner owns later events', async () => {
   const f = await fixture();
   f.appServer.env!.FAKE_HOLD_METHOD = 'turn/start';

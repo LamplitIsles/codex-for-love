@@ -13,7 +13,7 @@ external executable and is not vendored into this repository.
 
 CFL retains the host-used relationship validation and state types in
 `apps/partner/runtime/relationship-domain.ts`, compaction boundary/projection
-rules in `runtime/continuity.ts` and the message limit in `runtime/message-input.ts`.
+rules in `runtime/continuity.ts`.
 These came from `LamplitIsles/dsh-plugins` revision `29ed11a`, primarily
 `packages/dsh-companion/src`. The retained rules keep their existing semantics;
 unused browser presentation and validation helpers have been removed.
@@ -785,3 +785,16 @@ marker and Apache-2.0 and Chord MIT notices match the contract package. The
 retained App IMPORTS notice is updated from the same frontend archive; the Noto
 Sans SC notice is unchanged. App owns the media cache contracts and browser
 behavior; CFL supplies the authenticated native media adapters.
+
+## Native-confirmed delivery — FlickNote #5707 / App PR #63
+
+CFL selects merged App `6b70e24d8732a3ac9a6f7b10fe82ab4613c84933`. Its
+published Forgejo contracts archive is 50,092 bytes, SHA-256
+`088da67e83227db60aa24440283467be0e825e087672d21aaf606974eb7b613c`;
+the frontend archive is 7,111,689 bytes, SHA-256
+`edf08d62f6937844ff05e6d46f13888b51cbc3a67841f309abfc03e4fc0ad831`.
+The contracts source metadata and frontend manifest identify the selected
+revision, and all 50 compiled contract files match byte-for-byte across the
+two archives. The App IMPORTS and Noto Sans SC notices match the retained
+copies. App owns the public delivery protocol and frontend behavior; CFL owns
+the native execution and delivery evidence.

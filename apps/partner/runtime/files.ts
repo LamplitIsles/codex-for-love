@@ -3,7 +3,7 @@ import { constants } from 'node:fs';
 import { lstat, open, realpath } from 'node:fs/promises';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import type { FileRef } from '@lamplit/contracts';
-import type { StoredFile, StagedFiles } from './store.ts';
+import type { StoredFile } from './store.ts';
 
 export const fileLimits = { maxFilesPerMessage: 6, maxFileBytes: 100_000_000, maxMessageFileBytes: 200_000_000 };
 export { ownerId as fileOwner } from './auth.ts';
@@ -35,10 +35,9 @@ async function openStoredFile(file: StoredFile, attachments: string) {
   if (!stat.isFile() || stat.size !== file.size || stat.size > fileLimits.maxFileBytes) { await handle.close(); throw new Error('File unavailable'); }
   return { handle, storedDigest };
 }
-async function verifyHandle(file: StoredFile, handle: Awaited<ReturnType<typeof open>>, storedDigest: string, retryOperationId?: string): Promise<string | undefined> {
+async function verifyHandle(file: StoredFile, handle: Awaited<ReturnType<typeof open>>, storedDigest: string): Promise<void> {
   const digest = createHash('sha256');
   const identity = createHash('sha256').update(JSON.stringify([file.operation_id, file.position, file.name, file.media_type]));
-  const retry = retryOperationId === undefined ? undefined : createHash('sha256').update(JSON.stringify([retryOperationId, file.position, file.name, file.media_type]));
   {
     let count = 0;
     const buffer = Buffer.allocUnsafe(64 * 1024);
@@ -48,29 +47,20 @@ async function verifyHandle(file: StoredFile, handle: Awaited<ReturnType<typeof 
       count += bytesRead;
       if (count > file.size) throw new Error('File changed');
       const chunk = buffer.subarray(0, bytesRead);
-      digest.update(chunk); identity.update(chunk); retry?.update(chunk);
+      digest.update(chunk); identity.update(chunk);
     }
     if (count !== file.size || digest.digest('hex') !== storedDigest || identity.digest('hex') !== file.id) throw new Error('File changed');
-    return retry?.digest('hex');
   }
 }
-export async function verifyStoredFile(file: StoredFile, attachments: string, retryOperationId?: string): Promise<string | undefined> {
+export async function verifyStoredFile(file: StoredFile, attachments: string): Promise<void> {
   const { handle, storedDigest } = await openStoredFile(file, attachments);
-  try { return await verifyHandle(file, handle, storedDigest, retryOperationId); } finally { await handle.close(); }
+  try { await verifyHandle(file, handle, storedDigest); } finally { await handle.close(); }
 }
 export async function openVerifiedFile(file: StoredFile, attachments: string) {
   const { handle, storedDigest } = await openStoredFile(file, attachments);
   try { await verifyHandle(file, handle, storedDigest); }
   catch (error) { await handle.close(); throw error; }
   return handle;
-}
-export async function retryStoredFiles(files: readonly StoredFile[], operationId: string, attachments: string): Promise<StagedFiles> {
-  const retried: StoredFile[] = [];
-  for (const file of files) {
-    const id = await verifyStoredFile(file, attachments, operationId);
-    retried.push({ ...file, id: id!, operation_id: operationId });
-  }
-  return { files: retried, refs: retried.map(file => fileRef(file)) };
 }
 export function fileRef(file: StoredFile, availability: FileRef['availability'] = 'available'): FileRef {
   return { attachmentId: file.id, name: file.name, mediaType: file.media_type, size: file.size, availability };

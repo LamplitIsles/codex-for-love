@@ -501,12 +501,11 @@ remains an invalidation stream rather than an execution journal:
 
 - `GET /api/session` reads the current projection; `before` loads older pages
   and `after` reads bounded changes.
-- `POST /api/messages` accepts text and up to five validated images.
 - `POST /api/cancel` interrupts the active official turn. If a submitted input
-  has not been acknowledged by official history, it remains visibly unresolved
-  and editable; it is never silently retried.
+  has not been acknowledged by official history, its outcome remains unknown;
+  it is never silently retried.
 - `POST /api/compact` requests native official compaction when no turn or
-  recovery submission is active. It returns HTTP 202 when app-server accepts
+  submission is active. It returns HTTP 202 when app-server accepts
   the request; completion or failure arrives through the session lifecycle.
   There is no application-imposed completion timeout. A later projection
   refresh failure does not restore an accepted `/compact` command.
@@ -517,29 +516,18 @@ contains input identity, source text/images, turn association, delivery state
 and any local attachment error; `results` contains the canonical turn answer,
 generated images and official execution status/error once per turn. A turn
 with several inputs therefore has one reply, not one copied reply per input.
-Replacement is delivered as a revisioned `replaced` input marker so an
-incremental refresh can remove a loaded draft while rejecting an older page;
-the browser retains that marker in its merge state and filters it from the
-visible transcript.
 Official failed/interrupted outcomes are read from Codex history/events rather
-than copied into every input. SQLite retains only unresolved input bodies,
-source-segment metadata, attachment metadata and application-owned facts such
-as replacements or attachment materialization errors.
+than copied into every input. SQLite retains source-segment and attachment
+metadata and application-owned facts; historic unresolved records are not
+migrated or deleted here.
 
-Follow-ups rejected definitively because the active turn is a review or compact
-turn are held in FIFO order and merged into one fresh native turn when the
-conversation becomes eligible. This is internal send recovery, not a deferred
-queue feature. An ordinary stop restores only unacknowledged text and images to
-the composer; reopening a conversation never submits a restored draft. The
-next deliberate send may replace that draft's source identities. Shared chat
-acceptance is the SQLite commit of validated input, attachments and operation
-fingerprint. Its receipt and reconnect lookup do not wait for native start/steer
-or history catch-up. Native execution remains serialized; official user items
-establish consumption. Only confirmed pre-processing withdrawal or rejection
-produces public recovery; ambiguous native attempts are never automatically replayed after restart.
-`submitted` means retained input, not a guarantee of exactly-once execution. Known
-native activity reaches the existing typing view independently of reconciliation;
-only completed reply messages are presented.
+Human messages use the shared chat socket. CFL steers an active turn immediately;
+a matching official history item is required for a submitted receipt. A definite
+failure may be retried explicitly using the same operation ID and a higher attempt.
+Timeouts, disconnects and unproven stop outcomes remain unknown and are never
+automatically replayed. The frontend owns failed message text. Post and Keet keep
+their existing admission and execution policy. See
+[native submissions](native-durable-submissions.md).
 
 Uploaded image bytes are validated, materialized once below
 `.lamplit/attachments/`, and sent as native `localImage` input with the exact
@@ -598,7 +586,7 @@ toast or timeline marker in the shared frontend. Official records are retained.
 Current usage uses `last.totalTokens` and `modelContextWindow`; completion
 invalidates old tokens, retaining capacity until fresh native usage. Missing
 usage displays zero quietly. The shared compact command rechecks auth/session
-and native idle/pending/recovery admission; lost replies do not replay it.
+and native idle/pending admission; lost replies do not replay it.
 Partner enables local compaction by default, routing manual and automatic
 compaction through the official local summarizer in the patched Codex build,
 which consumes the source compaction
@@ -660,17 +648,12 @@ required review, use the repository's `og` tag-push workflow. The Trusted
 Publisher setup is a separate human-only `.scratch` wizard; no npm token or
 GitHub secret is used by this repository.
 
-## Shared App image recovery
+## Shared App images
 
-At the default `/` entry, select or paste supported images and remove selections before send.
-An upload failure keeps editable text and files. Submitted recovery offers inspect,
-restore to edit and dismiss. Current edits prevent restoration from overwriting them.
-Unresolved native delivery stays internal and never produces public recovery; a
-completed turn or socket reconnect is not proof of unconsumption. Eligible edited resend uses a new operation UUID.
-Missing originals block image resend until explicitly removed or replaced.
-Clearing restored input returns its offer; discard/dismiss hides it only for this
-page/session and never changes native consumption. See
-[image/recovery protocol](image-send-recovery.md) for limits and isolated acceptance.
+At the default `/` entry, select or paste supported images and remove selections
+before send. The frontend retains failed messages for explicit retry or removal.
+Unknown native outcomes are reconciled without automatic resend. See the
+[image protocol](image-send-recovery.md) for staging and media limits.
 
 ## Independent frontend selection
 

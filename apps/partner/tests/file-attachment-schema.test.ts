@@ -208,3 +208,53 @@ test('unrecognized directory key schema is not silently accepted', async () => {
     finally { after.close(); }
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
+
+test('legacy recovery tables are not created and existing rows survive unchanged', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'cfl-legacy-recovery-schema-'));
+  const legacyTables = ['failed_submissions', 'deleted_failures', 'retry_attempts'];
+  const present = (db: DatabaseSync) => (db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name IN (${legacyTables.map(() => '?').join(',')})`).all(...legacyTables) as Array<{ name: string }>).map(row => row.name).sort();
+  try {
+    const fresh = join(directory, 'fresh.sqlite');
+    const store = new Store(fresh);
+    await store.close();
+    const created = new DatabaseSync(fresh);
+    try {
+      assert.deepEqual(present(created), []);
+      assert.ok(created.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='message_meta'").get());
+    } finally { created.close(); }
+
+    const legacy = join(directory, 'legacy.sqlite');
+    const payload = JSON.stringify({ operationId: 'legacy-op', text: '旧失败草稿 😀\r\nFiles (paths relative to workspace):\r\n[]', files: [{ attachmentId: 'a'.repeat(64), name: '旧.txt', mediaType: 'text/plain', size: 3, availability: 'available' }] });
+    const old = new DatabaseSync(legacy);
+    old.exec(`CREATE TABLE failed_submissions (operation_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, fingerprint TEXT NOT NULL, payload TEXT NOT NULL, error TEXT NOT NULL, replaced_by TEXT);
+      CREATE TABLE deleted_failures (operation_id TEXT PRIMARY KEY);
+      CREATE TABLE retry_attempts (attempt_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, source_id TEXT NOT NULL, payload TEXT);`);
+    old.prepare('INSERT INTO failed_submissions VALUES(?,?,?,?,?,?)').run('legacy-op', 'session', 'fingerprint', payload, 'definite failure', null);
+    old.prepare('INSERT INTO deleted_failures VALUES(?)').run('legacy-discard');
+    old.prepare('INSERT INTO retry_attempts VALUES(?,?,?,?)').run('legacy-attempt', 'session', 'legacy-op', null);
+    old.close();
+
+    const reopened = new Store(legacy);
+    try {
+      const messageId = crypto.randomUUID();
+      assert.equal((await reopened.ensureMessage(messageId, Date.now(), 'a fresh message')).id, messageId);
+      const operationId = crypto.randomUUID(), key = crypto.randomUUID().replaceAll('-', ''), digest = 'b'.repeat(64), attachmentId = 'c'.repeat(64);
+      const manifest = { sessionId: 'session', operationId, files: [{ id: 'f', name: 'f', mediaType: '', size: 1 }] };
+      const path = `/test/.file-operations/${key}/p0-${digest}.file`;
+      const staged = { files: [{ id: attachmentId, operation_id: operationId, owner_id: 'owner', session_id: 'session', position: 0, name: 'f', media_type: '', size: 1, path }], refs: [{ attachmentId, name: 'f', mediaType: '', size: 1, availability: 'available' as const }] };
+      await reopened.reserveFiles(manifest, 'owner', key);
+      await reopened.recordFileUpload(manifest, 'owner', 'f', { digest, path, attachmentId });
+      assert.deepEqual(await reopened.completeFileReservation(manifest, 'owner', staged), staged);
+    } finally { await reopened.close(); }
+
+    const after = new DatabaseSync(legacy);
+    try {
+      assert.deepEqual(present(after), [...legacyTables].sort());
+      assert.deepEqual({ ...after.prepare('SELECT * FROM failed_submissions').get() }, { operation_id: 'legacy-op', session_id: 'session', fingerprint: 'fingerprint', payload, error: 'definite failure', replaced_by: null });
+      assert.deepEqual({ ...after.prepare('SELECT * FROM retry_attempts').get() }, { attempt_id: 'legacy-attempt', session_id: 'session', source_id: 'legacy-op', payload: null });
+      assert.deepEqual({ ...after.prepare('SELECT * FROM deleted_failures').get() }, { operation_id: 'legacy-discard' });
+      assert.equal(after.prepare('SELECT count(*) AS count FROM message_meta').get()?.count, 1);
+      assert.equal(after.prepare('SELECT count(*) AS count FROM staged_files').get()?.count, 1);
+    } finally { after.close(); }
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});

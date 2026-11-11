@@ -59,7 +59,7 @@ test('Node voice and chat share one upgrade owner; PCM streams before finish, fi
     assert.deepEqual(await c.wait('result'), {type: 'result', text: 'recognized final'});
     await eventually(async () => f.state.closes === 1);
     assert.equal((await f.f.requests()).some(r => r.method === 'turn/start'), false);
-    await chat.submit({operationId: crypto.randomUUID(), text: 'explicit send'});
+    await chat.submit({operationId: crypto.randomUUID(), text: 'explicit send'}).catch(() => {});
     await eventually(async () => (await f.f.requests()).some(r => r.method === 'turn/start'));
     chat.close();
   } finally {await f.close();}
@@ -76,7 +76,7 @@ test('exact voice Origin rejects missing and foreign origins before contacting p
     const c = await f.client(); assert.deepEqual(await c.wait('error'), {type:'error', code:'voice_disabled'});
     assert.equal(f.state.calls, 0);
     const chat = await openChat(new globalThis.WebSocket(`${f.origin.replace('http','ws')}/api/chat/socket`), () => {}, () => {});
-    await chat.submit({operationId:crypto.randomUUID(), text:'speech disabled text'}); chat.close();
+    await chat.submit({operationId:crypto.randomUUID(), text:'speech disabled text'}).catch(() => {}); chat.close();
     await eventually(async () => (await f.f.requests()).some(r => r.method === 'turn/start'));
     assert.equal((await fetch(`${f.origin}/api/voice/capability`, {method:'POST'})).status, 405);
     assert.equal((await fetch(`${f.origin}/api/voice/stream`)).status, 426);

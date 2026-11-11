@@ -14,7 +14,7 @@ import { StickerCatalog } from './sticker-catalog.ts';
 import { readStickerZip } from './sticker-import.ts';
 import { listDiary, readDiary } from './diary.ts';
 export { MAX_DIARY_ENTRY_BYTES } from './diary.ts';
-import { validateUpload, validateSubmission, validateRecovery, validateRetryImageMapping, validateRetryFileMapping, type FileRef, type Receipt, type Submission, type ImageUpload, type ImageRef, type InputRecovery, type ChatAppearance, type FinalizeSubmission, type RetryFailed, type DeleteFailed, type StickerBackend, validate, FileLimitsSchema, FileRefSchema, FinalizeSubmissionSchema, RetryFailedSchema, DeleteFailedSchema } from '@lamplit/contracts';
+import { validateUpload, validateSubmission, type FileRef, type Submission, type ImageUpload, type ImageRef, type ChatAppearance, type StickerBackend, validate, FileLimitsSchema, FileRefSchema } from '@lamplit/contracts';
 import * as contracts from '@lamplit/contracts';
 import * as contractServer from '@lamplit/contracts/server';
 import { createHash, randomUUID } from 'node:crypto';
@@ -50,9 +50,9 @@ import {
   type ImageInput,
   imageInputSchema,
 } from './images.ts';
-import { fileLimits, fileOwner, fileRef, openVerifiedFile, retryStoredFiles, verifyStoredFile } from './files.ts';
+import { fileLimits, fileOwner, fileRef, openVerifiedFile, verifyStoredFile } from './files.ts';
 import { createFileOperations, validateManifest } from './file-operations.ts';
-import { Store, type StoredFile, type MessageMeta, type MessagePageOptions, type StoredImage, type StoredInput, type StoredInputSegment } from './store.ts';
+import { Store, type DeliveryAttempt, type StoredFile, type MessageMeta, type MessagePageOptions, type StoredImage, type StoredInput, type StoredInputSegment } from './store.ts';
 import { classifyKeetTrigger, type KeetEventBody } from './keet.ts';
 import { materializeKeetImages } from './keet-images.ts';
 import type { CompanionState } from './relationship-domain.ts';
@@ -87,6 +87,8 @@ type InputIntent = {
   transportId: string;
   source: InputSource;
   turnId?: string;
+  deliveryAttempt?: number;
+  deliveryFailed?: boolean;
 };
 type KnownMessage = Pick<MessageMeta, 'created' | 'sequence'>;
 type TurnResult = {
@@ -157,13 +159,6 @@ export function visibleHistoryPage(messages: readonly MessageMeta[], results: re
     before: selected[0]?.sequence ?? null,
   };
 }
-type RestoredDraft = {
-  key: string;
-  sourceIds: string[];
-  input: string;
-  images: StoredImage[];
-};
-
 export type PartnerDependencies = {
   appServer?: Partial<CodexAppServerClientOptions>;
   now?: () => number;
@@ -172,8 +167,10 @@ export type PartnerDependencies = {
 };
 
 type JsonObject = Record<string, unknown>;
+type NativeDeliveryReceipt = { operationId: string; attempt: number; state: 'submitted' | 'failed'; messageId: string | null; turnId: string | null; error: string | null };
 type ChatObservation =
   | { type: 'change' }
+  | { type: 'delivery'; receipt: NativeDeliveryReceipt }
   | { type: 'reply-settled' }
   | { type: 'delta'; reply: { id: string; turnId: string; createdAt: number; text: string } }
   | { type: 'completed'; id: string; turnId: string; text: string };
@@ -379,11 +376,20 @@ function errorFromTurn(turn: OfficialTurn | undefined): string | null {
 class LocalFilePreparationError extends Error {
   constructor(cause: unknown) { super('File unavailable before native submission', { cause }); this.name = 'LocalFilePreparationError'; }
 }
+class LocalDeliveryPreparationError extends Error {
+  constructor(cause: unknown) { super('Delivery preparation failed', { cause }); }
+}
+async function prepareDeliveryResource<T>(action: () => T | Promise<T>): Promise<T> {
+  try { return await action(); } catch (error) { throw new LocalDeliveryPreparationError(error); }
+}
 
-async function nativeInput(input: string, images: readonly StoredImage[], store: Store, sessionId: string, attachments: string, operationIds: readonly string[]): Promise<{ values: v2.UserInput[]; stickerContext?: { kind: 'application'; value: string }; fileContext?: Record<string, { kind: 'untrusted'; value: string }> }> {
+function nativeFileSuffix(files: readonly StoredFile[], attachments: string): string {
+  return `\n\nFiles (paths relative to workspace):\n${JSON.stringify(files.map(file => ({ name: file.name, path: join('.lamplit', 'attachments', relative(resolve(attachments), resolve(file.path))) })))}`;
+}
+
+async function nativeInput(input: string, images: readonly StoredImage[], store: Store, sessionId: string, attachments: string, operationIds: readonly string[]): Promise<{ values: v2.UserInput[]; stickerContext?: { kind: 'application'; value: string } }> {
   const values: v2.UserInput[] = [];
   const metadata: Array<{ name: string; tags: string[]; originalMediaType: string; representation: string }> = [];
-  if (input) values.push({ type: 'text', text: input, text_elements: [] });
   for (const image of images) {
     const operation = await store.stagedImages(image.operation_id, sessionId);
     const ref = operation?.refs.find(candidate => candidate.attachmentId === image.id);
@@ -403,14 +409,10 @@ async function nativeInput(input: string, images: readonly StoredImage[], store:
     try { await verifyStoredFile(file, attachments); }
     catch (error) { throw new LocalFilePreparationError(error); }
   }
-  if (!values.length && files.length) values.push({ type: 'text', text: '', text_elements: [] });
+  const text = input + (files.length ? nativeFileSuffix(files, attachments) : '');
+  if (text) values.unshift({ type: 'text', text, text_elements: [] });
   if (!values.length) throw new Error('A native turn needs text or an image');
-  const fileContext = files.length ? Object.fromEntries(files.map((file, index) => {
-    const path = join('.lamplit', 'attachments', relative(resolve(attachments), resolve(file.path)));
-    const value = JSON.stringify({ path, fileIndex: index, operationId: file.operation_id, name: file.name, size: file.size }).replaceAll('<', '\\u003c').replaceAll('>', '\\u003e');
-    return [`codex-for-love.file-${index}`, { kind: 'untrusted' as const, value }];
-  })) : undefined;
-  return { values, ...(fileContext ? { fileContext } : {}), ...(metadata.length ? { stickerContext: { kind: 'application' as const, value: JSON.stringify(metadata) } } : {}) };
+  return { values, ...(metadata.length ? { stickerContext: { kind: 'application' as const, value: JSON.stringify(metadata) } } : {}) };
 }
 
 function imageMediaType(path: string): StoredImage['media_type'] | undefined {
@@ -611,6 +613,9 @@ export async function createPartner(config: Config, credentials: Credentials, de
   const pendingStarts = new Map<string, InputIntent>();
   const pendingSteers: InputIntent[] = [];
   const rejectedSteers: InputIntent[] = [];
+  const nativeDeliveryAdmissions = new Set<string>();
+  const nativeDeliveryChecks = new Set<string>();
+  const nativeDeliveryCheckPending = new Set<string>();
   const unresolvedInputIds = new Set<string>();
   const failedPostStarts = new Set<string>(); // Retry only after fresh native history on restart.
   const presentationFingerprints = new Map<string, string>();
@@ -618,6 +623,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
   let appServer: CodexAppServerClient | undefined;
   let managedServer: Awaited<ReturnType<typeof startManagedAppServer>> | undefined;
   let threadId = '';
+  let historyMode: 'legacy' | 'paginated' | undefined;
   let activeTurnId: string | null = null;
   let activeOperationId: string | null = null;
   // The SDK dispatches server requests independently from its serialized
@@ -628,7 +634,6 @@ export async function createPartner(config: Config, credentials: Credentials, de
   // A locally-known message can still be unresolved after a restart. Only a
   // completed official turn is a valid compaction anchor.
   let completedOperationId: string | null = null;
-  let restoredDraft: RestoredDraft | undefined;
   let interruptPromise: Promise<void> | undefined;
   let recoveryPromise: Promise<void> | undefined;
   let lifecycle: CompactionLifecycleState | undefined;
@@ -663,6 +668,13 @@ export async function createPartner(config: Config, credentials: Credentials, de
     for (const listener of listeners) listener();
     for (const listener of chatListeners) listener(observation);
   };
+  function deliveryReceipt(operationId: string, attempt: number, state: 'accepted' | 'failed'): NativeDeliveryReceipt {
+    return { operationId, attempt, state: state === 'accepted' ? 'submitted' : 'failed', messageId: state === 'accepted' ? operationId : null, turnId: state === 'accepted' ? operationTurn(operationId)?.id ?? null : null, error: null };
+  }
+  function notifyDelivery(receipt: NativeDeliveryReceipt): void {
+    if (closing) return;
+    notify({ type: 'delivery', receipt });
+  }
 
   function officialInputIds(turn: OfficialTurn): string[] {
     return userItems(turn).flatMap((item) => {
@@ -932,13 +944,71 @@ export async function createPartner(config: Config, credentials: Credentials, de
     return result;
   }
 
+  async function verifiedNativeDeliveryInput(operationId: string, candidate: unknown, allowRecordedText = false): Promise<string | undefined> {
+    const item = record(candidate);
+    if (item.type !== 'userMessage' || item.clientId !== operationId || !Array.isArray(item.content)) return undefined;
+    const fingerprint = await store.sharedSubmission(operationId, threadId);
+    if (!fingerprint) return undefined;
+    const staged = await store.stagedImages(operationId, threadId);
+    const storedImages = await store.inputImageMetadata([operationId]);
+    if ((staged?.refs.length ?? 0) !== storedImages.length || (staged?.images.length ?? 0) !== storedImages.length) return undefined;
+    const expectedPaths: string[] = [];
+    for (let i = 0; i < storedImages.length; i += 1) {
+      const image = storedImages[i]!, original = staged!.images[i]!, ref = staged!.refs[i]!;
+      if (!ref || image.operation_id !== operationId || original.operation_id !== operationId || image.id !== ref.attachmentId ||
+          image.id !== original.id || image.path !== original.path || image.name !== original.name || image.media_type !== original.media_type ||
+          image.name !== ref.name || image.media_type !== ref.mediaType || ref.availability !== 'available') return undefined;
+      expectedPaths.push(ref.sticker ? join(paths.attachments, `${image.id}.model.jpg`) : image.path);
+    }
+    const stagedFiles = await store.stagedFiles(operationId, fileOwner, threadId);
+    const files = await store.inputFiles(operationId, fileOwner, threadId);
+    if ((stagedFiles?.files.length ?? 0) !== files.length || (stagedFiles?.refs.length ?? 0) !== files.length) return undefined;
+    const fileKeys: Array<keyof StoredFile> = ['id', 'operation_id', 'owner_id', 'session_id', 'position', 'name', 'media_type', 'size', 'path'];
+    for (const [index, file] of files.entries()) {
+      const original = stagedFiles!.files[index]!, ref = stagedFiles!.refs[index]!;
+      if (file.operation_id !== operationId || file.owner_id !== fileOwner || file.session_id !== threadId || file.position !== index ||
+          !isUnder(paths.attachments, file.path) || fileKeys.some(key => file[key] !== original[key]) || JSON.stringify(fileRef(file)) !== JSON.stringify(ref)) return undefined;
+    }
+    let offset = 0, text = '';
+    const first = record(item.content[0]);
+    if (first.type === 'text') {
+      if (typeof first.text !== 'string' || (first.text_elements !== undefined && (!Array.isArray(first.text_elements) || first.text_elements.length))) return undefined;
+      text = first.text; offset = 1;
+    }
+    if (item.content.length !== offset + expectedPaths.length || (!text && !expectedPaths.length)) return undefined;
+    for (let i = 0; i < expectedPaths.length; i += 1) {
+      const image = record(item.content[offset + i]);
+      if (image.type !== 'localImage' || image.path !== expectedPaths[i] || (image.detail !== undefined && image.detail !== null)) return undefined;
+    }
+    const matchesFingerprint = (body: string) => {
+      try {
+        const input = normalizeSubmission({ operationId, text: body, ...(staged?.refs.length ? { images: staged.refs } : {}), ...(stagedFiles?.refs.length ? { files: stagedFiles.refs } : {}) });
+        return createHash('sha256').update(JSON.stringify(input)).digest('hex') === fingerprint;
+      } catch { return false; }
+    };
+    // Existing historical text is retained verbatim only when its complete
+    // original submission fingerprint proves that it already is the body.
+    if (files.length && allowRecordedText && matchesFingerprint(text)) return text;
+    if (files.length) {
+      const suffix = nativeFileSuffix(files, paths.attachments);
+      if (!text.endsWith(suffix)) return undefined;
+      text = text.slice(0, -suffix.length);
+    } else if (offset && !text && expectedPaths.length) return undefined;
+    return matchesFingerprint(text) ? text : undefined;
+  }
+
   async function inputForSource(sourceId: string, fallback: OfficialItem | undefined, offset: number): Promise<StoredInput> {
     const stored = await store.inputPayload(sourceId);
     if (stored) return stored;
     const segment = await store.inputSegment(sourceId);
     const fallbackIds = expandClientId(typeof fallback?.clientId === 'string' ? fallback.clientId : '');
     if (fallbackIds.length > 1 && !segment) throw projectionError('MISSING_INPUT_SEGMENT', `Missing acknowledged input segment metadata for ${sourceId}`);
-    const rawText = fallback ? textFromUserItem(fallback) ?? '' : '';
+    let rawText = fallback ? textFromUserItem(fallback) ?? '' : '';
+    if (fallback && fallbackIds.length === 1 && fallbackIds[0] === sourceId && await store.sharedSubmission(sourceId, threadId) && ((await store.stagedFiles(sourceId, fileOwner, threadId))?.refs.length || (await store.inputFiles(sourceId, fileOwner, threadId)).length)) {
+      const verified = await verifiedNativeDeliveryInput(sourceId, fallback, !await store.deliveryAttempt(sourceId, threadId));
+      if (verified === undefined) throw projectionError('PROTOCOL_RECONCILE_FAILED', `Cannot verify native file input for ${sourceId}`);
+      rawText = verified;
+    }
     const combinedText = sourceId.startsWith('alarm:') && rawText.startsWith(ALARM_INPUT_PREFIX) ? rawText.slice(ALARM_INPUT_PREFIX.length) : rawText;
     const images = await store.inputImageMetadata([sourceId]);
     return {
@@ -1094,22 +1164,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
     // An unaccepted alarm can be retried with its stable occurrence ID; it is
     // never a Human draft to restore into the composer.
     for (const message of unresolved) if (!message.id.startsWith('alarm:')) unresolvedInputIds.add(message.id);
-    await setRestoredDraft(unresolved.map((message) => message.id));
     syncActiveTurn();
-  }
-
-  /** Reconcile recovery facts without clearing an active turn's runtime maps. */
-  function refreshRecoveryHistory(): Promise<void> {
-    const task = eventChain.then(async () => {
-      for (const candidate of await listTurns()) {
-        const turn = registerTurn(candidate);
-        if (turn) await projectTurn(turn, false);
-      }
-      syncActiveTurn();
-      await setRestoredDraft((await unresolvedMessages()).map(source => source.id));
-    });
-    eventChain = task.catch(() => undefined);
-    return task;
   }
 
   async function unresolvedMessages(): Promise<Array<{ id: string; input: string }>> {
@@ -1119,33 +1174,17 @@ export async function createPartner(config: Config, credentials: Credentials, de
     return rows.filter((row) => !observedInputIds.has(row.id) && outcomes.get(row.id)?.status !== 'replaced');
   }
 
-  async function setRestoredDraft(ids: readonly string[]): Promise<void> {
-    const unique = [...new Set(ids)].filter((id) => !id.startsWith('alarm:') && messageIds.has(id) && !observedInputIds.has(id));
-    if (!unique.length) {
-      restoredDraft = undefined;
-      return;
-    }
-    const inputs: Array<{ id: string; payload: StoredInput }> = [];
-    for (const id of unique) {
-      const payload = await store.inputPayload(id);
-      if (payload) inputs.push({ id, payload });
-    }
-    if (!inputs.length) {
-      restoredDraft = undefined;
-      return;
-    }
-    const sourceIds = inputs.map(({ id }) => id);
-    restoredDraft = {
-      key: sourceIds.join(','),
-      sourceIds,
-      input: inputs.map(({ payload }) => payload.input).join('\n'),
-      images: inputs.flatMap(({ payload }) => payload.images),
-    };
-  }
-
   async function markUnresolved(intent: InputIntent): Promise<void> {
     for (const id of intent.ids) unresolvedInputIds.add(id);
-    await setRestoredDraft([...unresolvedInputIds]);
+  }
+
+  async function failNativeDelivery(intent: InputIntent): Promise<void> {
+    if (intent.source !== 'human' || intent.ids.length !== 1) return;
+    const id = intent.ids[0]!;
+    if (!nativeDeliveryAdmissions.has(id) || observedInputIds.has(id) || !intent.deliveryAttempt) return;
+    if (!await store.confirmUnsubmittedInput(id)) return;
+    const current = await store.deliveryAttempt(id, threadId);
+    if (current?.attempt === intent.deliveryAttempt && current.state === 'unknown') intent.deliveryFailed = true;
   }
 
   function removePendingIntent(list: InputIntent[], transportId: string): InputIntent | undefined {
@@ -1159,7 +1198,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
   }
 
   async function markLocalFileRejection(intent: InputIntent, error: LocalFilePreparationError): Promise<void> {
-    // Only Human UUID inputs can be restored through the shared chat recovery path.
+    // Record local file rejection only for unobserved Human UUID inputs.
     const humanIds = intent.ids.filter(id => !observedInputIds.has(id) && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(id));
     if (humanIds.length) await store.markRejected(humanIds, error.message);
   }
@@ -1185,8 +1224,8 @@ export async function createPartner(config: Config, credentials: Credentials, de
         ...(intent.source !== 'none'
           ? { additionalContext: intent.source === 'post' && postContext ? postAdditionalContext(postContext.event, postContext.media, conversationName) : intent.source === 'keet' && keetContext ? keetAdditionalContext(keetContext) : intent.source === 'alarm'
             ? { 'codex-for-love.alarm': { kind: 'application' as const, value: 'This is a scheduled reminder you previously wrote to yourself. It is not a message, instruction, or commitment from the Human or a Keet sender. Decide what to do now using current context; do not automatically send to the originating channel.' }, 'codex-for-love.message-time': inputTimeContext(intent.source, now()) }
-            : { 'codex-for-love.message-time': inputTimeContext(intent.source, now()), ...(native.stickerContext ? { 'codex-for-love.sticker': native.stickerContext } : {}), ...(native.fileContext ?? {}) } }
-          : native.fileContext ? { additionalContext: native.fileContext } : {}),
+            : { 'codex-for-love.message-time': inputTimeContext(intent.source, now()), ...(native.stickerContext ? { 'codex-for-love.sticker': native.stickerContext } : {}) } }
+          : {}),
       }).catch((error: unknown) => {
         if (postContext) processLog('post.execution', { stage: 'native_start', status: 'failed', category: error instanceof AppServerRpcError ? 'rejected' : 'unavailable', platform: postContext.event.message.platform, kind: postContext.event.message.conversation.type });
         rejectedBeforeAcceptance = error instanceof AppServerRpcError;
@@ -1212,9 +1251,10 @@ export async function createPartner(config: Config, credentials: Credentials, de
       // A JSON-RPC rejection means the server did not accept this alarm. A
       // timeout or lost connection remains ambiguous until fresh history is
       // loaded after restart, so never retry it in this process.
-      if (error instanceof LocalFilePreparationError) await markLocalFileRejection(intent, error);
-      else if (error instanceof AppServerInvalidRequestError && intent.source === 'human') await store.markRejected(intent.ids, error instanceof Error ? error.message : String(error));
-      if (intent.source !== 'alarm' || !rejectedBeforeAcceptance) await markUnresolved(intent);
+      if (error instanceof LocalFilePreparationError && nativeDeliveryAdmissions.has(intent.transportId)) await failNativeDelivery(intent);
+      else if (error instanceof LocalFilePreparationError) await markLocalFileRejection(intent, error);
+      else if (error instanceof AppServerInvalidRequestError && intent.source === 'human' && !nativeDeliveryAdmissions.has(intent.transportId)) await store.markRejected(intent.ids, error instanceof Error ? error.message : String(error));
+      if (!intent.deliveryFailed && (intent.source !== 'alarm' || !rejectedBeforeAcceptance)) await markUnresolved(intent);
       throw error;
     } finally {
       if (submittingOperationId === intent.transportId) submittingOperationId = null;
@@ -1250,8 +1290,8 @@ export async function createPartner(config: Config, credentials: Credentials, de
           clientUserMessageId: intent.transportId,
           expectedTurnId: expected,
           ...(intent.source !== 'none'
-            ? { additionalContext: { 'codex-for-love.message-time': inputTimeContext(intent.source, now()), ...(native.stickerContext ? { 'codex-for-love.sticker': native.stickerContext } : {}), ...(native.fileContext ?? {}) } }
-            : native.fileContext ? { additionalContext: native.fileContext } : {}),
+            ? { additionalContext: { 'codex-for-love.message-time': inputTimeContext(intent.source, now()), ...(native.stickerContext ? { 'codex-for-love.sticker': native.stickerContext } : {}) } }
+            : {}),
         });
         intent.turnId = response.turnId;
         mergeTurnInputIds(response.turnId, intent.ids);
@@ -1266,8 +1306,24 @@ export async function createPartner(config: Config, credentials: Credentials, de
         if (error instanceof LocalFilePreparationError) {
           // No steer RPC was sent for this attempt; unlike an RPC error, this is definite.
           removePendingIntent(pendingSteers, intent.transportId);
-          await markLocalFileRejection(intent, error);
-          await markUnresolved(intent);
+          if (nativeDeliveryAdmissions.has(intent.transportId)) await failNativeDelivery(intent);
+          else { await markLocalFileRejection(intent, error); await markUnresolved(intent); }
+          throw error;
+        }
+        if (intent.source === 'human') {
+          removePendingIntent(pendingSteers, intent.transportId);
+          // The old contract still projects observed inputs; the internal
+          // delivery seam requires its separate persisted-history check.
+          if (!nativeDeliveryAdmissions.has(intent.transportId) && await reconcileIntent(intent, expected)) return;
+          // These specific responses are generated from Codex NotSubmitted.
+          // Never follow a late rejection by starting or merging the same input.
+          if (noActiveTurn(error) || activeTurnNotSteerable(error) || activeTurnMismatch(error)) {
+            if (nativeDeliveryAdmissions.has(intent.transportId)) await failNativeDelivery(intent);
+            else {
+              await store.markRejected(intent.ids, error instanceof Error ? error.message : String(error));
+              await markUnresolved(intent);
+            }
+          }
           throw error;
         }
         // A response may be lost after the server has already emitted the
@@ -1301,7 +1357,6 @@ export async function createPartner(config: Config, credentials: Credentials, de
           continue;
         }
         removePendingIntent(pendingSteers, intent.transportId);
-        if (error instanceof AppServerInvalidRequestError && intent.source === 'human') await store.markRejected(intent.ids, error.message);
         await markUnresolved(intent);
         throw error;
       } finally {
@@ -1456,8 +1511,10 @@ export async function createPartner(config: Config, credentials: Credentials, de
     unconsumed = unconsumed.filter(id => !observedInputIds.has(id));
     if (!unconsumed.length) return;
     const confirmedWithdrawal = native && ['interrupted', 'cancelled'].includes(turnStatus(native));
-    if (confirmedWithdrawal) await store.markRejected(unconsumed, 'Input withdrawn before processing');
-    await markUnresolved({ ids: unconsumed, input: '', images: [], transportId: 'restore', source: 'none' });
+    const legacy: string[] = [];
+    for (const id of unconsumed) if (!nativeDeliveryAdmissions.has(id) && !await store.deliveryAttempt(id, threadId)) legacy.push(id);
+    if (confirmedWithdrawal && legacy.length) await store.markRejected(legacy, 'Input withdrawn before processing');
+    if (legacy.length) await markUnresolved({ ids: legacy, input: '', images: [], transportId: 'restore', source: 'none' });
   }
 
   async function interruptActiveTurn(authorize?: () => Promise<boolean>): Promise<void> {
@@ -1732,7 +1789,28 @@ export async function createPartner(config: Config, credentials: Credentials, de
         notify();
       }
     }
-    eventChain = eventChain.then(() => handleServerEvent(notification)).catch((error) => {
+    eventChain = eventChain.then(async () => {
+      await handleServerEvent(notification);
+      if (notification.method === 'turn/started' || notification.method === 'item/completed' || notification.method === 'turn/completed') {
+        const params = record(notification.params);
+        const item = record(params.item);
+        const turn = record(params.turn);
+        const turnId = typeof params.turnId === 'string' ? params.turnId : typeof turn.id === 'string' ? turn.id : '';
+        const ids = new Set<string>(turnId ? sourceIdsForTurn(turnId) : []);
+        if (item.type === 'userMessage' && typeof item.clientId === 'string') ids.add(item.clientId);
+        for (const id of ids) if (nativeDeliveryAdmissions.has(id)) {
+          if (nativeDeliveryChecks.has(id)) { nativeDeliveryCheckPending.add(id); continue; }
+          nativeDeliveryChecks.add(id);
+          void (async () => {
+            do {
+              nativeDeliveryCheckPending.delete(id);
+              try { await lookupNativeDelivery(id, async () => true); }
+              catch (error) { if (!closing) processError('delivery.reconcile_failed', error, { operationId: id }); }
+            } while (!closing && nativeDeliveryCheckPending.has(id));
+          })().finally(() => { nativeDeliveryChecks.delete(id); nativeDeliveryCheckPending.delete(id); });
+        }
+      }
+    }).catch((error) => {
       if (closing) return;
       const failure = projectionFailure(error);
       if (failure.durable) storageError = true;
@@ -1845,6 +1923,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
     } else {
       response = await startThread();
     }
+    historyMode = response.thread.historyMode;
     if ((response.serviceTier ?? 'default') !== serviceTier) {
       throw new Error(`Codex did not apply saved Fast=${currentFast}: requested ${serviceTier}, received ${response.serviceTier ?? 'default'}. Check native model/account tier availability and restart Partner.`);
     }
@@ -1886,7 +1965,74 @@ export async function createPartner(config: Config, credentials: Credentials, de
 
   function normalizeSubmission(value: Submission): Submission {
     const input = validateSubmission(value);
-    return { operationId: input.operationId, text: input.text, ...(input.images?.length ? { images: input.images.map(({ attachmentId, name, mediaType, availability, sticker }) => ({ attachmentId, name, mediaType, availability, ...(sticker ? { sticker: { id: sticker.id, version: sticker.version } } : {}) })) } : {}), ...(input.files?.length ? { files: input.files.map(({ attachmentId, name, mediaType, size, availability }) => ({ attachmentId, name, mediaType, size, availability })) } : {}), ...(input.replacementSourceIds?.length ? { replacementSourceIds: input.replacementSourceIds } : {}) };
+    return { operationId: input.operationId, text: input.text, ...(input.images?.length ? { images: input.images.map(({ attachmentId, name, mediaType, availability, sticker }) => ({ attachmentId, name, mediaType, availability, ...(sticker ? { sticker: { id: sticker.id, version: sticker.version } } : {}) })) } : {}), ...(input.files?.length ? { files: input.files.map(({ attachmentId, name, mediaType, size, availability }) => ({ attachmentId, name, mediaType, size, availability })) } : {}) };
+  }
+
+  async function lookupNativeDelivery(operationId: string, authorize: () => Promise<boolean>, readHistory = true, authorizeCommit?: () => boolean) {
+    operationId = validateSubmission({ operationId, text: 'x' }).operationId;
+    // Capture the attempt at invocation, before authorization or history can wait.
+    const initial = store.deliveryAttempt(operationId, threadId).then(value => ({ value }), error => ({ error }));
+    await mutationGuard(threadId, authorize);
+    const fingerprint = await store.sharedSubmission(operationId, threadId);
+    const observed = await initial;
+    if ('error' in observed) throw observed.error;
+    const delivery = observed.value;
+    await mutationGuard(threadId, authorize);
+    if (!fingerprint || !delivery) return null;
+    const attempt = delivery.attempt;
+    const current = await store.deliveryAttempt(operationId, threadId);
+    await mutationGuard(threadId, authorize);
+    if (!current || current.attempt !== attempt || current.state !== delivery.state) return null;
+    if (delivery.state !== 'unknown') return deliveryReceipt(operationId, attempt, delivery.state);
+    if (!readHistory) return null;
+
+    if (!appServer) return null;
+    let found = false;
+    try {
+      if (historyMode === 'paginated') {
+        let cursor: string | undefined;
+        const visited = new Set<string>();
+        do {
+          const page = await appServer.call('thread/items/list', { threadId, ...(cursor ? { cursor } : {}), limit: 100, sortDirection: 'asc' });
+          for (const entry of page.data) {
+            const item = 'item' in entry ? entry.item : entry;
+            if (record(item).clientId === operationId && await verifiedNativeDeliveryInput(operationId, item) !== undefined) { found = true; break; }
+          }
+          const next = page.nextCursor ?? undefined;
+          if (!next || found) break;
+          if (!page.data.length || visited.has(next)) break;
+          visited.add(next); cursor = next;
+        } while (true);
+      } else if (historyMode === 'legacy') {
+        const response = await appServer.call('thread/read', { threadId, includeTurns: true });
+        if (response.thread.id === threadId && response.thread.historyMode === 'legacy') {
+          for (const turn of response.thread.turns) {
+            for (const item of turn.items ?? []) if (record(item).clientId === operationId && await verifiedNativeDeliveryInput(operationId, item) !== undefined) { found = true; break; }
+            if (found) break;
+          }
+        }
+      }
+    } catch {
+      // A failed or incomplete history read is never negative evidence.
+      found = false;
+    }
+    await mutationGuard(threadId, authorize);
+    if (!found) return null;
+    const result = await serializeInput(async () => {
+      await mutationGuard(threadId, authorize);
+      const current = await store.deliveryAttempt(operationId, threadId);
+      if (!current || current.attempt !== attempt || current.state === 'failed') return null;
+      if (current.state === 'accepted') return deliveryReceipt(operationId, attempt, 'accepted');
+      await mutationGuard(threadId, authorize);
+      const next = await store.transitionDeliveryAttempt(operationId, threadId, attempt, 'accepted', commitGuard(threadId, authorizeCommit));
+      if (!next) return null;
+      const receipt = deliveryReceipt(operationId, next.attempt, 'accepted');
+      notifyDelivery(receipt);
+      if (!closing) notify();
+      return receipt;
+    });
+    await mutationGuard(threadId, authorize);
+    return result;
   }
   function modelBusy() {
     return Boolean(pendingHumanAdmissions || pendingKeetIngress || postIngress.size || pendingExternalAdmissions || compactAdmissionPending
@@ -1894,7 +2040,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
       || rejectedSteers.length || recoveryPromise || compacting || lifecycle?.status === 'running');
   }
   async function hasPendingNativeInputs() {
-    // Observed/replaced inputs are retired; rejected inputs remain editable drafts.
+    // Keep unresolved native inputs from being silently re-admitted.
     // A durable input without a conclusive rejection can still be native-owned.
     for (const input of await unresolvedMessages()) {
       if (await store.rejected(input.id) === undefined) return true;
@@ -1913,97 +2059,139 @@ export async function createPartner(config: Config, credentials: Credentials, de
   function commitGuard(sessionId: string, authorize?: () => boolean): (() => void) | undefined {
     return authorize ? () => { if (!authorize() || closing || storageError || sessionId !== threadId) throw new Error('Unauthorized or unavailable session'); } : undefined;
   }
-  function submitInput(id: string, input: string, values: readonly z.infer<typeof imageInputSchema>[] = [], replaces: readonly string[] = [], shared?: Submission, guard?: { sessionId: string; authorize: () => Promise<boolean>; beforeCommit?: () => void }, prepare?: () => Promise<Submission>) {
+  function submitInput(id: string, input: string, values: readonly z.infer<typeof imageInputSchema>[] = [], shared?: Submission, guard?: { sessionId: string; authorize: () => Promise<boolean>; beforeCommit?: () => void }, nativeDelivery = false, requestedAttempt?: DeliveryAttempt) {
     if (input.trim() === '/compact') return Promise.reject(new Error('Use the compact command without images'));
     pendingHumanAdmissions += 1;
-    const accepted = serializeInput(async () => {
-      if (prepare) { shared = await prepare(); input = shared.text; replaces = shared.replacementSourceIds ?? []; }
+    const accepted = serializeInput<InputIntent | undefined>(async () => {
+      let nativeRetry = false;
+      let deliveryAttempt: number | undefined;
       if (guard) await mutationGuard(guard.sessionId, guard.authorize);
       if (closing || storageError) throw new Error('Partner is unavailable');
+      if (!shared && await store.sharedSubmission(id, threadId)) throw new Error('Message identity conflict');
       if (shared) {
-        const failed = await store.failedSubmission(id, threadId);
-        if (failed) {
-          if (JSON.stringify(failed.input) !== JSON.stringify(shared)) throw new Error('Message identity conflict');
-          return;
+        const reserved = await store.reserveNativeDelivery(shared, threadId, fileOwner, guard ? () => mutationGuard(guard.sessionId, guard.authorize) : undefined, guard?.beforeCommit);
+        if (!reserved) return;
+        if (reserved.created) deliveryAttempt = reserved.delivery.attempt;
+        else {
+          if (requestedAttempt?.state !== 'failed' || reserved.delivery.state !== 'failed' || requestedAttempt.attempt !== reserved.delivery.attempt) return;
+          if (guard) await mutationGuard(guard.sessionId, guard.authorize);
+          const next = await store.transitionDeliveryAttempt(id, threadId, requestedAttempt.attempt, 'retry', guard?.beforeCommit);
+          if (!next) return;
+          nativeRetry = true;
+          deliveryAttempt = next.attempt;
         }
-        const existing = await store.sharedSubmission(id, threadId);
-        if (existing) {
-          if (existing !== createHash('sha256').update(JSON.stringify(shared)).digest('hex')) throw new Error('Message identity conflict');
-          return;
-        }
-        if (await store.messageMeta(id)) throw new Error('Message identity conflict');
-        if (replaces.length) await refreshRecoveryHistory();
-        for (const sourceId of replaces) {
-          if (await store.failureDeleted(sourceId) || observedInputIds.has(sourceId) || (await store.outcome(sourceId))?.status === 'replaced' || (!await store.rejected(sourceId) && (await store.failedSubmission(sourceId, threadId))?.replacedBy !== null)) throw new Error('Replacement source is not eligible');
-        }
-        const staged = await store.stagedImages(id, threadId);
-        if (shared.images?.length) {
-          if (!staged || JSON.stringify(staged.refs) !== JSON.stringify(shared.images)) throw new Error('Images do not belong to this operation');
-          values = await Promise.all(staged.images.map(async image => {
-            const ref = staged.refs.find(item => item.attachmentId === image.id);
-            if (ref?.sticker && !await store.stagedMedia(image.id, threadId)) throw new Error('Sticker variants unavailable');
-            return { type: 'image' as const, name: image.name, mediaType: image.media_type, data: (await readFile(image.path)).toString('base64') };
-          }));
-        } else if (staged?.refs.length) throw new Error('Incomplete image submission');
       }
       let fileScope: { ownerId: string; sessionId: string; files: StoredFile[] } | undefined;
-      if (shared) {
-        const staged = await store.stagedFiles(id, fileOwner, threadId);
-        if (shared.files?.length) {
-          if (!staged || JSON.stringify(staged.refs) !== JSON.stringify(shared.files)) throw new Error('Files do not belong to this operation');
-          for (const file of staged.files) await verifyStoredFile(file, paths.attachments);
-          fileScope = { ownerId: fileOwner, sessionId: threadId, files: staged.files };
-        } else if (staged?.refs.length) throw new Error('Incomplete file submission');
-      }
-      const images = inputImages(id, values);
-      if (shared && JSON.stringify(images.map(image => image.id)) !== JSON.stringify((shared.images ?? []).map(image => image.attachmentId))) throw new Error('Staged original bytes changed');
-      const materialized = await materializeImages(paths.workspaceRoot, images);
-      if (guard) await mutationGuard(guard.sessionId, guard.authorize);
-      const admitted = await store.admit(id, input, materialized, shared ? { sessionId: threadId, input: shared } : undefined, guard ? () => mutationGuard(guard.sessionId, guard.authorize) : undefined, guard?.beforeCommit, fileScope).catch(async error => {
-        // Store.admit rolls back atomically. Conflicts do not replace an existing identity.
-        if (!shared || (error as { code?: string }).code === 'MESSAGE_IDENTITY_CONFLICT') throw error;
+      let materialized: MaterializedInputImage[];
+      const prepareResource = <T>(action: () => T | Promise<T>) => nativeDelivery ? prepareDeliveryResource(action) : Promise.resolve().then(action);
+      try {
+        if (shared) {
+          const staged = await store.stagedImages(id, threadId);
+          if (shared.images?.length) {
+            if (!staged || JSON.stringify(staged.refs) !== JSON.stringify(shared.images)) throw new Error('Images do not belong to this operation');
+            values = await Promise.all(staged.images.map(async image => {
+              const ref = staged.refs.find(item => item.attachmentId === image.id);
+              if (ref?.sticker) {
+                let media;
+                try { media = await store.stagedMedia(image.id, threadId); }
+                catch (error) {
+                  const code = (error as NodeJS.ErrnoException).code;
+                  if (nativeDelivery && (['ENOENT', 'EACCES', 'EPERM', 'ENOTDIR', 'ELOOP', 'EISDIR', 'EIO'].includes(code ?? '') || (error instanceof Error && /^Sticker variant (unavailable|changed)$/u.test(error.message)))) throw new LocalDeliveryPreparationError(error);
+                  throw error;
+                }
+                if (!media) throw nativeDelivery ? new LocalDeliveryPreparationError(new Error('Sticker variants unavailable')) : new Error('Sticker variants unavailable');
+              }
+              return { type: 'image' as const, name: image.name, mediaType: image.media_type, data: (await prepareResource(() => readFile(image.path))).toString('base64') };
+            }));
+          } else if (staged?.refs.length) throw new Error('Incomplete image submission');
+        }
+        if (shared) {
+          const staged = await store.stagedFiles(id, fileOwner, threadId);
+          if (shared.files?.length) {
+            if (!staged || JSON.stringify(staged.refs) !== JSON.stringify(shared.files)) throw new Error('Files do not belong to this operation');
+            if (nativeRetry) {
+              // Existing admissions return early from Store.admit; check the files
+              // nativeInput will actually use against the scoped staged originals.
+              const admitted = await store.inputFiles(id, fileOwner, threadId);
+              const keys: Array<keyof StoredFile> = ['id', 'operation_id', 'owner_id', 'session_id', 'position', 'name', 'media_type', 'size', 'path'];
+              const hasMessage = !!await store.messageMeta(id);
+              if (JSON.stringify(staged.refs) !== JSON.stringify(staged.files.map(file => fileRef(file)))
+                || staged.files.some((file, index) => file.operation_id !== id || file.owner_id !== fileOwner || file.session_id !== threadId || file.position !== index)) throw new Error('Files do not belong to this operation');
+              if (hasMessage ? admitted.length !== staged.files.length || staged.files.some((file, index) => keys.some(key => file[key] !== admitted[index]?.[key])) : admitted.length !== 0) throw new LocalDeliveryPreparationError(new Error('Admitted files do not match this operation'));
+            }
+            for (const file of staged.files) await prepareResource(() => verifyStoredFile(file, paths.attachments));
+            fileScope = { ownerId: fileOwner, sessionId: threadId, files: staged.files };
+          } else if (staged?.refs.length) throw new Error('Incomplete file submission');
+        }
+        const images = await prepareResource(() => inputImages(id, values));
+        if (shared && JSON.stringify(images.map(image => image.id)) !== JSON.stringify((shared.images ?? []).map(image => image.attachmentId))) throw nativeDelivery ? new LocalDeliveryPreparationError(new Error('Staged original bytes changed')) : new Error('Staged original bytes changed');
+        materialized = await prepareResource(() => materializeImages(paths.workspaceRoot, images));
+      } catch (error) {
+        if (!nativeDelivery || !deliveryAttempt || !(error instanceof LocalDeliveryPreparationError)) throw error;
         if (guard) await mutationGuard(guard.sessionId, guard.authorize);
-        await store.failSubmission(shared, threadId, error instanceof Error ? error.message : String(error), guard?.beforeCommit);
-        return undefined;
-      });
+        const failed = await store.transitionDeliveryAttempt(id, threadId, deliveryAttempt, 'failed', guard?.beforeCommit);
+        if (!failed) return;
+        if (guard) await mutationGuard(guard.sessionId, guard.authorize);
+        notifyDelivery(deliveryReceipt(id, failed.attempt, 'failed'));
+        return;
+      }
+      if (guard) await mutationGuard(guard.sessionId, guard.authorize);
+      const admitted = await store.admit(id, input, materialized, shared ? { sessionId: threadId, input: shared } : undefined, guard ? () => mutationGuard(guard.sessionId, guard.authorize) : undefined, guard?.beforeCommit, fileScope, nativeDelivery);
       if (!admitted) return;
+      if (nativeDelivery) {
+        if (!deliveryAttempt) return;
+        nativeDeliveryAdmissions.add(id);
+      }
       messageIds.add(id);
       const message = await store.messageMeta(id);
       if (message) {
         messagesById.set(id, { created: message.created, sequence: message.sequence });
       }
       if (operationTurn(id) || pendingStarts.has(id) || pendingSteers.some((intent) => intent.ids.includes(id)) || (await store.outcome(id))) return;
-      if (unresolvedInputIds.has(id) && !replaces.includes(id)) throw new Error('Message delivery is unresolved; inspect the conversation before retrying');
-      for (const replacedId of replaces) {
-        if (replacedId === id) continue;
-        if (!shared && (!messageIds.has(replacedId) || (!unresolvedInputIds.has(replacedId) && restoredDraft?.sourceIds.includes(replacedId) !== true))) throw new Error('Invalid restored draft replacement');
-        if (!shared) await store.markOutcome(replacedId, 'replaced', 'replaced');
-        observedInputIds.add(replacedId);
-        unresolvedInputIds.delete(replacedId);
-      }
-      if (replaces.length) await setRestoredDraft([...unresolvedInputIds]);
-      return { ids: [id], input, images: materialized, transportId: id, source: 'human' } satisfies InputIntent;
+      if (unresolvedInputIds.has(id)) throw new Error('Message delivery is unresolved; inspect the conversation before retrying');
+      return { ids: [id], input, images: materialized, transportId: id, source: 'human', ...(nativeDelivery ? { deliveryAttempt } : {}) } satisfies InputIntent;
     });
     // Durable admission has its own short serializer. Native attempts remain
     // ordered on the existing execution owner and are drained during close.
     const executed = accepted.then(intent => {
       if (!intent) return;
       const task = admission.then(async () => {
-        if (closing) { await markUnresolved(intent); return; }
-        await eventChain;
-        if (operationTurn(id) || observedInputIds.has(id) || unresolvedInputIds.has(id) || (await store.outcome(id))) return;
-        syncActiveTurn();
-        // Native acceptance can precede turn/started. Hold inputs until that
-        // compaction ends instead of racing a new turn against its start.
-        if (compacting && !activeTurnId) {
-          rejectedSteers.push(intent);
+        try {
+          if (closing) { await markUnresolved(intent); return; }
+          await eventChain;
+          if (operationTurn(id) || observedInputIds.has(id) || unresolvedInputIds.has(id) || (await store.outcome(id))) return;
+          syncActiveTurn();
+          // Native acceptance can precede turn/started. Hold inputs until that
+          // compaction ends instead of racing a new turn against its start.
+          if (compacting && !activeTurnId) {
+            if (intent.source === 'human') {
+              if (nativeDeliveryAdmissions.has(id)) await failNativeDelivery(intent);
+              else {
+                await store.markRejected(intent.ids, 'Input was not submitted during compaction');
+                await markUnresolved(intent);
+              }
+              return;
+            }
+            rejectedSteers.push(intent);
+            notify();
+            return;
+          }
+          if (rejectedSteers.length) await (drainRejectedSteers() ?? Promise.resolve());
+          if (activeTurnId) await steerIntent(intent, activeTurnId);
+          else await startIntent(intent);
           notify();
-          return;
+        } finally {
+          if (intent.deliveryFailed && intent.deliveryAttempt) {
+            unresolvedInputIds.delete(id);
+            await serializeInput(async () => {
+              if (observedInputIds.has(id) || !await store.confirmUnsubmittedInput(id) || observedInputIds.has(id)) return;
+              const next = await store.transitionDeliveryAttempt(id, threadId, intent.deliveryAttempt!, 'failed');
+              if (!next) return;
+              notifyDelivery(deliveryReceipt(id, next.attempt, 'failed'));
+              if (!closing) notify();
+            });
+          }
         }
-        if (rejectedSteers.length) await (drainRejectedSteers() ?? Promise.resolve());
-        if (activeTurnId) await steerIntent(intent, activeTurnId);
-        else await startIntent(intent);
-        notify();
       });
       admission = task.catch(error => {
         if (!closing) { processError('input.execution_failed', error, { operationId: id }); notify(); }
@@ -2013,8 +2201,8 @@ export async function createPartner(config: Config, credentials: Credentials, de
     // Keep delayed caller handling (especially close) from creating an
     // unhandled rejection. Execution failures are reported by admission above.
     void executed.catch(() => undefined);
-    if (shared || prepare) {
-      // A receipt promises retained input, not successful native execution.
+    if (shared) {
+      // Shared admission returns promptly; native delivery resolves separately.
       return accepted.then(() => { if (!closing) notify(); });
     }
     return executed;
@@ -2290,29 +2478,6 @@ export async function createPartner(config: Config, credentials: Credentials, de
       } catch { availability = 'missing'; }
       return { attachmentId: id, name: image.name, mediaType: image.media_type as ImageRef['mediaType'], availability, ...(sticker ? { sticker } : {}) };
     },
-    async sharedRecovery(settled = true): Promise<InputRecovery[]> {
-      if (settled) {
-        await eventChain;
-        if ((await unresolvedMessages()).length) await refreshRecoveryHistory();
-      }
-      const sources = await unresolvedMessages();
-      const recovery: InputRecovery[] = [];
-      for (const source of sources.slice(-20)) {
-        // Match the frozen OperationIdSchema without normalizing the stored identity.
-        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(source.id)) continue;
-        const payload = await store.inputPayload(source.id);
-        if (!payload || observedInputIds.has(source.id) || !await store.rejected(source.id)) continue;
-        const images = (await Promise.all(payload.images.map(image => this.sharedImageRef(image.id)))).filter((ref): ref is ImageRef => !!ref);
-        const files = (await Promise.all((await store.inputFiles(source.id, fileOwner, threadId)).map(file => this.sharedFileRef(file.id)))).filter((ref): ref is FileRef => !!ref);
-        recovery.push(validateRecovery({ sourceId: source.id, operationId: source.id, text: payload.input, images, ...(files.length ? { files } : {}), replacementEligible: true }));
-      }
-      for (const input of await store.failedSubmissions(threadId)) {
-        const images = (await Promise.all((input.images ?? []).map(image => this.sharedImageRef(image.attachmentId)))).filter((ref): ref is ImageRef => !!ref);
-        const files = await Promise.all((input.files ?? []).map(async file => await this.sharedFileRef(file.attachmentId) ?? { ...file, availability: 'missing' as const }));
-        recovery.push(validateRecovery({ sourceId: input.operationId, operationId: input.operationId, text: input.text, images, ...(files.length ? { files } : {}), replacementEligible: true }));
-      }
-      return recovery.slice(-20);
-    },
     async image(id: string) {
       const metadata = await store.imageMetadata(id);
       if (!metadata) return undefined;
@@ -2354,10 +2519,31 @@ export async function createPartner(config: Config, credentials: Credentials, de
     async petAsset(activity: import('./pet.ts').PetActivity) { return pet ? localPetClip(config.state, activity) : undefined; },
     async snapshot(options: MessagePageOptions = {}, settled = true) {
       if (settled) await eventChain;
-      const page = options.after === undefined
-        ? visibleHistoryPage(await store.allMessages(), [...turnResults.values()], options.before)
-        : await store.messagePage(options);
+      const all = await store.allMessages();
+      // Capture pending bodies before their native items: an event can retire a
+      // body after this read, but its registered item is then in the index.
       const inputRows = new Map((await store.pendingMessages()).map((message) => [message.id, message]));
+      const sources = new Map<string, { turnId: string; turn: OfficialTurn | undefined; item?: OfficialItem }>();
+      for (const [turnId, ids] of turnInputs) {
+        const turn = turns.get(turnId);
+        for (const id of ids) if (!sources.has(id)) sources.set(id, { turnId, turn });
+        if (!turn) continue;
+        for (const item of userItems(turn)) {
+          for (const id of expandClientId(typeof item.clientId === 'string' ? item.clientId : '')) {
+            const source = sources.get(id);
+            if (source?.turnId === turnId && !source.item) source.item = item;
+          }
+        }
+      }
+      const withoutItem = all.filter(meta => !sources.get(meta.id)?.item);
+      const missingIds = withoutItem.map(meta => meta.id);
+      const [pendingKeet, pendingMatrix, pendingPost] = await Promise.all([
+        store.keetContexts(missingIds), store.matrixSources(missingIds), store.postSources(missingIds),
+      ]);
+      const hidden = new Set(missingIds.filter(id => !pendingKeet.has(id) && !pendingMatrix.has(id) && !pendingPost.has(id) && !id.startsWith('alarm:')));
+      const page = options.after === undefined
+        ? visibleHistoryPage(all.filter(meta => !hidden.has(meta.id)), [...turnResults.values()], options.before)
+        : await store.messagePage(options);
       const outcomes = await store.outcomes(page.messages.map((message) => message.id));
       const inputMeta = await store.inputImageMetadata(page.messages.map((message) => message.id));
       const fileMeta = new Map(await Promise.all(page.messages.map(async message => [message.id, await store.inputFiles(message.id, fileOwner, threadId)] as const)));
@@ -2373,7 +2559,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
       const state: CompanionState = stateFromHistory(history);
       const messages = [];
       for (const meta of page.messages) {
-        const turn = operationTurn(meta.id);
+        const { turn, item: user } = sources.get(meta.id) ?? {};
         const outcome = outcomes.get(meta.id);
         const awaiting = pendingStarts.values().some((intent) => intent.ids.includes(meta.id))
           || pendingSteers.some((intent) => intent.ids.includes(meta.id))
@@ -2386,12 +2572,14 @@ export async function createPartner(config: Config, credentials: Credentials, de
             : awaiting || isActiveTurn(turn) ? 'pending'
               : observedInputIds.has(meta.id) ? 'acknowledged'
                 : inputRows.has(meta.id) ? 'pending' : 'acknowledged';
-        const user = turn ? sourceLocation(turn, meta.id)?.item : undefined;
-        const source = delivery === 'replaced' ? { input: '', images: [] as StoredImage[] } : await inputForSource(meta.id, user, 0);
+        // A retained legacy Human pending row is not conversation history or a
+        // recovery offer. Keep it on disk but do not expose its body in views.
+        if (!user && !keetContexts.has(meta.id) && !matrixSources.has(meta.id) && !postSources.has(meta.id) && !meta.id.startsWith('alarm:')) continue;
+        const input = delivery === 'replaced' ? '' : inputRows.get(meta.id)?.input ?? (await inputForSource(meta.id, user, 0)).input;
         messages.push({
           id: meta.id,
           turnId: turn?.id ?? null,
-          input: source.input,
+          input,
           ...(keetContexts.get(meta.id) ? { keet: keetContexts.get(meta.id)!.provenance } : {}),
           ...(matrixSources.get(meta.id) ? { matrix: matrixSources.get(meta.id)! } : {}),
           ...(postSources.get(meta.id) ? { post: postSources.get(meta.id)! } : {}),
@@ -2539,64 +2727,11 @@ export async function createPartner(config: Config, credentials: Credentials, de
         ...(pet ? { pet: pet.snapshot() } : {}),
         messages,
         results,
-        draft: restoredDraft ? {
-          key: restoredDraft.key,
-          sourceIds: restoredDraft.sourceIds,
-          input: restoredDraft.input,
-          images: restoredDraft.images.map(({ id, name }) => ({ id, name, url: `/api/images/${id}` })),
-        } : undefined,
       };
     },
-    async chatReceipt(id: string): Promise<Receipt | null> {
-      const meta = await store.messageMeta(id);
-      const failed = await store.failedSubmission(id, threadId);
-      if (!meta && !failed) return null;
-      const binding = await store.retryBinding(id, threadId);
-      let retryImages: Receipt['retryImages'];
-      let retryFiles: Receipt['retryFiles'];
-      if (binding) {
-        if (!binding.input || binding.input.operationId !== id || binding.sourceId === id) return null;
-        const source = await store.failedSubmission(binding.sourceId, threadId);
-        if (!source || source.input.operationId !== binding.sourceId
-          || JSON.stringify(binding.input.replacementSourceIds) !== JSON.stringify([binding.sourceId])
-          || (!source.input.images?.length && binding.input.images?.length)) return null;
-        if (!source.input.files?.length && binding.input.files?.length) return null;
-        if (source.input.files?.length) {
-          const original = await store.stagedFiles(binding.sourceId, fileOwner, threadId), target = await store.stagedFiles(id, fileOwner, threadId);
-          if (!original || !target || JSON.stringify(original.refs) !== JSON.stringify(source.input.files) || JSON.stringify(target.refs) !== JSON.stringify(binding.input.files) || original.files.length !== target.files.length) return null;
-          try {
-            for (const [index, file] of original.files.entries()) {
-              const next = target.files[index]!;
-              if (file.operation_id !== binding.sourceId || next.operation_id !== id || file.name !== next.name || file.media_type !== next.media_type || file.size !== next.size || file.position !== next.position) return null;
-              // bindRetry verified the source bytes and reused their content-addressed path.
-              if (file.path !== next.path) return null;
-            }
-            retryFiles = validateRetryFileMapping({ sessionId: threadId, sourceOperationId: binding.sourceId, files: original.refs.map((ref, index) => ({ sourceAttachmentId: ref.attachmentId, ref: target.refs[index]! })) }, threadId, binding.sourceId, source.input.files);
-          } catch { return null; }
-        }
-        if (source.input.images?.length) {
-          const original = await store.stagedImages(binding.sourceId, threadId), target = await store.stagedImages(id, threadId);
-          if (!original || !target || JSON.stringify(original.refs) !== JSON.stringify(source.input.images)
-            || JSON.stringify(target.refs) !== JSON.stringify(binding.input.images)
-            || original.images.length !== target.images.length || original.images.length !== source.input.images.length) return null;
-          try {
-            // bindRetry is reached only after the source bytes were hashed
-            // against every original ID and those same bytes produced the
-            // target IDs. Recheck the durable metadata, without rereading up to
-            // 20 MiB on every view refresh or streamed token.
-            for (const [index, image] of original.images.entries()) {
-              const next = target.images[index]!, oldRef = original.refs[index]!, newRef = target.refs[index]!;
-              if (image.operation_id !== binding.sourceId || next.operation_id !== id || image.id !== oldRef.attachmentId || next.id !== newRef.attachmentId
-                || image.name !== oldRef.name || image.media_type !== oldRef.mediaType || next.name !== newRef.name || next.media_type !== newRef.mediaType
-                || image.name !== next.name || image.media_type !== next.media_type) return null;
-            }
-            retryImages = validateRetryImageMapping({ sessionId: threadId, sourceOperationId: binding.sourceId,
-              images: original.refs.map((ref, index) => ({ sourceAttachmentId: ref.attachmentId, ref: target.refs[index]! })) }, threadId, binding.sourceId, source.input.images);
-          } catch { return null; }
-        }
-      }
-      return meta ? { operationId: id, state: 'submitted', messageId: id, turnId: operationTurn(id)?.id ?? null, error: await store.rejected(id) ?? null, ...(retryImages ? { retryImages } : {}), ...(retryFiles ? { retryFiles } : {}) }
-        : { operationId: id, state: 'failed', messageId: null, turnId: null, error: failed!.error, ...(retryImages ? { retryImages } : {}), ...(retryFiles ? { retryFiles } : {}) };
+    async chatVisible(id: string) {
+      const attempt = await store.deliveryAttempt(id, threadId);
+      return !attempt || attempt.state === 'accepted';
     },
     async chatStop(id: string) {
       if (!activeTurnId || activeTurnId !== id) return { stopped: false };
@@ -2608,107 +2743,32 @@ export async function createPartner(config: Config, credentials: Credentials, de
       if (activeTurnId === id) { activeTurnId = null; activeOperationId = null; }
       syncActiveTurn(); drainExternal(); notify(); return { stopped: true };
     },
-    submit(id: string, input: string, values: readonly z.infer<typeof imageInputSchema>[] = [], replaces: readonly string[] = [], authorize?: () => boolean) {
+    submit(id: string, input: string, values: readonly z.infer<typeof imageInputSchema>[] = [], authorize?: () => boolean) {
       const sessionId = threadId;
-      return submitInput(id, input, values, replaces, undefined, authorize ? {
+      return submitInput(id, input, values, undefined, authorize ? {
         sessionId, authorize: async () => authorize(),
         beforeCommit: commitGuard(sessionId, authorize),
       } : undefined);
     },
-    async submitShared(value: Submission, authorize: () => Promise<boolean> = async () => true, authorizeCommit?: () => boolean) {
+    async submitNativeDelivery(value: Submission, authorize: () => Promise<boolean> = async () => true, authorizeCommit?: () => boolean) {
+      const input = normalizeSubmission(value);
       const sessionId = threadId;
       pendingHumanAdmissions += 1;
       try {
-        const normalized = normalizeSubmission(value);
-        const receipt = await fileOperations.protectRead(normalized.operationId, async () => {
-          await submitInput(normalized.operationId, normalized.text, [], normalized.replacementSourceIds ?? [], normalized, { sessionId, authorize, beforeCommit: commitGuard(sessionId, authorizeCommit) });
-          const result = await this.chatReceipt(normalized.operationId);
-          if (!result) throw new Error('Submission has no durable result');
-          return result;
+        const result = await fileOperations.protectRead(input.operationId, async () => {
+          await mutationGuard(sessionId, authorize);
+          const requestedAttempt = await store.deliveryAttempt(input.operationId, sessionId);
+          await mutationGuard(sessionId, authorize);
+          await submitInput(input.operationId, input.text, [], input,
+            { sessionId, authorize, beforeCommit: commitGuard(sessionId, authorizeCommit) }, true, requestedAttempt);
+          return true;
         });
-        if (!receipt) throw new Error('Upload busy');
-        return receipt;
+        if (!result) throw new Error('Upload busy');
+        return await lookupNativeDelivery(input.operationId, authorize, false, authorizeCommit);
       } finally { pendingHumanAdmissions -= 1; }
     },
-    async finalizeSubmission(value: FinalizeSubmission, authorize: () => Promise<boolean> = async () => true, authorizeCommit?: () => boolean): Promise<Receipt | null> {
-      value = validate(FinalizeSubmissionSchema, value);
-      const operationId = 'retry' in value ? value.retry.attemptId : value.submission.operationId;
-      const result = await fileOperations.protectRead(operationId, () => serializeInput(async () => {
-        await mutationGuard(value.sessionId, authorize);
-        let input: Submission;
-        if ('retry' in value) {
-          if (value.retry.sessionId !== value.sessionId) throw new Error('Wrong retry session');
-          const bound = await store.retryAttempt(value.retry.attemptId, value.sessionId, value.retry.operationId);
-          if (!bound) return null;
-          input = bound;
-        } else input = normalizeSubmission(value.submission);
-        const hash = createHash('sha256').update(JSON.stringify(input)).digest('hex');
-        const accepted = await store.sharedSubmission(input.operationId, value.sessionId);
-        const failed = await store.failedSubmission(input.operationId, value.sessionId);
-        if ((accepted && accepted !== hash) || (failed && JSON.stringify(failed.input) !== JSON.stringify(input))) throw new Error('Message identity conflict');
-        await mutationGuard(value.sessionId, authorize);
-        if (!accepted && !failed) await store.failSubmission(input, value.sessionId, 'Submission was not received', commitGuard(value.sessionId, authorizeCommit));
-        notify();
-        return this.chatReceipt(input.operationId);
-      }));
-      if (result === undefined) throw new Error('Upload busy');
-      return result;
-    },
-    async retryFailed(value: RetryFailed, authorize: () => Promise<boolean> = async () => true, authorizeCommit?: () => boolean): Promise<Receipt> {
-      const { sessionId, operationId, attemptId } = validate(RetryFailedSchema, value);
-      const beforeCommit = commitGuard(sessionId, authorizeCommit);
-      await submitInput(attemptId, '', [], [], undefined, { sessionId, authorize, beforeCommit }, async () => {
-        await mutationGuard(sessionId, authorize);
-        const previous = await store.retryAttempt(attemptId, sessionId, operationId);
-        if (previous) return previous;
-        const failed = await store.failedSubmission(operationId, sessionId);
-        if (!failed || failed.replacedBy || await store.failureDeleted(operationId) || await store.messageMeta(operationId) || attemptId === operationId) throw new Error('Failed submission is no longer available');
-        await mutationGuard(sessionId, authorize);
-        await store.retryAttempt(attemptId, sessionId, operationId, true, beforeCommit);
-        const original = failed.input;
-        const staged = await store.stagedImages(operationId, sessionId);
-        let images: ImageRef[] | undefined;
-        if (original.images?.length) {
-          if (!staged || JSON.stringify(staged.refs) !== JSON.stringify(original.images)) throw new Error('Original images are missing');
-          const bytes = await Promise.all(staged.images.map(image => readFile(image.path)));
-          const values = staged.images.map((image, index) => ({ type: 'image' as const, name: image.name, mediaType: image.media_type, data: bytes[index]!.toString('base64') }));
-          if (JSON.stringify(inputImages(operationId, values).map(image => image.id)) !== JSON.stringify(original.images.map(image => image.attachmentId))) throw new Error('Original images changed');
-          const materialized = await materializeImages(paths.workspaceRoot, inputImages(attemptId, values));
-          images = materialized.map((image, index) => ({ attachmentId: image.id, name: image.name, mediaType: image.media_type, availability: 'available', ...(original.images?.[index]?.sticker ? { sticker: original.images[index]!.sticker } : {}) }));
-          await mutationGuard(sessionId, authorize);
-          await store.stageImages(attemptId, sessionId, createHash('sha256').update(JSON.stringify(images)).digest('hex'), { images: materialized.map(({ id, operation_id, name, media_type, path }) => ({ id, operation_id, name, media_type, path })), refs: images, variants: staged.variants }, beforeCommit);
-        }
-        let files: FileRef[] | undefined;
-        if (original.files?.length) {
-          const stagedFiles = await store.stagedFiles(operationId, fileOwner, sessionId);
-          if (!stagedFiles || JSON.stringify(stagedFiles.refs) !== JSON.stringify(original.files)) throw new Error('Original files are missing');
-          const target = await retryStoredFiles(stagedFiles.files, attemptId, paths.attachments);
-          await mutationGuard(sessionId, authorize);
-          const previousFiles = await store.stagedFiles(attemptId, fileOwner, sessionId);
-          if (previousFiles) {
-            if (JSON.stringify(previousFiles) !== JSON.stringify(target)) throw new Error('Retry file staging changed');
-          } else {
-            await store.stageFiles(attemptId, fileOwner, sessionId, createHash('sha256').update(JSON.stringify(target)).digest('hex'), target, beforeCommit);
-          }
-          files = target.refs;
-        }
-        const input = normalizeSubmission({ operationId: attemptId, text: original.text, ...(images ? { images } : {}), ...(files ? { files } : {}), replacementSourceIds: [operationId] });
-        await mutationGuard(sessionId, authorize);
-        await store.bindRetry(input, beforeCommit);
-        return input;
-      });
-      const receipt = await this.chatReceipt(attemptId);
-      if (!receipt) throw new Error('Retry has no durable result');
-      return receipt;
-    },
-    async deleteFailed(value: DeleteFailed, authorize: () => Promise<boolean> = async () => true, authorizeCommit?: () => boolean) {
-      value = validate(DeleteFailedSchema, value);
-      return serializeInput(async () => {
-        await mutationGuard(value.sessionId, authorize);
-        const deleted = await store.deleteFailed(value.operationId, value.sessionId, commitGuard(value.sessionId, authorizeCommit));
-        notify();
-        return { ...value, deleted };
-      });
+    async lookupNativeDelivery(operationId: string, authorize: () => Promise<boolean> = async () => true, authorizeCommit?: () => boolean) {
+      return lookupNativeDelivery(operationId, authorize, true, authorizeCommit);
     },
     async cancel(id: string, authorize?: () => Promise<boolean>) {
       if (authorize && !await authorize()) throw new Error('Unauthorized');
