@@ -8,7 +8,7 @@ import { synthesizeSpeech } from '../runtime/speech.ts';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { spawn } from 'node:child_process';
-import { writeFile, readFile } from 'node:fs/promises';
+import { writeFile } from 'node:fs/promises';
 
 test('provider synthesis caches provider and voice identities', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'lamplit-audio-test-')); let calls = 0;
@@ -52,7 +52,8 @@ test('credential CLI accepts non-printing tts stdin credentials', async () => {
   try {
     await writeFile(config, `name = "test"\nprompts = { persona = "persona.md" }\nstate = "state"\n`);
     const result = await new Promise<{ out: string; err: string; code: number | null }>((resolve, reject) => { const child = spawn(process.execPath, ['runtime/cli.ts', 'credential', config, 'tts', '--stdin'], { cwd: new URL('..', import.meta.url), stdio: ['pipe', 'pipe', 'pipe'] }); let out=''; let err=''; child.stdout.on('data', data => out += data); child.stderr.on('data', data => err += data); child.once('error', reject); child.once('close', code => resolve({ out, err, code })); child.stdin.end('test-tts-secret\n'); });
-    assert.equal(result.code, 0); assert.match(result.out, /Credential saved/); assert.doesNotMatch(result.out + result.err, /test-tts-secret/); assert.deepEqual(JSON.parse(await readFile(join(directory, 'state', 'credentials.json'), 'utf8')), { tts: 'test-tts-secret' });
+    assert.equal(result.code, 0); assert.match(result.out, /Credential saved/); assert.doesNotMatch(result.out + result.err, /test-tts-secret/);
+    const { openMigratedVault } = await import('../runtime/migrated-vault.ts'); const vault = await openMigratedVault(join(directory, 'state')); assert.equal(vault.get('cli.tts'), 'test-tts-secret'); vault.close();
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
@@ -84,8 +85,7 @@ test('removed whole-audio route returns authenticated no-store 404 without nativ
     allowed = false;
     assert.equal((await oldRoute()).status,401);
     allowed = true;
-    assert.deepEqual(await (await fetch(`${origin}/api/voice/capability`)).json(),{available:true});
-    assert.equal(partner.voiceCredential(),'legacy-stream-and-tts-key');
+    assert.equal((await fetch(`${origin}/api/voice/capability`)).status, 404);
     assert.equal((await f.requests()).some(value=>value.method==='turn/start' || value.method==='turn/steer'),false);
   } finally { await app.close(); await f.close(); }
 });

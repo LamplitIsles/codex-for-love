@@ -66,11 +66,10 @@ test('prompt paths and local compaction are resolved and validated independently
 test('private Post credentials load independently without platform environment overrides', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'lamplit-credentials-test-'));
   try {
-    assert.deepEqual(await loadCredentials(directory), {});
     const stored = JSON.stringify({ speech: 'owned-speech', keet: 'owned-keet', post: 'owned-api', post_receiver: 'owned-receiver' });
-    await writeFile(join(directory, 'credentials.json'), stored);
+    await writeFile(join(directory, 'credentials.json'), stored, { mode: 0o600 });
     assert.deepEqual(await loadCredentials(directory), JSON.parse(stored));
-    assert.equal(await readFile(join(directory, 'credentials.json'), 'utf8'), stored);
+    assert.deepEqual(JSON.parse(await readFile(join(directory, 'credentials.json'), 'utf8')), { keet: 'owned-keet', post: 'owned-api', post_receiver: 'owned-receiver' });
     await writeFile(join(directory, 'credentials.json'), JSON.stringify({ matrix: 'obsolete' }));
     await assert.rejects(loadCredentials(directory));
   } finally { await rm(directory, { recursive: true, force: true }); }

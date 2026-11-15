@@ -1,7 +1,8 @@
 import { uiDispatchesFromTurn } from './ui-dispatch.ts';
 import { createTtsSettings, loadTtsSettings } from './tts-settings.ts';
 import { createBackgroundSettings } from './background-settings.ts';
-import { createVoiceSettings } from './voice-settings.ts';
+import { openMigratedVault } from './migrated-vault.ts';
+import { createBark } from './bark.ts';
 import { ModelSelection, ModelPreferenceError, WRITABLE_MODELS, modelUnavailable, readModelPreference, saveModelPreference } from './model-preference.ts';
 import { startManagedAppServer } from './managed-app-server.ts';
 import { postInput, postConversationName, discoverPost, receiverAuthorized, validatePost } from './post.ts';
@@ -162,6 +163,7 @@ export function visibleHistoryPage(messages: readonly MessageMeta[], results: re
 export type PartnerDependencies = {
   appServer?: Partial<CodexAppServerClientOptions>;
   now?: () => number;
+  barkFetch?: typeof fetch;
   /** Override the shared payload boundary in isolated fake tests. */
   uiPayloadBound?: (value: unknown) => unknown;
 };
@@ -531,6 +533,8 @@ function versionFromUserAgent(value: unknown): string | undefined {
  * ordinary resume safe without a second model journal.
  */
 export async function createPartner(config: Config, credentials: Credentials, dependencies: PartnerDependencies = {}) {
+  const initialVault = await openMigratedVault(config.state);
+  initialVault.close();
   try {
     const exports = contracts as Record<string, unknown>;
     const serverExports = contractServer as Record<string, unknown>;
@@ -538,8 +542,10 @@ export async function createPartner(config: Config, credentials: Credentials, de
     validate(FileLimitsSchema, fileLimits);
     validate(FileRefSchema, { attachmentId: 'probe', name: 'probe', mediaType: '', size: fileLimits.maxFileBytes, availability: 'available' });
   } catch { throw new Error('Matching streaming file contracts are required'); }
-  const voiceSettings = createVoiceSettings(config.state, () => config.speech ? credentials.speech ?? null : null);
-  const currentTtsSettings = () => config.configPath ? loadTtsSettings(config.configPath) : Promise.resolve(createTtsSettings(config.state, () => ({ tts: config.speech?.tts, credentials })));
+  const barkAbort = new AbortController();
+  const barkTasks = new Set<Promise<void>>();
+  const bark = createBark(config.state, dependencies.barkFetch, barkAbort.signal);
+  const currentTtsSettings = () => config.configPath ? loadTtsSettings(config.configPath) : Promise.resolve(createTtsSettings(config.state, () => ({ tts: config.speech?.tts })));
   const ttsSettings = {
     async snapshot() { return (await currentTtsSettings()).snapshot(); },
     async selection() { return (await currentTtsSettings()).selection(); },
@@ -625,6 +631,12 @@ export async function createPartner(config: Config, credentials: Credentials, de
   let threadId = '';
   let historyMode: 'legacy' | 'paginated' | undefined;
   let activeTurnId: string | null = null;
+  const notificationLiveTurns = new Set<string>();
+  function observeNotificationTurn(id: string): void {
+    notificationLiveTurns.delete(id);
+    notificationLiveTurns.add(id);
+    if (notificationLiveTurns.size > 128) notificationLiveTurns.delete(notificationLiveTurns.values().next().value!);
+  }
   let activeOperationId: string | null = null;
   // The SDK dispatches server requests independently from its serialized
   // notification callbacks. Keep the transport identity being admitted
@@ -1151,6 +1163,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
     try {
       for (const turn of nextTurns) {
         registerTurn(turn);
+        if (isActiveTurn(turn)) observeNotificationTurn(turn.id);
         const complete = await reconcileTurn(turn.id, turn);
         if (complete) await projectTurn(complete, false);
       }
@@ -1726,11 +1739,30 @@ export async function createPartner(config: Config, credentials: Credentials, de
       }
       case 'turn/completed': {
         const turn = registerTurn(params.turn);
+        const observedLive = !!turn && notificationLiveTurns.delete(turn.id);
         pet?.turnCompleted(turn?.status);
         let reconciled = turn;
         if (turn && (userItems(turn).length || sourceIdsForTurn(turn.id).length)) {
           reconciled = await reconcileTurn(turn.id);
           if (reconciled && userItems(reconciled).length) await projectTurn(reconciled, true, true);
+        }
+        // Only a live, successfully completed turn can be a notification candidate.
+        // Reload authoritative items in the background; notification failures never
+        // change chat completion and unknown push outcomes are not replayed.
+        if (observedLive && turn && reconciled && notification.params.threadId === threadId && turnStatus(reconciled) === 'completed'
+          && (userItems(reconciled).length || sourceIdsForTurn(turn.id).length)) {
+          const candidateId = turn.id, candidateThread = threadId;
+          const task = (async () => {
+            const items = await listTurnItems(candidateId);
+            if (!items.length || barkAbort.signal.aborted) return;
+            const finalTurn = { ...turn, items };
+            const projected = turnResults.get(candidateId);
+            if (!answersFromTurn(finalTurn).length && !projected?.generatedIds.length
+              && !projected?.voiceDispatches.length && !projected?.uiDispatches?.length) return;
+            await bark.completed(candidateThread, candidateId);
+          })().catch(() => {});
+          barkTasks.add(task);
+          void task.finally(() => barkTasks.delete(task));
         }
         const completedTurnId = turn?.id;
         if (turn && activeTurnId === turn.id) {
@@ -1780,6 +1812,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
     if (notification.method === 'turn/started') {
       const turn = registerTurn(record(notification.params).turn);
       if (turn && isActiveTurn(turn)) {
+        if (notification.params.threadId === threadId) observeNotificationTurn(turn.id);
         if (compacting) {
           for (const intent of rejectedSteers) if (!intent.turnId) intent.turnId = turn.id;
         }
@@ -2275,9 +2308,8 @@ export async function createPartner(config: Config, credentials: Credentials, de
     readDiary(name: string) { return readDiary(paths.workspaceRoot, name); },
     async diaryEntry(name: string) { const entry = await readDiary(paths.workspaceRoot, name); return entry.status === 'found' ? entry.text : entry.status === 'missing' ? undefined : 'too-large' as const; },
     async audio(id: string) { try { return await readFile(join(paths.audio, `${id}.mp3`)); } catch { return undefined; } },
-    voiceSettings,
     ttsSettings,
-    voiceCredential() { return config.speech ? credentials.speech ?? null : null; },
+    bark,
     workspaceImage(path: string | null) { return readWorkspaceImage(paths.workspaceRoot, path); },
     workspaceMedia(path: string | null, kind: WorkspaceMediaKind) { return openWorkspaceMedia(paths.workspaceRoot, path, kind); },
     stickerBackend(authorize: () => Promise<boolean>, authorizeCommit: () => boolean): StickerBackend {
@@ -2823,6 +2855,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
     close() {
       if (closePromise) return closePromise;
       closing = true;
+      barkAbort.abort();
       streaming = undefined; completedReply = undefined; completedStreamItems.clear();
       postAbort.abort();
       if (alarmTimer) clearInterval(alarmTimer);
@@ -2841,6 +2874,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
         await inputAdmission;
         await admission;
         await eventChain;
+        await Promise.allSettled([...barkTasks]);
         listeners.clear();
         chatListeners.clear();
         try { await store.close(); }

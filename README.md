@@ -264,8 +264,8 @@ history or the Chat Image Library.
 The shared Lamplit App uses Svelte, Konsta UI and Tailwind. App owns browser
 components, localization and browser tests; CFL owns the Node runtime and its
 backend rules. The App supports playback of existing voice messages but does not
-provide voice recording or speech-to-text input. The voice input endpoints remain
-available to compatible clients.
+provide voice recording or speech-to-text input; CFL no longer provides its
+former voice-input endpoints.
 
 The Companion header’s settings button changes language and appearance immediately without changing the conversation. These choices are browser-local preferences, not settings stored in the Partner configuration or workspace.
 
@@ -696,50 +696,47 @@ release artifact, an owned foreground daemon and synthetic ingest. Follow
 manifest checks and limitations. Historical slice artifacts remain evidence;
 they are not the current route or build workflow.
 
-### Streaming voice input
+### Voice credentials and Bark notifications
 
-CFL retains voice-input endpoints for compatible clients; the current shared App
-does not record audio or expose voice-input settings. The capability endpoint is
-`/api/voice/capability`, and streaming uses the same-origin `/api/voice/stream`
-WebSocket. Authenticated owners can configure streaming voice through same-origin
-`GET /api/voice/settings` and `POST /api/voice/settings`.
-GET returns `{region: "beijing" | "singapore", configured: boolean}`; POST takes
-strict JSON `{region, apiKey}` and returns the confirmed public snapshot. Keys
-are never returned. Responses are `no-store`. An empty key retains the current
-key only when the region is unchanged and already configured; switching regions
-requires a new matching key. Key validity at the provider is checked on recording,
-not on save. Settings support is independent of recording availability.
+CFL stores TTS settings, the `speech` and `tts` CLI credentials, and the Bark key
+as authenticated ciphertext in the private `state/vault.sqlite` database. The
+separate private `state/vault-key` is required to decrypt it; back up both the
+key and a consistent SQLite database snapshot together. Never replace a missing
+or incorrect key with a new one: restore the original key and database. This
+protects a database backup by itself, not a compromise of both files or of the
+running service identity. It is not end-to-end encryption.
 
-The settings API works without `[speech]` and persists region/key together in private
-`state/voice-settings.json` (0600), separate from CLI credentials. Before the first
-settings API save, `[speech]` plus the CLI `speech` credential continues to enable Beijing
-streaming. Legacy `speech.endpoint` values are accepted and ignored, regardless
-of their type or contents; no configuration rewrite is needed. Alibaba TTS and
-CLI credential behavior remain independent. Streaming uses only the fixed
-Beijing or Singapore DashScope endpoint with `qwen-audio-3.1-asr-flash-streaming`. The fixed regional
-origins remain documented as [legacy general endpoints](https://help.aliyun.com/zh/model-studio/sdk-selection-and-download).
+Before starting a new version, stop all older CFL and CLI processes that can
+write the old files. Older binaries do not honor the migration lock. The first
+new-version access migrates voice settings and voice CLI credentials, keeps the
+retired input key in an inactive encrypted archive, and removes these keys from
+the live legacy files. Remaining credentials are preserved. New-version access
+fails closed if migration cannot be confirmed; resolve conflicts before retrying.
+Old backups, filesystem snapshots and interrupted temporary files can retain
+plaintext or key material; migration does not erase those copies. Keep the
+private migration and vault lock files in place while processes may run.
 
-Each recording captures one region/key pair; saves affect future connections.
-Concurrent writers receive 409; storage errors receive 503. After an ambiguous
-save failure, refresh settings before explicitly retrying; do not replay writes.
-Updates use a nonblocking OS lock on `voice-settings.json.lock`, a private
-temporary file, fsync and atomic rename. Process exit releases the lock
-automatically; the persistent lock file must not be removed while writers run.
-The lock binding resolves the host process C runtime only when saving, without
-a glibc library-name requirement. If binding initialization fails, saves return
-503 while settings reads and existing voice selection remain usable.
-An interrupted write leaves either the prior or complete new record; a private
-orphan temporary file can be removed after stopping writers. Invalid or permissive
-saved state fails closed rather than resetting to CLI credentials. No secret validation request is sent during configuration.
+Alibaba output still falls back to the CLI `speech` credential; ByteDance
+falls back to `tts`. Provider-specific output settings override these fallbacks.
+Both CLI credentials use `credential <config> speech|tts --stdin`; they no longer
+write voice secrets to `credentials.json`. Other integration credentials remain
+in that private file. Existing `[speech.tts]` configuration remains supported.
 
-Audio streams as mono PCM16 LE at 16 kHz, up to five minutes/9,600,000 bytes,
-with frames up to 16 KiB and bounded provider buffering. Only finalized sentences
-are returned after Finish, ordered by sentence ID with replacement of duplicate
-finals. The client decides how to use the transcript; the stream does not create
-a Codex turn. Cancel, disconnect, errors, timeouts and server shutdown release the provider
-connection. Audio and unsent transcripts are transient. Shared runtime validation
-comes from `@lamplit/contracts/voice`. Voice input uses streaming exclusively;
-the former whole-audio transcription endpoint has been removed.
+Authenticated owners can use `GET /api/bark/settings` for `{configured, enabled}`
+and `POST` with `{action: "set", key}`, `{action: "enable"}`, `{action: "disable"}`,
+or `{action: "remove"}`. The first set enables notifications, replacing a key
+preserves the enabled state, disable retains the key, and remove clears it.
+Responses never contain the key. After an uncertain save, refresh the snapshot;
+it cannot prove which key was saved, so do not automatically replay a request.
+
+Bark uses the official HTTPS service and sends a generic notice with the fixed
+`etosllmstudio://open/chat` intent, without reply text. One successfully
+completed turn with an actual reply has at most one recorded attempt; failed or
+unknown requests are not retried automatically. Network loss or a crash can
+lose a reminder, and acceptance by Bark does not prove device display. Historical
+reads do not send notifications. Disabling or removing a key cannot recall an
+already submitted request. Device delivery and the installed ETOS version
+still require separate user-authorized verification.
 
 ### Workspace images in Partner replies
 

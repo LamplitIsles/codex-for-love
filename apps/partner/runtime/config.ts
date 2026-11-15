@@ -1,8 +1,10 @@
-import { readFile } from 'node:fs/promises';
+import { open, readFile } from 'node:fs/promises';
+import { constants } from 'node:fs';
 import { isIP } from 'node:net';
 import { dirname, resolve } from 'node:path';
 import { parse } from 'smol-toml';
 import { z } from 'zod';
+import { openMigratedVault } from './migrated-vault.ts';
 
 /** The app-server protocol contract tested by this application. */
 export const SUPPORTED_CODEX_VERSION = '0.164.0';
@@ -122,16 +124,32 @@ export function postEndpoint(value: string): string {
   return url.origin;
 }
 
-/** Alibaba streaming input/TTS reuses speech; ByteDance TTS keeps its separate secret. */
+/** Alibaba TTS uses speech; ByteDance TTS keeps its separate secret. */
 export const credentialSchema = z.object({ speech: z.string().min(1).optional(), tts: z.string().min(1).optional(), keet: z.string().min(1).optional(), keet_receiver: z.string().min(1).optional(), post: z.string().min(1).optional(), post_receiver: z.string().min(1).optional() }).strict();
 export type Credentials = z.infer<typeof credentialSchema>;
 
 export async function loadCredentials(state: string): Promise<Credentials> {
-  let stored: Record<string, unknown> = {};
+  const vault = await openMigratedVault(state);
   try {
-    stored = JSON.parse(await readFile(resolve(state, 'credentials.json'), 'utf8'));
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-  }
-  return credentialSchema.parse(stored);
+    let stored: Record<string, unknown> = {};
+    try {
+      const file = await open(resolve(state, 'credentials.json'), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+      try {
+        const info = await file.stat();
+        if (!info.isFile() || (info.mode & 0o077) !== 0 || info.size > 65536 || (process.getuid && info.uid !== process.getuid())) throw new Error('Credentials unavailable');
+        stored = JSON.parse(await file.readFile('utf8'));
+      } finally { await file.close(); }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw new Error('Credentials unavailable');
+    }
+    const result = credentialSchema.safeParse(stored);
+    if (!result.success) throw new Error('Credentials unavailable');
+    const parsed = result.data;
+    // A retired writer must not silently reintroduce plaintext after migration.
+    if (parsed.speech !== undefined || parsed.tts !== undefined) throw new Error('Credentials unavailable');
+    return vault.transaction(tx => {
+      const speech = tx.get('cli.speech'), tts = tx.get('cli.tts');
+      return { ...parsed, ...(speech === undefined ? {} : { speech }), ...(tts === undefined ? {} : { tts }) };
+    });
+  } finally { vault.close(); }
 }

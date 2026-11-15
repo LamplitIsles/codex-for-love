@@ -173,10 +173,9 @@ TMPDIR=/tmp CFL_ACCEPTANCE_FLICKLOG_BIN=<test-owned-unchanged-rust-release-binar
 ```
 
 Each host prints its origin/control URL; stop it after its suite to remove only
-its temporary state. Text/voice share one host: run them sequentially because
-reset replaces fixture state. Every public request reaches actual Node/Partner,
+its temporary state. The text host resets its own fixture state. Every public request reaches actual Node/Partner,
 Chord, native storage and adapters. Controls only seed/reset fixture data,
-observe transport, configure fake execution/speech, or delay/fail delivery.
+observe transport, configure fake execution, or delay/fail delivery.
 Search runs an explicit unchanged Rust release artifact against an owned foreground
 daemon, synthetic session/config, loopback HTTP fake and synthetic Codex ingest.
 All data directories and processes belong to the fixture. The short temporary
@@ -194,16 +193,13 @@ APP_ACCEPTANCE_EVIDENCE=<evidence>/<suite> \
 APP_ACCEPTANCE_INTERVAL_SECONDS=300 bun tests/<runner>.mjs
 ```
 
-Use `browser`, `voice-browser`, `images-browser`, `compact-browser` or
-`search-browser` with the corresponding control URL. Text/voice control URLs end
-in `/__test/text` and `/__test/voice`. Panels uses `panels-browser.mjs` with no
+Use `browser`, `images-browser`, `compact-browser` or `search-browser` with
+the corresponding control URL. The text control URL ends in `/__test/text`. Panels uses `panels-browser.mjs` with no
 control URL and CFL's native five-minute interval (`300`). The additional isolated
 lifecycle check is `bun route-lifecycle-browser.mjs`.
 
 Text tests completed reply, offline/reconnect, reload, stop, explicit pending-send
-retry without duplicate execution, links/menus and preferences. Voice checks real
-browser AudioWorklet PCM/capture resources through the authenticated native relay.
-Panels/images verify actual metadata/media bytes and native membership; compaction
+retry without duplicate execution, links/menus and preferences. Panels/images verify actual metadata/media bytes and native membership; compaction
 keeps successful manual/automatic completion quiet. Search checks native indexing,
 Chinese/English hits, summaries, distinct repeated records/context, safe text,
 failure/retry and stale response isolation. No browser public-result stubs or
@@ -212,8 +208,8 @@ responses and wait for route teardown; the isolated lifecycle test is separate.
 
 ## Verification boundary
 
-All six native suites passed at 390/1280 under spec #3164, including the approved
-voice replacement with native image intake enabled. The historical local implementation report
+Historical native suites passed at 390/1280 under spec #3164, including the then-supported
+voice input relay. That voice acceptance no longer describes the current host. The historical local implementation report
 records acceptance with logs, screenshots at 390/1280, extra image/compact 320 probes and
 before/after manifests. This does not claim actual platform gateway or PWA
 acceptance, physical-device keyboard/safe-area/install behavior, real providers,
@@ -223,8 +219,8 @@ services. The standalone App does not register a service worker.
 
 ## Local-first voice consumption
 
-The current shared App no longer provides voice input; CFL retains the compatible
-server contract. The following records historical acceptance.
+The current shared App and CFL no longer provide voice input. The following
+records historical acceptance and is not a current test procedure.
 
 Spec #3739 consumes merged App #3734/PR21 source
 `97da354fb27697e530c9be1be9dceb7b2599f71e`, with the identical tree of approved
@@ -235,14 +231,9 @@ FIFO plus socket at most 256 KiB) until ready, then sends exact ordered frames,
 residual PCM and one finish. Startup remains 15 seconds and finalization stages
 20 seconds. Audio stays in memory; final text enters a draft for manual send.
 
-Use the existing text/voice host with the approved frozen browser and
-`voice-browser.mjs` runner, at 390/1280. The fixture's `speech.holdReady` and `ready`
-actions hold/release fake-provider task-started through the actual Node relay.
-Frame/event observations and provider-side equality assertions verify exact
-relay delivery. The runner observes genuine browser tracks, AudioContext and
-AudioWorklet release, and supplies its existing backpressure control. No physical
-microphone, real provider or service state participates. Current preparation uses the published contract archive; frozen acceptance
-identities in IMPORTS remain separate from current resource hashes.
+The historical voice runner and fake relay are retired. Current preparation uses the
+published contract archive; frozen acceptance identities in IMPORTS remain
+separate from current resource hashes.
 
 Public Forgejo package reachability for the pinned SHA is a hosted CI prerequisite. Local
 isolated source acceptance does not establish that reachability or hosted CI

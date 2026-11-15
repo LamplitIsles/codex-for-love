@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, stat, readFile, chmod, symlink, mkdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, stat, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createTtsSettings } from '../runtime/tts-settings.ts';
-import { voiceFixture } from './voice-fixture.ts';
+import { openMigratedVault } from '../runtime/migrated-vault.ts';
 import { createWebServer } from '../runtime/server.ts';
 import { once } from 'node:events';
 import type { AuthStore } from '../runtime/auth.ts';
@@ -16,8 +16,9 @@ import { createHash } from 'node:crypto';
 
 test('TTS settings preserve four selections, separate keys, legacy defaults and concurrent updates', async () => {
   const state = await mkdtemp(join(tmpdir(),'tts-settings-'));
-  const fallback = () => ({tts:{provider:'minimax' as const,voice:'legacy',speed:1.2},credentials:{speech:'asr-key',tts:'legacy-tts'}});
+  const fallback = () => ({tts:{provider:'minimax' as const,voice:'legacy',speed:1.2}});
   try {
+    await writeFile(join(state, 'credentials.json'), JSON.stringify({ speech:'asr-key', tts:'legacy-tts' }), { mode: 0o600 });
     const settings = createTtsSettings(state,fallback);
     assert.deepEqual(await settings.snapshot(),{provider:'minimax',voices:{minimax:'legacy',alibaba:'',bytedance:'',elevenlabs:''},speeds:{minimax:1.2,bytedance:null},configured:{alibaba:true,bytedance:true,elevenlabs:false}});
     await Promise.all([settings.saveKey({provider:'alibaba',apiKey:'output-key'}),settings.saveKey({provider:'elevenlabs',apiKey:'eleven-key'}),settings.save({provider:'bytedance',voice:' byte ',speed:1.3})]);
@@ -29,20 +30,22 @@ test('TTS settings preserve four selections, separate keys, legacy defaults and 
     const snapshot = await reloaded.snapshot();
     assert.deepEqual(snapshot.voices,{minimax:'minimax-id',alibaba:'alibaba-id',bytedance:'bytedance-id',elevenlabs:'elevenlabs-id'});
     assert.equal(snapshot.provider,'bytedance'); assert.doesNotMatch(JSON.stringify(snapshot),/key/);
-    assert.equal((await stat(join(state,'tts-settings.json'))).mode & 0o777,0o600);
-    assert.equal(fallback().credentials.speech,'asr-key');
+    assert.equal((await stat(join(state,'vault.sqlite'))).mode & 0o777,0o600);
     for (const value of [{provider:'alibaba',voice:'v',speed:1},{provider:'elevenlabs',voice:' ',speed:null},{provider:'minimax',voice:'v',speed:2.1},{provider:'minimax',voice:'v',speed:null,extra:1}]) await assert.rejects(settings.save(value),{code:'invalid_tts_settings'});
     for (const apiKey of ['', ' secret','a\nb','x'.repeat(513)]) await assert.rejects(settings.saveKey({provider:'alibaba',apiKey}),{code:'invalid_tts_key'});
-    const before = await readFile(join(state,'tts-settings.json'),'utf8');
+    const before = await settings.selection();
     await assert.rejects(settings.saveKey({provider:'alibaba',apiKey:'denied'},()=>false),{code:'unauthorized'});
-    assert.equal(await readFile(join(state,'tts-settings.json'),'utf8'),before);
-    await chmod(join(state,'tts-settings.json'),0o644); await assert.rejects(settings.snapshot(),{code:'tts_settings_unavailable'});
-    await rm(join(state,'tts-settings.json')); await symlink(join(state,'other'),join(state,'tts-settings.json')); await assert.rejects(settings.snapshot(),{code:'tts_settings_unavailable'});
+    assert.deepEqual(await settings.selection(),before);
   } finally { await rm(state,{recursive:true,force:true}); }
 });
 
 test('TTS HTTP endpoints enforce origin, methods, validation, and never return secrets', async () => {
-  const f = await voiceFixture();
+  const base = await fixture();
+  await writeFile(join(base.directory, 'credentials.json'), JSON.stringify({ speech: 'fixture-key' }), { mode: 0o600 });
+  const partner = await base.createPartner();
+  const appServer = createWebServer(partner, `${base.directory}/assets`, { auth: { authorize: () => true, sameOrigin: (r: import('node:http').IncomingMessage) => r.headers.origin !== 'http://evil.invalid', close() {} } as unknown as AuthStore });
+  appServer.server.listen(0, '127.0.0.1'); await once(appServer.server, 'listening');
+  const f = { f: base, partner, origin: `http://127.0.0.1:${(appServer.server.address() as {port:number}).port}`, close: async () => { await appServer.close(); await base.close(); } };
   try {
     const url = `${f.origin}/api/tts/settings`;
     const post = (path:string, input:unknown, origin=f.origin) => fetch(`${f.origin}${path}`,{method:'POST',headers:{origin,'content-type':'application/json'},body:JSON.stringify(input)});
@@ -50,7 +53,6 @@ test('TTS HTTP endpoints enforce origin, methods, validation, and never return s
     assert.equal((await r.json() as any).provider,null);
     r = await post('/api/tts/settings/key',{provider:'alibaba',apiKey:'secret'},'http://evil.invalid'); assert.equal(r.status,403);
     r = await post('/api/tts/settings/key',{provider:'alibaba',apiKey:'output-secret'}); assert.equal(r.status,200); assert.doesNotMatch(await r.text(),/output-secret/);
-    assert.equal((await f.partner.voiceSettings.selection()).apiKey,'fixture-key');
     r = await post('/api/tts/settings',{provider:'elevenlabs',voice:'id',speed:null}); assert.equal(r.status,200); assert.equal((await r.json() as any).provider,'elevenlabs');
     r = await post('/api/tts/settings',{provider:'elevenlabs',voice:'id',speed:1}); assert.equal(r.status,400);
     r = await fetch(`${f.origin}/api/tts/elevenlabs/voices`); assert.equal(r.status,400); assert.equal(r.headers.get('cache-control'),'no-store');
@@ -111,20 +113,18 @@ test('live TOML and CLI credential fallbacks agree between HTTP settings and the
     const audioId = createHash('sha256').update(JSON.stringify([2, 'elevenlabs', 'eleven_v4', 'new-voice', 1, 'hello'])).digest('hex');
     await writeFile(join(audioDir, `${audioId}.mp3`), Buffer.from('test-owned cache'));
     await writeFile(configPath, configText('elevenlabs', 'new-voice'));
-    await writeFile(credentialsPath, JSON.stringify({ tts: 'new-byte-key' }), { mode: 0o600 });
+    const vault = await openMigratedVault(f.directory); vault.put('cli.tts', 'new-byte-key'); vault.close();
     const current = await snapshot();
     assert.equal(current.provider, 'elevenlabs'); assert.equal(current.voices.elevenlabs, 'new-voice');
-    assert.deepEqual(current.configured, { alibaba: false, bytedance: true, elevenlabs: false });
+    assert.deepEqual(current.configured, { alibaba: true, bytedance: true, elevenlabs: false });
     const sent = await client.callTool({ name: 'send_voice', arguments: { text: 'hello' } });
     assert.equal(sent.isError, undefined);
     assert.deepEqual(JSON.parse((sent.content as Array<{text:string}>)[0].text), { kind: 'voice', audioId });
-    assert.equal((await partner.voiceSettings.selection()).apiKey, 'old-input');
     await partner.ttsSettings.saveKey({ provider: 'alibaba', apiKey: 'output-only' }, () => true);
     await partner.ttsSettings.save({ provider: 'minimax', voice: 'override', speed: null }, () => true);
     const overridden = await snapshot();
     assert.equal(overridden.provider, 'minimax'); assert.equal(overridden.voices.elevenlabs, 'new-voice');
     assert.deepEqual(overridden.configured, { alibaba: true, bytedance: true, elevenlabs: false });
-    assert.equal((await partner.voiceSettings.selection()).apiKey, 'old-input');
   } finally {
     await client.close();
     if (app) await app.close();

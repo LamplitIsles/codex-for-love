@@ -2,7 +2,7 @@ import { uploadPostAsset, savePostAsset } from './post-assets.ts';
 import { StickerCatalog } from './sticker-catalog.ts';
 import { readStickerDirectory } from './sticker-import.ts';
 import { randomBytes } from 'node:crypto';
-import { mkdir, readFile, writeFile, rename, access, rm } from 'node:fs/promises';
+import { open, rename, access, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { loadConfig, loadCredentials } from './config.ts';
 import { convertDshSession } from './dsh-session-import.ts';
@@ -12,6 +12,8 @@ import { createConversationSearch } from './conversation-search.ts';
 import { migrateRelationshipJournal } from './migrate-relationship-journal.ts';
 import { prepareFrontend } from './startup-frontend.ts';
 import { AuthStore } from './auth.ts';
+import { openMigratedVault } from './migrated-vault.ts';
+import { acquirePrivateFileLock } from './private-file-lock.ts';
 
 const cliArgs = process.argv.slice(2);
 if (cliArgs[0] === '--') cliArgs.shift();
@@ -76,15 +78,27 @@ if (command === 'pair') {
   let value = '';
   for await (const chunk of process.stdin) { value += chunk; if (value.length > 16384) throw new Error('Credential too large'); }
   value = value.trim(); if (!value) throw new Error('Credential is empty');
-  await mkdir(config.state, { recursive: true, mode: 0o700 });
-  const path = join(config.state, 'credentials.json');
-  let previous: Record<string, string>;
-  try { previous = JSON.parse(await readFile(path, 'utf8')); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; previous = {}; }
-  const temporary = `${path}.${randomBytes(8).toString('hex')}.tmp`;
-  await writeFile(temporary, JSON.stringify({ ...previous, [name]: value }), { mode: 0o600, flag: 'wx' });
-  try { await rename(temporary, path); }
-  finally { await rm(temporary, { force: true }); }
+  const vault = await openMigratedVault(config.state);
+  try {
+    if (name === 'speech' || name === 'tts') vault.put(name === 'speech' ? 'cli.speech' : 'cli.tts', value);
+    else {
+      let lock: Awaited<ReturnType<typeof acquirePrivateFileLock>> = null;
+      for (let i = 0; i < 500 && !lock; i++) { lock = await acquirePrivateFileLock(join(config.state, 'credentials.json.lock')); if (!lock) await new Promise(resolve => setTimeout(resolve, 10)); }
+      if (!lock) throw new Error('Credentials unavailable');
+      try {
+        const { speech: _speech, tts: _tts, ...previous } = await loadCredentials(config.state);
+        const path = join(config.state, 'credentials.json');
+        const temporary = `${path}.${randomBytes(8).toString('hex')}.tmp`;
+        try {
+          const file = await open(temporary, 'wx', 0o600);
+          try { await file.writeFile(JSON.stringify({ ...previous, [name]: value })); await file.sync(); } finally { await file.close(); }
+          await rename(temporary, path);
+          const directory = await open(config.state, 'r');
+          try { await directory.sync(); } finally { await directory.close(); }
+        } finally { await rm(temporary, { force: true }); }
+      } finally { await lock.close(); }
+    }
+  } finally { vault.close(); }
   console.log('Credential saved. Restart the runtime to apply it.');
 } else if (command === 'serve') {
   const assets = await prepareFrontend(config.frontend ?? 'latest', import.meta.url);

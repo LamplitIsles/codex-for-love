@@ -33,7 +33,7 @@ The now-removed `tests/voice-worklet.test.ts` derived from its `src/companion/vo
 That source is Apache-2.0, covered by this repository's retained Apache-2.0 license.
 The historical adaptation used the shared public contracts and the existing Framework7
 composer instead of the imported CFL batch MediaRecorder/transcription path. The
-public voice contract remains for compatibility with existing hosts.
+former public voice input contract has since been removed.
 No provider keys, recordings, transcripts or runtime state were imported.
 
 The companion-panels adaptation connects the imported relationship history, diary,

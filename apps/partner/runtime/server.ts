@@ -1,14 +1,12 @@
 import { TtsSettingsError } from './tts-settings.ts';
 import { elevenLabsVoices } from './elevenlabs-voice.ts';
 import { BackgroundSettingsError, MAX_BACKGROUND_BYTES, backgroundMediaType } from './background-settings.ts';
-import { VoiceSettingsError } from './voice-settings.ts';
+import { BarkSettingsError } from './bark.ts';
 import { ModelPreferenceError } from './model-preference.ts';
 import { APPEARANCE_PATH, WORKSPACE_IMAGE_PATH } from '@lamplit/contracts';
 import { imageHttp, stickerHttp } from '@lamplit/contracts/server';
 import { createChatSocket } from './chat.ts';
 import { sendWorkspaceMedia } from './workspace-media-http.ts';
-import { createVoiceHost, type VoiceDependencies } from './voice.ts';
-import { VOICE_CAPABILITY_PATH, VOICE_STREAM_PATH } from '@lamplit/contracts/voice';
 import { InvalidImageInput } from './images.ts';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { extname } from 'node:path';
@@ -51,7 +49,7 @@ function json(response: ServerResponse, value: unknown, status = 200) {
   response.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
   response.end(JSON.stringify(value));
 }
-export function createWebServer(partner: Partner, assets: string, options: { auth: AuthStore; keetReceiver?: string; voice?: VoiceDependencies; heartbeatMs?: number; conversationSearch?: ConversationSearch }) {
+export function createWebServer(partner: Partner, assets: string, options: { auth: AuthStore; keetReceiver?: string; heartbeatMs?: number; conversationSearch?: ConversationSearch }) {
   const serve = sirv(assets, {
     single: false,
     setHeaders(response, pathname) {
@@ -93,7 +91,6 @@ export function createWebServer(partner: Partner, assets: string, options: { aut
   };
   const revocationTimer = setInterval(revokeConnections, 1000);
   revocationTimer.unref();
-  const voice = createVoiceHost(() => partner.voiceSettings ? partner.voiceSettings.selection() : partner.voiceCredential(), options.voice);
   const server = createServer(async (request, response) => {
     response.setHeader('x-content-type-options', 'nosniff');
     response.setHeader('referrer-policy', 'no-referrer');
@@ -209,17 +206,17 @@ export function createWebServer(partner: Partner, assets: string, options: { aut
           return fail(error instanceof TtsSettingsError ? error.code : 'tts_settings_unavailable', error instanceof TtsSettingsError ? error.status : 503);
         }
       }
-      if (path === '/api/voice/settings') {
-        const fail = (code: string, status: number) => json(response, { error: { code, message: 'Voice settings could not be confirmed. Refresh settings before trying again.' } }, status);
+      if (path === '/api/bark/settings') {
+        const fail = (code: string, status: number) => json(response, { error: { code, message: 'Notification settings could not be confirmed. Refresh settings before trying again.' } }, status);
         if (request.method !== 'GET' && request.method !== 'POST') return fail('method_not_allowed', 405);
         try {
-          if (request.method === 'GET') return humanJson(await partner.voiceSettings.snapshot());
-          if (request.headers['content-type']?.split(';')[0].trim().toLowerCase() !== 'application/json') return fail('invalid_voice_settings', 400);
+          if (request.method === 'GET') return humanJson(await partner.bark.snapshot());
+          if (request.headers['content-type']?.split(';')[0].trim().toLowerCase() !== 'application/json') return fail('invalid_bark_settings', 400);
           let input: unknown;
-          try { input = await body(request, 4096); } catch { return fail('invalid_voice_settings', 400); }
-          return humanJson(await partner.voiceSettings.save(input, () => stillAuthorized(request)));
+          try { input = await body(request, 4096); } catch { return fail('invalid_bark_settings', 400); }
+          return humanJson(await partner.bark.save(input, () => stillAuthorized(request)));
         } catch (error) {
-          return fail(error instanceof VoiceSettingsError ? error.code : 'voice_settings_unavailable', error instanceof VoiceSettingsError ? error.status : 503);
+          return fail(error instanceof BarkSettingsError ? error.code : 'bark_settings_unavailable', error instanceof BarkSettingsError ? error.status : 503);
         }
       }
       if (path === '/api/chat/models') {
@@ -410,8 +407,6 @@ export function createWebServer(partner: Partner, assets: string, options: { aut
         response.writeHead(result!.status, Object.fromEntries(result!.headers));
         response.end(bytes); return;
       }
-      if (path === VOICE_CAPABILITY_PATH) return json(response, request.method === 'GET' ? { available: await voice.available() } : { code: 'method_not_allowed' }, request.method === 'GET' ? 200 : 405);
-      if (path === VOICE_STREAM_PATH) return json(response, { code: 'upgrade_required' }, 426);
       if (path === '/api/post/events' && request.method === 'POST') {
         if (!partner.postEnabled) return json(response, { error: 'Post ingress unavailable' }, 404);
         if (!partner.authorizePost(request.headers.authorization)) return json(response, { error: 'Unauthorized' }, 401);
@@ -574,7 +569,7 @@ export function createWebServer(partner: Partner, assets: string, options: { aut
   const chat = createChatSocket(partner, authorize, options.conversationSearch, stillAuthorized);
   server.on('upgrade', async (request, socket, head) => {
     const path = new URL(request.url ?? '/', 'http://localhost').pathname;
-    const target = path === '/api/chat/socket' ? chat.sockets : path === VOICE_STREAM_PATH ? voice.sockets : undefined;
+    const target = path === '/api/chat/socket' ? chat.sockets : undefined;
     if (request.method !== 'GET' || !target || !options.auth.sameOrigin(request) || (!await authorize(request))) { socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n'); return; }
     target.handleUpgrade(request, socket, head, ws => {
       if (!stillAuthorized(request)) { ws.terminate(); return; }
@@ -588,7 +583,6 @@ export function createWebServer(partner: Partner, assets: string, options: { aut
     return closePromise ??= (async () => {
       clearInterval(revocationTimer);
       try {
-        voice.close();
         await chat.close();
         for (const response of streams.keys()) response.end();
         server.closeAllConnections();

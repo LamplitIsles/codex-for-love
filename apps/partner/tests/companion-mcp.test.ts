@@ -87,7 +87,7 @@ test('Companion returns the existing Voice projection for cached ElevenLabs audi
     const nextId = createHash('sha256').update(JSON.stringify([2, 'minimax', 'speech-2.8-hd', 'next-voice', 1.5, 'hello'])).digest('hex');
     await writeFile(join(workspace, '.lamplit/audio', `${nextId}.mp3`), bytes);
     const { createTtsSettings } = await import('../runtime/tts-settings.ts');
-    await createTtsSettings(join(workspace, 'state'), () => ({ credentials: {} })).save({ provider: 'minimax', voice: 'next-voice', speed: 1.5 });
+    await createTtsSettings(join(workspace, 'state'), () => ({})).save({ provider: 'minimax', voice: 'next-voice', speed: 1.5 });
     const next = await client.callTool({ name: 'send_voice', arguments: { text: 'hello' } });
     assert.deepEqual(JSON.parse((next.content as Array<{ text: string }>)[0].text), { kind: 'voice', audioId: nextId });
   } finally { await client.close(); await rm(workspace, { recursive: true, force: true }); }

@@ -240,15 +240,16 @@ approved shared App described below.
 
 ### Shared streaming voice relay
 
-`apps/partner/runtime/voice.ts` adapts the bounded Qwen streaming relay from
+The retired `apps/partner/runtime/voice.ts` adapted the bounded Qwen streaming relay from
 Apache-2.0 `LamplitIsles/lamplit-chat/src/server/voice.ts` at
 `0f1ad1e28b6de5b86fef1cfcb401515625e603f9`. Node `ws` supplies server-side
 authorization and connection teardown in place of workerd's WebSocket transport.
-The relay consumes the compiled public `@lamplit/contracts/voice` constants,
+The retired relay consumed the compiled public `@lamplit/contracts/voice` constants,
 validators and types from `LamplitIsles/lamplit-app` at
 `f56f1259c2af71e3c59f7cd644b2721ffd8c63a6`. It does not import private frontend
-definitions. Provider sentence ordering/replacement and final-only behavior follow
-the Lamplit implementation; no audio or transcript store is added.
+definitions. Its provider sentence ordering/replacement and final-only behavior followed
+the Lamplit implementation; no audio or transcript store was added. The CFL
+voice-input relay has since been removed; this attribution is retained historically.
 
 ### Shared companion panels
 
@@ -788,13 +789,33 @@ behavior; CFL supplies the authenticated native media adapters.
 
 ## Native-confirmed delivery — FlickNote #5707 / App PR #63
 
-CFL selects merged App `6b70e24d8732a3ac9a6f7b10fe82ab4613c84933`. Its
+The previous pin selected merged App `6b70e24d8732a3ac9a6f7b10fe82ab4613c84933`. Its
 published Forgejo contracts archive is 50,092 bytes, SHA-256
 `088da67e83227db60aa24440283467be0e825e087672d21aaf606974eb7b613c`;
 the frontend archive is 7,111,689 bytes, SHA-256
 `edf08d62f6937844ff05e6d46f13888b51cbc3a67841f309abfc03e4fc0ad831`.
-The contracts source metadata and frontend manifest identify the selected
-revision, and all 50 compiled contract files match byte-for-byte across the
-two archives. The App IMPORTS and Noto Sans SC notices match the retained
-copies. App owns the public delivery protocol and frontend behavior; CFL owns
+The contracts source metadata and frontend manifest identify that revision,
+and all 50 compiled contract files match byte-for-byte across the two archives.
+The App IMPORTS and Noto Sans SC notices matched the then-retained copies.
+App owns the public delivery protocol and frontend behavior; CFL owns
 the native execution and delivery evidence.
+
+## Retired voice-input contract — App PR #64 / FlickNote #154
+
+CFL selects merged App main revision
+`145980edd93bf4d367fc9ba0c9cb860bca20449a` (tree
+`47c11a6bc32a571be7837e584f223ac5dbfe8975`), whose parent is the
+previous CFL pin `6b70e24d8732a3ac9a6f7b10fe82ab4613c84933`. Its public
+Forgejo contracts archive is 48,964 bytes, SHA-256
+`6f1f93f00d0dea943982ab876584478e830637d53728481eb801c26c21b054a6`;
+the frontend archive is 7,110,359 bytes, SHA-256
+`a121a2def44612598afb7e3f05380d7119c2cea4c9608076adcc8803832f9a45`.
+Their published file metadata matches these independently downloaded bytes.
+The frontend manifest names the same revision and its 48 compiled contract
+hashes exactly match the contracts archive. Compared with the previous pin,
+the compiled changes are the removal of `dist/voice.js` and `dist/voice.d.ts`;
+the Better Auth marker and contract dependencies remain unchanged. CFL's
+retired input relay no longer consumes that subpath. Assistant voice-message
+playback and TTS remain separate. The retained App IMPORTS notice is updated
+from the matching published frontend and source revision; historical source
+and acceptance identities above remain unchanged.

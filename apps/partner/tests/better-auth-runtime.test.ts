@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { EventEmitter, once } from 'node:events';
+import { once } from 'node:events';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -22,7 +22,7 @@ test('Better Auth pairing and recovery retain access until successful verificati
   const assets = join(root, 'assets');
   await mkdir(assets); await writeFile(join(assets, 'index.html'), 'test app');
   const auth = new AuthStore(root, origin);
-  const partner = { close: async () => {}, voiceCredential: () => null } as unknown as Partner;
+  const partner = { close: async () => {} } as unknown as Partner;
   const app = createWebServer(partner, assets, { auth });
   app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening');
   const base = `http://127.0.0.1:${(app.server.address() as { port: number }).port}`;
@@ -118,7 +118,7 @@ test('native OAuth consent, S256 exchange, refresh and recovery use the provider
   const root = await mkdtemp(join(tmpdir(), 'cfl-ba-oauth-'));
   const assets = join(root, 'assets'); await mkdir(assets); await writeFile(join(assets, 'index.html'), 'test app');
   const auth = new AuthStore(root, origin);
-  const partner = { close: async () => {}, voiceCredential: () => null } as unknown as Partner;
+  const partner = { close: async () => {} } as unknown as Partner;
   const app = createWebServer(partner, assets, { auth });
   app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening');
   const base = `http://127.0.0.1:${(app.server.address() as { port: number }).port}`;
@@ -217,8 +217,11 @@ test('sign-out revokes native grants issued to the browser session', async () =>
   const assets = join(root, 'assets'); await mkdir(assets); await writeFile(join(assets, 'index.html'), 'test app');
   const auth = new AuthStore(root, origin);
   let cancellations = 0;
-  const partner = { close: async () => {}, voiceCredential: () => 'test-key', cancel: async () => { cancellations++; } } as unknown as Partner;
-  const app = createWebServer(partner, assets, { auth, voice: { connect: () => Object.assign(new EventEmitter(), { terminate() {} }) as unknown as WebSocket } });
+  const { fixture } = await import('./fixture.ts');
+  const f = await fixture();
+  const partner = await f.createPartner();
+  partner.cancel = async () => { cancellations++; };
+  const app = createWebServer(partner, assets, { auth });
   app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening');
   const base = `http://127.0.0.1:${(app.server.address() as { port: number }).port}`;
   const request = (path: string, options: { method?: string; data?: unknown; form?: URLSearchParams; cookies?: string[]; token?: string; site?: string | null } = {}) => fetch(base + path, {
@@ -256,7 +259,7 @@ test('sign-out revokes native grants issued to the browser session', async () =>
     assert.equal(cancellations, 0);
     assert.equal((await request('/api/cancel', { method: 'POST', data: { id: 'test' }, token: tokens.access_token })).status, 200);
     assert.equal(cancellations, 1);
-    const connect = (site: string | null) => new WebSocket(base.replace('http:', 'ws:') + '/api/voice/stream', {
+    const connect = (site: string | null) => new WebSocket(base.replace('http:', 'ws:') + '/api/chat/socket', {
       headers: { host: 'localhost:3082', authorization: `Bearer ${tokens.access_token}`, ...(site === null ? {} : { origin: site }) },
     });
     const rejected = async (site: string | null) => {
@@ -310,7 +313,7 @@ test('sign-out revokes native grants issued to the browser session', async () =>
     assert.equal((await request('/api/auth/status', { cookies: [otherSession] }).then(r => r.json()) as { state: string }).state, 'signed_in');
     const refresh = await request('/api/auth/oauth2/token', { method: 'POST', form: new URLSearchParams({ grant_type: 'refresh_token', client_id: 'etos', refresh_token: refreshed.refresh_token }) });
     assert.notEqual(refresh.status, 200, 'logout must revoke the linked refresh token');
-  } finally { activeSocket?.terminate(); await app.close(); await rm(root, { recursive: true, force: true }); }
+  } finally { activeSocket?.terminate(); await app.close(); await f.close(); await rm(root, { recursive: true, force: true }); }
 });
 
 test('native grants require their authorizing session to remain live', async () => {
@@ -319,7 +322,7 @@ test('native grants require their authorizing session to remain live', async () 
   const root = await mkdtemp(join(tmpdir(), 'cfl-ba-session-grants-'));
   const assets = join(root, 'assets'); await mkdir(assets); await writeFile(join(assets, 'index.html'), 'test app');
   const auth = new AuthStore(root, origin);
-  const partner = { close: async () => {}, voiceCredential: () => null } as unknown as Partner;
+  const partner = { close: async () => {} } as unknown as Partner;
   const app = createWebServer(partner, assets, { auth });
   app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening');
   const base = `http://127.0.0.1:${(app.server.address() as { port: number }).port}`;

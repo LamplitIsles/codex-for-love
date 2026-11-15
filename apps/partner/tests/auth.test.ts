@@ -33,20 +33,20 @@ test('independent service credentials do not authorize human requests', async ()
   const root = await mkdtemp(join(tmpdir(), 'cfl-passkey-'));
   const assets = join(root, 'assets'); await mkdir(assets); await writeFile(join(assets, 'index.html'), 'login');
   const auth = new AuthStore(root, origin); await auth.initialize();
-  const partner = { close: async () => {}, postEnabled: true, keetEnabled: true, authorizePost: (header: string) => header === 'Bearer post-secret', ingestPost: async () => {}, ingestKeet: async () => {}, voiceCredential: () => null } as unknown as Partner;
+  const partner = { close: async () => {}, postEnabled: true, keetEnabled: true, authorizePost: (header: string) => header === 'Bearer post-secret', ingestPost: async () => {}, ingestKeet: async () => {} } as unknown as Partner;
   const app = createWebServer(partner, assets, { auth, keetReceiver: 'keet-secret' });
   app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening');
   const base = `http://127.0.0.1:${(app.server.address() as { port: number }).port}`;
   try {
     assert.equal((await fetch(base + '/api/session')).status, 401);
-    for (const path of ['/api/voice/settings','/api/background-settings','/api/background-settings/landscape','/api/backgrounds/landscape']) for (const method of ['GET', 'POST']) {
+    for (const path of ['/api/bark/settings','/api/background-settings','/api/background-settings/landscape','/api/backgrounds/landscape']) for (const method of ['GET', 'POST']) {
       const response = await fetch(base + path, {method, headers:{origin, authorization:'Bearer post-secret'}, ...(method === 'POST' ? {body:JSON.stringify({region:'beijing',apiKey:'secret'})} : {})});
       assert.equal(response.status,401);
       assert.equal(response.headers.get('cache-control'),'no-store');
     }
     assert.equal((await fetch(base + '/api/chat/media/anything')).status, 401);
     assert.equal((await fetch(base + `/api/audio/${'a'.repeat(64)}.mp3`)).status, 401);
-    for (const path of ['/api/chat/socket', '/api/voice/stream']) {
+    for (const path of ['/api/chat/socket']) {
       const ws = new WebSocket(base.replace('http', 'ws') + path, { origin });
       ws.on('error', () => {}); const [, res] = await once(ws, 'unexpected-response'); assert.equal((res as unknown as { statusCode: number }).statusCode, 403); ws.terminate();
     }
@@ -58,24 +58,17 @@ test('independent service credentials do not authorize human requests', async ()
   } finally { await app.close(); await rm(root, { recursive: true, force: true }); }
 });
 
-test('successful recovery closes existing authenticated chat, voice and event connections', async () => {
-  const { createServer } = await import('node:http');
-  const { WebSocketServer } = await import('ws');
+test('successful recovery closes existing authenticated chat and event connections', async () => {
   const { fixture } = await import('./fixture.ts');
   const f = await fixture();
-  f.config.speech = {}; f.credentials.speech = 'synthetic-speech';
-  const provider = createServer(), providerSockets = new WebSocketServer({ noServer: true });
-  provider.on('upgrade', (request, socket, head) => providerSockets.handleUpgrade(request, socket, head, ws => providerSockets.emit('connection', ws)));
-  provider.listen(0, '127.0.0.1'); await once(provider, 'listening');
-  const providerPort = (provider.address() as { port: number }).port;
   const partner = await f.createPartner(), auth = new AuthStore(f.directory, origin);
-  const app = createWebServer(partner, join(f.directory, 'assets'), { auth, voice: { connect: () => new WebSocket(`ws://127.0.0.1:${providerPort}`) } });
+  const app = createWebServer(partner, join(f.directory, 'assets'), { auth });
   app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening');
   const base = `http://127.0.0.1:${(app.server.address() as { port: number }).port}`;
   const sockets: WebSocket[] = [];
   try {
     const cookie = await enroll(base, auth);
-    for (const path of ['/api/chat/socket', '/api/voice/stream']) {
+    for (const path of ['/api/chat/socket']) {
       const ws = new WebSocket(base.replace('http', 'ws') + path, { origin, headers: { cookie } });
       sockets.push(ws); ws.on('error', () => {}); await once(ws, 'open');
     }
@@ -89,8 +82,6 @@ test('successful recovery closes existing authenticated chat, voice and event co
   } finally {
     for (const ws of sockets) ws.terminate();
     await app.close(); await f.close();
-    for (const ws of providerSockets.clients) ws.terminate();
-    providerSockets.close(); await new Promise<void>(resolve => provider.close(() => resolve()));
   }
 });
 
@@ -106,7 +97,7 @@ for (const revocation of ['logout', 'recovery'] as const) test(`${revocation} pr
   const readGate = new Promise<void>(resolve => { releaseRead = resolve; });
   let holdRead = false;
   const partner = {
-    close: async () => {}, voiceCredential: () => null,
+    close: async () => {},
     submit: async () => { counts.submit++; }, cancel: async () => { counts.cancel++; },
     image: async () => { if (holdRead) { notifyRead!(); await readGate; } return { media_type: 'image/png', data: Buffer.from('synthetic') }; },
     conversationImage: async () => ({ media_type: 'image/png', data: Buffer.from('synthetic') }),

@@ -5,7 +5,7 @@ Companion UI and a small Node host around the official Codex app-server. The
 app-server is the only execution owner. It owns the authenticated model
 thread, model history, tools, skills, execution and compaction; this
 repository owns the Companion projection, relationship state, speech
-transcription and workspace attachments.
+output and workspace attachments.
 
 ## Browser appearance and language
 
@@ -43,7 +43,7 @@ outside this feature.
 The attachment menu uses browser file selection. Available image sources and
 camera options depend on the browser and operating system; cancellation leaves
 the draft intact. The App can play existing voice messages but does not record
-or stream voice input. CFL retains voice endpoints for compatible clients.
+or stream voice input. CFL no longer provides its former voice-input endpoints.
 
 There is no service worker or Web Push. Documents revalidate on refresh;
 versioned UI assets retain their existing immutable caching. Authorized successful
@@ -416,20 +416,17 @@ the path passed to it:
 - `avatars.companion` and `avatars.user` point to image files inside the
   workspace. The browser receives application URLs, never host filesystem
   paths or embedded base64 configuration.
-- The optional `speech` section plus a CLI-managed `speech` credential enables
-  legacy Beijing streaming voice input; UI voice settings can configure input
-  independently. Final recordings enter an editable draft, with no model turn
-  until Send. Store a shared CLI credential using `pnpm --filter
-  @lamplitisles/partner cli credential /path/to/partner.toml speech --stdin`;
-  never put the key in TOML or command arguments. Legacy `speech.endpoint` is
-  accepted and ignored regardless of value; whole-audio transcription is removed.
+- CFL no longer implements speech-to-text input. The legacy `speech` CLI
+  credential remains the Alibaba TTS fallback; `tts` remains the ByteDance
+  fallback. These credentials and output settings are encrypted in the vault;
+  follow the [vault and migration instructions](../README.md#voice-credentials-and-bark-notifications).
 - Voice output settings select `minimax`, `alibaba`, `bytedance`, or
   `elevenlabs` and retain each provider's voice ID and supported speed. Saving
   a selection activates it; saving a key does not verify it or switch providers.
   `speech.tts` supplies the initial fallback without changing TOML. MiniMax
   requires the locally installed, authenticated `mmx` CLI. Alibaba and ByteDance
   retain their legacy `speech` and `tts` CLI credentials as fallbacks; an output
-  key saved in settings is independent of speech input and other providers.
+  key saved in settings is independent of the CLI fallback and other providers.
   ElevenLabs uses the official SDK with fixed `eleven_v4`, MP3 output and no
   automatic generation retries. Configure an API key with speech generation and
   voices-read permissions. Choose from the account's saved voices in pages or

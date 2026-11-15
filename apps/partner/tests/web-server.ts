@@ -14,7 +14,7 @@ export function createWebServer(partner: Partner, assets: string, options: Omit<
     status: (request: IncomingMessage) => ownerStatus.get(request) ?? 'signed_out',
     sameOrigin(request: IncomingMessage) {
       if (request.headers['sec-fetch-site'] === 'cross-site') return false;
-      if (!request.headers.origin) return request.url !== '/api/voice/stream';
+      if (!request.headers.origin) return true;
       const valid = request.headers.origin === `http://${request.headers.host}` || request.headers.origin === `https://${request.headers.host}`;
       if (valid) origin = request.headers.origin!;
       return valid;

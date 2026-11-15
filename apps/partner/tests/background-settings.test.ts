@@ -9,7 +9,6 @@ import { compressBackground, createBackgroundSettings, MAX_BACKGROUND_BYTES, BAC
 import { acquirePrivateFileLock } from '../runtime/private-file-lock.ts';
 import { fixture } from './fixture.ts';
 import { createWebServer } from './web-server.ts';
-import { voiceFixture } from './voice-fixture.ts';
 
 const image = () => sharp({create:{width:30,height:20,channels:3,background:'red'}});
 const noop = () => {};
@@ -133,19 +132,4 @@ test('HTTP uploads update appearance and native snapshots without restart or mes
     assert.deepEqual(restarted.backgroundSettings(),{landscape:true,portrait:true});
     assert.deepEqual(restarted.appearance().backgrounds,urls);
   } finally { await app.close(); await f.close(); }
-});
-
-
-test('background uploads do not interrupt an established voice recording', async () => {
-  const f = await voiceFixture();
-  try {
-    const recording = await f.client(); await recording.wait('ready');
-    const bytes = await image().png().toBuffer();
-    const response = await fetch(`${f.origin}/api/background-settings/portrait`,{method:'POST',headers:{origin:f.origin,'content-type':'image/png'},body:new Uint8Array(bytes)});
-    assert.equal(response.status,200);
-    assert.equal(recording.ws.readyState,1);
-    recording.ws.send(Buffer.alloc(3200)); recording.ws.send(JSON.stringify({type:'finish'}));
-    assert.equal((await recording.wait('result')).type,'result');
-    assert.equal((await f.f.requests()).some(value=>value.method==='turn/start'),false);
-  } finally { await f.close(); }
 });
