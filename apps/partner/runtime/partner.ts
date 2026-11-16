@@ -2,7 +2,7 @@ import { uiDispatchesFromTurn } from './ui-dispatch.ts';
 import { createTtsSettings, loadTtsSettings } from './tts-settings.ts';
 import { createBackgroundSettings } from './background-settings.ts';
 import { openMigratedVault } from './migrated-vault.ts';
-import { createBark } from './bark.ts';
+import { barkAttempt, createBark } from './bark.ts';
 import { ModelSelection, ModelPreferenceError, WRITABLE_MODELS, modelUnavailable, readModelPreference, saveModelPreference } from './model-preference.ts';
 import { startManagedAppServer } from './managed-app-server.ts';
 import { postInput, postConversationName, discoverPost, receiverAuthorized, validatePost } from './post.ts';
@@ -1738,32 +1738,40 @@ export async function createPartner(config: Config, credentials: Credentials, de
         break;
       }
       case 'turn/completed': {
+        const barkLog = barkAttempt('normal');
+        barkLog('eligibility', 'started');
         const turn = registerTurn(params.turn);
         const observedLive = !!turn && notificationLiveTurns.delete(turn.id);
         pet?.turnCompleted(turn?.status);
         let reconciled = turn;
         if (turn && (userItems(turn).length || sourceIdsForTurn(turn.id).length)) {
-          reconciled = await reconcileTurn(turn.id);
-          if (reconciled && userItems(reconciled).length) await projectTurn(reconciled, true, true);
+          try {
+            reconciled = await reconcileTurn(turn.id);
+            if (reconciled && userItems(reconciled).length) await projectTurn(reconciled, true, true);
+          } catch (error) { barkLog('inspection', 'failed'); throw error; }
         }
         // Only a live, successfully completed turn can be a notification candidate.
         // Reload authoritative items in the background; notification failures never
         // change chat completion and unknown push outcomes are not replayed.
         if (observedLive && turn && reconciled && notification.params.threadId === threadId && turnStatus(reconciled) === 'completed'
           && (userItems(reconciled).length || sourceIdsForTurn(turn.id).length)) {
+          barkLog('eligibility', 'eligible');
           const candidateId = turn.id, candidateThread = threadId;
           const task = (async () => {
+            barkLog('inspection', 'started');
             const items = await listTurnItems(candidateId);
-            if (!items.length || barkAbort.signal.aborted) return;
+            if (barkAbort.signal.aborted) { barkLog('inspection', 'aborted'); return; }
+            if (!items.length) { barkLog('inspection', 'no_reply'); return; }
             const finalTurn = { ...turn, items };
             const projected = turnResults.get(candidateId);
             if (!answersFromTurn(finalTurn).length && !projected?.generatedIds.length
-              && !projected?.voiceDispatches.length && !projected?.uiDispatches?.length) return;
-            await bark.completed(candidateThread, candidateId);
-          })().catch(() => {});
+              && !projected?.voiceDispatches.length && !projected?.uiDispatches?.length) { barkLog('inspection', 'no_reply'); return; }
+            barkLog('inspection', 'eligible');
+            await bark.completed(candidateThread, candidateId, barkLog);
+          })().catch(() => { barkLog('inspection', 'failed'); });
           barkTasks.add(task);
           void task.finally(() => barkTasks.delete(task));
-        }
+        } else barkLog('eligibility', !observedLive ? 'not_live' : notification.params.threadId !== threadId ? 'thread_mismatch' : !reconciled || turnStatus(reconciled) !== 'completed' ? 'not_completed' : 'no_input');
         const completedTurnId = turn?.id;
         if (turn && activeTurnId === turn.id) {
           activeTurnId = null;

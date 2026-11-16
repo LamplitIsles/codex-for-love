@@ -729,6 +729,20 @@ preserves the enabled state, disable retains the key, and remove clears it.
 Responses never contain the key. After an uncertain save, refresh the snapshot;
 it cannot prove which key was saved, so do not automatically replay a request.
 
+Authenticated clients can send `POST /api/bark/test` with JSON `{}` to request
+one clearly marked test notification. This does not change normal-turn claims.
+HTTP 200 with `{"status":"accepted"}` means Bark returned 2xx, not that a device
+displayed it. HTTP 409 reports `bark_not_configured` or `bark_disabled`; 502
+reports `bark_upstream_rejected`; 504 reports `outcome_unknown` after a timeout
+or network failure. Do not automatically retry an unknown outcome. The route
+uses the existing session and same-origin protections.
+
+Partner emits `bark.notification` structured diagnostics with a random attempt
+ID, normal/test kind, time, stage, reason, elapsed milliseconds and, when
+available, upstream HTTP status. These records cover eligibility, reply
+inspection, claim, configuration and send outcomes without keys, URLs, message
+contents, raw exceptions or response bodies.
+
 Bark uses the official HTTPS service and sends a generic notice with the fixed
 `etosllmstudio://open/chat` intent, without reply text. One successfully
 completed turn with an actual reply has at most one recorded attempt; failed or

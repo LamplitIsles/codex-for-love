@@ -219,6 +219,19 @@ export function createWebServer(partner: Partner, assets: string, options: { aut
           return fail(error instanceof BarkSettingsError ? error.code : 'bark_settings_unavailable', error instanceof BarkSettingsError ? error.status : 503);
         }
       }
+      if (path === '/api/bark/test') {
+        const fail = (code: string, status: number) => json(response, { error: { code, message: 'Test notification could not be confirmed.' } }, status);
+        if (request.method !== 'POST') return fail('method_not_allowed', 405);
+        if (request.headers['content-type']?.split(';')[0].trim().toLowerCase() !== 'application/json') return fail('invalid_request', 400);
+        let input: unknown;
+        try { input = await body(request, 4096); } catch { return fail('invalid_request', 400); }
+        if (!z.object({}).strict().safeParse(input).success) return fail('invalid_request', 400);
+        try { return humanJson(await partner.bark.test(() => stillAuthorized(request))); }
+        catch (error) {
+          if (!stillAuthorized(request)) return unauthorized();
+          return fail(error instanceof BarkSettingsError ? error.code : 'bark_settings_unavailable', error instanceof BarkSettingsError ? error.status : 503);
+        }
+      }
       if (path === '/api/chat/models') {
         const fail = (code: string, message: string, status: number) => json(response, { error: { code, message } }, status);
         if (request.method !== 'GET' && request.method !== 'POST') return fail('method_not_allowed', 'Method not allowed.', 405);

@@ -435,7 +435,7 @@ async function handle(request) {
       return page(turns, p);
     }
     case 'thread/items/list': {
-      if (control().historyItemsError) rpcError(-32603, 'fixture history read failure');
+      if (control().historyItemsError || control().command?.historyItemsError) rpcError(-32603, 'fixture history read failure');
       if (control().historyItemsEmptyPage) return { data: [], nextCursor: '1', backwardsCursor: null };
       if (control().historyItemsRepeatedCursor) return { data: [{ turnId: 'cursor-turn', item: userItem([{ type: 'text', text: 'unrelated' }], 'unrelated') }], nextCursor: '1', backwardsCursor: null };
       const turns = p.turnId ? state.turns.filter((turn) => turn.id === p.turnId) : state.turns;
