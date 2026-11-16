@@ -37,7 +37,8 @@ test('native image creation and editing persist assistant attachments through re
   const url = `http://127.0.0.1:${(app.server.address() as { port: number }).port}`;
   try {
     const firstId = randomUUID(); await partner.submit(firstId, 'generate image of a quiet room');
-    await eventually(async () => (await partner.snapshot()).results?.[0]?.images.length === 1);
+    // An image can appear before its turn ends; each following send needs a new turn.
+    await eventually(async () => { const view = await partner.snapshot(); return view.results?.[0]?.images.length === 1 && !view.typing; });
     let view = await partner.snapshot();
     const first = view.results?.[0]?.images[0]!;
     assert.equal(first.name.startsWith('image-image-item-'), true);
@@ -62,14 +63,14 @@ test('native image creation and editing persist assistant attachments through re
     } finally { await mcp.close(); }
 
     const secondId = randomUUID(); await partner.submit(secondId, 'edit image with a candle');
-    await eventually(async () => (await partner.snapshot()).results?.[1]?.images.length === 1);
+    await eventually(async () => { const view = await partner.snapshot(); return view.results?.[1]?.images.length === 1 && !view.typing; });
     view = await partner.snapshot();
     assert.equal(view.results?.[0]?.images.length, 1);
     assert.equal(view.results?.[1]?.images.length, 1);
     assert.notEqual(view.results?.[1]?.images[0]?.id, first.id);
     for (let index = 0; index < 4; index += 1) {
       await partner.submit(randomUUID(), `generate image ${index}`);
-      await eventually(async () => (await partner.snapshot()).results?.length === index + 3);
+      await eventually(async () => { const view = await partner.snapshot(); return view.results?.length === index + 3 && !view.typing; });
     }
     const omittedLibrary = await (await fetch(`${url}/api/conversation-images`)).json() as { images: unknown[]; nextCursor?: string };
     assert.equal(omittedLibrary.images.length, 5); assert.ok(omittedLibrary.nextCursor);
@@ -87,8 +88,11 @@ test('event projection and restart reuse saved generated attachments without old
   try {
     const firstId = randomUUID();
     await partner.submit(firstId, 'generate image of a quiet room');
-    await eventually(async () => (await partner.snapshot()).results?.[0]?.images.length === 1);
+    await eventually(async () => { const view = await partner.snapshot(); return view.results?.[0]?.images.length === 1 && !view.typing; });
     const first = (await partner.snapshot()).results?.[0]?.images[0]!;
+    const firstTurn = (await partner.snapshot()).results?.[0]?.turnId!;
+    // Completion notification eligibility reads the newly completed turn once.
+    await eventually(async () => (await f.requests()).some(request => request.method === 'thread/items/list' && (request.params as { turnId?: string }).turnId === firstTurn));
     const initialRequests = await f.requests();
     const initialTurnPages = initialRequests.filter((request) => request.method === 'thread/turns/list').length;
     const initialFullTurns = initialRequests.filter((request) => request.method === 'thread/turns/list' && (request.params as { itemsView?: string } | undefined)?.itemsView === 'full').length;
@@ -96,13 +100,19 @@ test('event projection and restart reuse saved generated attachments without old
 
     const followupId = randomUUID();
     await partner.submit(followupId, 'follow-up text after the image');
-    await eventually(async () => (await partner.snapshot()).results?.some((result) => result.sourceIds.includes(followupId) && result.answers.length > 0) === true);
+    await eventually(async () => { const view = await partner.snapshot(); return !view.typing && view.results?.some((result) => result.sourceIds.includes(followupId) && result.answers.length > 0) === true; });
+    const followupTurn = (await partner.snapshot()).results?.find(result => result.sourceIds.includes(followupId))?.turnId!;
+    assert.notEqual(followupTurn, firstTurn);
+    await eventually(async () => (await f.requests()).some(request => request.method === 'thread/items/list' && (request.params as { turnId?: string }).turnId === followupTurn));
     await partner.snapshot();
     await partner.snapshot();
     const afterEvents = await f.requests();
     assert.equal(afterEvents.filter((request) => request.method === 'thread/turns/list').length, initialTurnPages);
     assert.equal(afterEvents.filter((request) => request.method === 'thread/turns/list' && (request.params as { itemsView?: string } | undefined)?.itemsView === 'full').length, initialFullTurns);
-    assert.equal(afterEvents.filter((request) => request.method === 'thread/items/list').length, initialItemPages);
+    const itemPages = afterEvents.filter((request) => request.method === 'thread/items/list');
+    assert.equal(itemPages.length, initialItemPages + 1);
+    assert.equal(itemPages.filter(request => (request.params as { turnId?: string }).turnId === firstTurn).length, 1);
+    assert.equal(itemPages.filter(request => (request.params as { turnId?: string }).turnId === followupTurn).length, 1);
     assert.match((await partner.snapshot()).results?.find((result) => result.sourceIds.includes(followupId))?.answers.join('\n\n') ?? '', /^fixture reply/);
 
     for (const name of await readdir(join(f.directory, 'native-images'))) await unlink(join(f.directory, 'native-images', name));
@@ -114,7 +124,7 @@ test('event projection and restart reuse saved generated attachments without old
     const restoredImage = await partner.image(first.id);
     assert.ok(restoredImage && restoredImage.data.byteLength > 0);
     const afterRestart = await f.requests();
-    assert.equal(afterRestart.filter((request) => request.method === 'thread/items/list').length, initialItemPages);
+    assert.equal(afterRestart.filter((request) => request.method === 'thread/items/list').length, itemPages.length);
     assert.equal(afterRestart.filter((request) => request.method === 'thread/turns/list').length, initialTurnPages + 1);
     assert.equal(afterRestart.filter((request) => request.method === 'thread/turns/list' && (request.params as { itemsView?: string } | undefined)?.itemsView === 'full').length, initialFullTurns + 1);
   } finally { await partner.close(); await f.close(); }

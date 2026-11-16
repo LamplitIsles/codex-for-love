@@ -111,10 +111,15 @@ test('migration source slots are encrypted and bound to their individual purpose
 test('initialization resumes when the durable key exists before its metadata commit', async () => {
   const state = await workspace();
   try {
+    // Match Vault.open's private creation mode regardless of the process umask.
+    await writeFile(join(state, 'vault.sqlite'), '', { flag: 'wx', mode: 0o600 });
     const db = new DatabaseSync(join(state, 'vault.sqlite'));
     initializeVaultSchema(db); db.close();
     const key = randomBytes(32);
     await writeFile(join(state, 'vault-key'), key, { mode: 0o600 });
+    await chmod(join(state, 'vault.sqlite'), 0o644);
+    await assert.rejects(Vault.open(state), { code: 'vault_unavailable' });
+    await chmod(join(state, 'vault.sqlite'), 0o600);
     const vault = await Vault.open(state);
     vault.put('cli.speech', 'kept'); vault.close();
     assert.deepEqual(await readFile(join(state, 'vault-key')), key);
