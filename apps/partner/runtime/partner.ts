@@ -557,9 +557,13 @@ export async function createPartner(config: Config, credentials: Credentials, de
   if ((config.post || credentials.post || credentials.post_receiver) && !postEnabled) throw new Error('Post requires endpoint, agent identity and distinct private API/receiver credentials');
   if (postEnabled && credentials.post === credentials.post_receiver) throw new Error('Post API and receiver credentials must differ');
   const postOrigin = postEnabled ? postEndpoint(config.post!.endpoint) : '';
-  let postAccounts = postEnabled ? await discoverPost(postOrigin, credentials.post!) : new Map<string, 'qq' | 'matrix'>();
+  let postAccounts = new Map<string, 'qq' | 'matrix'>();
   const postAbort = new AbortController();
   let postRefresh: Promise<void> | undefined;
+  let postRetryTimer: ReturnType<typeof setTimeout> | undefined;
+  let postRetryDelay = 1_000;
+  let postNextLookup = 0;
+  let postLookupSucceeded = false;
   const postIngress = new Set<Promise<void>>();
   const keetEnabled = Boolean(config.keet?.endpoint && credentials.keet);
   const persona = await readFile(config.prompts.persona, 'utf8');
@@ -1219,6 +1223,10 @@ export async function createPartner(config: Config, credentials: Credentials, de
   async function startIntent(intent: InputIntent): Promise<OfficialTurn | undefined> {
     if (closing || !appServer) throw new Error('Partner is unavailable');
     const postContext = intent.source === 'post' ? await store.postContext(intent.ids[0]!) : undefined;
+    if (intent.source === 'post' && !postContext) throw new Error('Post context unavailable');
+    const authorizedPost = () => !!postContext && postContext.service === postOrigin
+      && postContext.event.agent_id === config.post?.agent_id
+      && postAccounts.get(postContext.event.message.account_id) === postContext.event.message.platform;
     const conversationName = postContext ? await postConversationName(postOrigin, credentials.post!, postContext.event, postAbort.signal) : null;
     if (closing) throw new Error('Partner is unavailable');
     pendingStarts.set(intent.transportId, intent);
@@ -1226,8 +1234,17 @@ export async function createPartner(config: Config, credentials: Credentials, de
     let rejectedBeforeAcceptance = false;
     try {
       const keetContext = intent.source === 'keet' ? await store.keetContext(intent.ids[0]!) : undefined;
-      if (postContext) processLog('post.execution', { stage: 'native_start', status: 'submitted', platform: postContext.event.message.platform, kind: postContext.event.message.conversation.type });
       const native = await nativeInput(postContext && intent.ids.length === 1 ? postInput(postContext.event, postContext.media, { conversationName }) : intent.source === 'alarm' ? `${ALARM_INPUT_PREFIX}${intent.input}` : intent.input, intent.images, store, threadId, paths.attachments, intent.ids);
+      if (postContext) {
+        if (!authorizedPost()) { pendingStarts.delete(intent.transportId); return undefined; }
+        if (!await store.beginPostAdmission(intent.transportId, threadId)) throw new Error('Post admission unavailable');
+        if (closing || !authorizedPost()) {
+          await store.clearPostAdmission(intent.transportId);
+          pendingStarts.delete(intent.transportId);
+          return undefined;
+        }
+      }
+      if (postContext) processLog('post.execution', { stage: 'native_start', status: 'submitted', platform: postContext.event.message.platform, kind: postContext.event.message.conversation.type });
       const response = await appServer.call('turn/start', {
         threadId,
         model: currentModel,
@@ -1240,7 +1257,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
             : { 'codex-for-love.message-time': inputTimeContext(intent.source, now()), ...(native.stickerContext ? { 'codex-for-love.sticker': native.stickerContext } : {}) } }
           : {}),
       }).catch((error: unknown) => {
-        if (postContext) processLog('post.execution', { stage: 'native_start', status: 'failed', category: error instanceof AppServerRpcError ? 'rejected' : 'unavailable', platform: postContext.event.message.platform, kind: postContext.event.message.conversation.type });
+        if (postContext) processLog('post.execution', { stage: 'native_start', status: error instanceof AppServerInvalidRequestError ? 'failed' : 'unknown', category: error instanceof AppServerInvalidRequestError ? 'rejected' : 'unavailable', platform: postContext.event.message.platform, kind: postContext.event.message.conversation.type });
         rejectedBeforeAcceptance = error instanceof AppServerRpcError;
         throw error;
       });
@@ -1447,6 +1464,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
           if (postBlocked) continue;
           const context = await store.postContext(candidate.id);
           if (!context || context.service !== postOrigin || context.event.agent_id !== config.post!.agent_id || postAccounts.get(context.event.message.account_id) !== context.event.message.platform) continue;
+          if (await store.postAdmissionUnknown(candidate.id)) { postBlocked = true; continue; }
           // A failed Post head holds later Post deliveries until restart reconciliation.
           // Keet retains its existing independent eligibility.
           if (failedPostStarts.has(candidate.id)) { postBlocked = true; continue; }
@@ -1460,16 +1478,63 @@ export async function createPartner(config: Config, credentials: Credentials, de
         if (closing) return;
       }
       const payload = await store.inputPayload(first.id); if (!payload) return;
-      try { await startIntent({ ids: [first.id], input: payload.input, images: payload.images, transportId: first.id, source: first.id.startsWith('post:v1:') ? 'post' : 'keet' }); }
+      try {
+        const started = await startIntent({ ids: [first.id], input: payload.input, images: payload.images, transportId: first.id, source: first.id.startsWith('post:v1:') ? 'post' : 'keet' });
+        if (!started && !closing) drainExternal();
+      }
       catch (error) {
-        if (first.id.startsWith('post:v1:')) failedPostStarts.add(first.id);
+        if (first.id.startsWith('post:v1:')) {
+          if (error instanceof AppServerInvalidRequestError) await store.clearPostAdmission(first.id);
+          failedPostStarts.add(first.id);
+        }
         if (!closing) {
-          if (first.id.startsWith('post:v1:')) processLog('post.execution', { stage: 'admission', status: 'failed', category: error instanceof AppServerRpcError ? 'rejected' : 'unavailable' });
+          if (first.id.startsWith('post:v1:')) processLog('post.execution', { stage: 'admission', status: error instanceof AppServerInvalidRequestError ? 'failed' : 'unknown', category: error instanceof AppServerInvalidRequestError ? 'rejected' : 'unavailable' });
           else processError('external.admission_failed', error, { operationId: first.id });
         }
       }
     });
     admission = task.catch(() => { if (!closing) notify(); }).finally(() => { if (working) pendingExternalAdmissions -= 1; });
+  }
+
+  // Startup and account misses share one bounded lookup and one retry clock.
+  // A failed lookup never grants authority; the last successful map remains
+  // authoritative for already known accounts until a successful replacement.
+  function retryPost(): void {
+    if (closing) return;
+    const remaining = postNextLookup - Date.now();
+    if (remaining > 0) { postRetryTimer = setTimeout(retryPost, remaining); return; }
+    postRetryTimer = undefined;
+    void refreshPost().catch(() => undefined);
+  }
+  function refreshPost(startup = false): Promise<void> {
+    if (postRefresh) return postRefresh;
+    if (closing || postAbort.signal.aborted) return Promise.reject(new Error('Post discovery unavailable'));
+    // A cached negative is not proof that a newly granted account is still
+    // absent. During the throttle window ask Post to retry instead of 422.
+    if (Date.now() < postNextLookup) return Promise.reject(new Error('Post discovery unavailable'));
+    postRefresh = discoverPost(postOrigin, credentials.post!, postAbort.signal).then(accounts => {
+      if (closing) return;
+      const recovered = !postLookupSucceeded;
+      postAccounts = accounts;
+      postLookupSucceeded = true;
+      postNextLookup = startup ? 0 : Date.now() + 1_000;
+      postRetryDelay = 1_000;
+      if (postRetryTimer) clearTimeout(postRetryTimer);
+      postRetryTimer = undefined;
+      if (recovered) processLog('post.discovery', { status: 'available' });
+      drainExternal();
+    }, error => {
+      if (!closing) {
+        if (postLookupSucceeded || postRetryDelay === 1_000) processLog('post.discovery', { status: 'unavailable' });
+        postLookupSucceeded = false;
+        postNextLookup = Date.now() + postRetryDelay;
+        postRetryDelay = Math.min(postRetryDelay * 2, 60_000);
+        if (postRetryTimer) clearTimeout(postRetryTimer);
+        postRetryTimer = setTimeout(retryPost, Math.max(0, postNextLookup - Date.now()));
+      }
+      throw error;
+    }).finally(() => { postRefresh = undefined; });
+    return postRefresh;
   }
 
   function checkAlarms(): Promise<void> {
@@ -1993,6 +2058,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
     drainExternal();
     alarmTimer = setInterval(() => { void checkAlarms(); }, 5_000);
     void checkAlarms();
+    if (postEnabled) void refreshPost(true).catch(() => undefined);
   } catch (error) {
     closing = true;
     for (const unsubscribe of unsubscribeAppServer.splice(0)) unsubscribe();
@@ -2269,16 +2335,16 @@ export async function createPartner(config: Config, credentials: Credentials, de
         catch { processLog('post.ingress', { stage: 'validation', status: 'rejected' }); throw invalid(); }
         const matches = () => postAccounts.get(event.message.account_id) === event.message.platform;
         if (!matches()) {
-          postRefresh ??= discoverPost(postOrigin, credentials.post!, postAbort.signal)
-            .then(accounts => { postAccounts = accounts; })
-            .finally(() => { postRefresh = undefined; });
-          try { await postRefresh; }
+          try { await refreshPost(); }
           catch (error) { processLog('post.ingress', { stage: 'account', status: 'unavailable' }); throw error; }
           if (!matches()) { processLog('post.ingress', { stage: 'account', status: 'rejected' }); throw invalid(); }
         }
         if (closing || storageError) throw new Error('Post ingress unavailable');
-        const id = await store.recordPostEvent(postOrigin,event,body).catch(error => {
-          processLog('post.ingress', { stage: 'receipt', status: error?.code === 'MESSAGE_IDENTITY_CONFLICT' ? 'conflict' : 'unavailable' }); throw error;
+        const id = await store.recordPostEvent(postOrigin,event,body, () => {
+          if (closing || storageError) throw new Error('Post ingress unavailable');
+          if (!matches()) throw invalid();
+        }).catch(error => {
+          processLog('post.ingress', { stage: 'receipt', status: error?.code === 'MESSAGE_IDENTITY_CONFLICT' ? 'conflict' : error?.code === 'INVALID_POST_EVENT' ? 'rejected' : 'unavailable' }); throw error;
         });
         processLog('post.ingress', { stage: 'retained', platform: event.message.platform, kind: event.message.conversation.type });
         messageIds.add(id); drainExternal(); notify();
@@ -2866,6 +2932,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
       barkAbort.abort();
       streaming = undefined; completedReply = undefined; completedStreamItems.clear();
       postAbort.abort();
+      if (postRetryTimer) clearTimeout(postRetryTimer);
       if (alarmTimer) clearInterval(alarmTimer);
       pet?.close();
       for (const unsubscribe of unsubscribeAppServer.splice(0)) unsubscribe();
@@ -2879,6 +2946,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
         try { await managedServer?.stop(); }
         catch (error) { closeError ??= error; }
         await Promise.allSettled([...postIngress]);
+        if (postRefresh) await postRefresh.catch(() => undefined);
         await inputAdmission;
         await admission;
         await eventChain;

@@ -461,8 +461,11 @@ integration work. Source-built packaging records its own resource hashes.
 
 `apps/partner/runtime/post-contract.ts` copies the executable finite schema from
 `lamplit-post/contracts/v1/index.ts` at immutable commit
-`96f771c08aa7f217dbfb195617f7fd1021071ef3` (FlickNote #4768/#4775).
-`apps/partner/tests/post-examples.json` copies that commit's
+`f29f4793673f036b02c9fd34a98fd09dc1a0323d` (Post
+[PR #16](https://forgejo.n5.guion.io/LamplitIsles/lamplit-post/pulls/16),
+open and unmerged at review; FlickNote #162/#163). Its schema and examples are
+byte-identical to the previously attributed `96f771c08aa7f217dbfb195617f7fd1021071ef3`.
+`apps/partner/tests/post-examples.json` copies the same revision's
 `contracts/v1/examples.json`. License: AGPL-3.0, preserved in
 `licenses/lamplit-post-AGPL-3.0.txt`. CFL's Node fake service and receiver tests
 are original integration code informed by the producer's finite v1 contract;
@@ -480,6 +483,9 @@ CFL resolves a source's current name through bounded authenticated directory
 pages; it adds no member resolver, send ledger or prompt policy. Canonical schema
 SHA256 `7d4ab5a4fd41718128c10e30ca589a55165d966fef0822bee6917fd7f1073f1b`;
 examples SHA256 `82f56f42e56ee85d6f23da283445245eecac0780eee529bced29cdf0fb1215e9`.
+The public delivery contract specifies FIFO per binding and account; delivery
+between accounts can arrive out of storage sequence order. Another consumer's
+ordering assumptions remain unverified and require separate deployment review.
 Historical intermediate import identities and diagnostics remain in task evidence.
 
 ### Source-line reply acceptance — spec #4126 / App #4128

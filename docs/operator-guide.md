@@ -760,7 +760,8 @@ state/config/native package ownership with the existing instance.
 ## Optional Post QQ / Matrix integration
 
 Post contract v1 is pinned to lamplit-post
-`ef2fa54ec90630bad5b38b2768a13b7bf543dc4c` (FlickNote #4066/#4067).
+`f29f4793673f036b02c9fd34a98fd09dc1a0323d` (FlickNote #162/#163;
+Post PR #16 was open and unmerged at review).
 Configure a single origin and agent binding:
 
 ```toml
@@ -782,13 +783,18 @@ codex-for-love credential /path/to/partner.toml post_receiver --stdin
 The existing command atomically writes `credentials.json` at mode 0600 under
 Partner state and never prints its value. Provision the API token for this exact
 Post agent and the receiver secret for this exact CFL instance. All config and
-credentials are startup-only. Partial config, identical secrets, failed account
-discovery and operator-owned `post` MCP collisions fail startup. No platform
+credentials are startup-only. Partial config, identical secrets and
+operator-owned `post` MCP collisions fail startup. No platform
 token or Matrix environment override is supported. Remove obsolete `matrix`
 credential/config keys during the controlled cutover; unknown keys fail closed.
 
-Startup authenticates an official SDK `list_accounts` probe with a five-second
-budget, validates the finite account/platform identity set, and closes the probe.
+After initialization, a background official SDK `list_accounts` probe authenticates
+with a five-second budget and validates the finite account/platform identity set.
+Unavailable Post or rejected remote credentials leave local interaction available;
+single-flight retries back off to a maximum of 60 seconds and cancel on shutdown.
+Only a successful discovery grants account authority; a valid empty account list
+removes all previously discovered account authority. Recovery wakes eligible
+retained work; finite safe status logs contain neither secrets nor message bodies.
 The API token's Post binding determines visibility; the configured `agent_id`
 must match authenticated notifications. Native project configuration declares:
 
@@ -818,11 +824,13 @@ Requests have a 2 MiB body bound and ten-second body deadline. Response meanings
 | 404 | Post disabled, or obsolete `/api/matrix/events` route. |
 | 400 / 413 / 415 / 422 | Invalid JSON, size, content type, or strict schema/semantic/binding rejection. |
 | 409 | Delivery identity reused with changed bytes or canonical message reused with changed content. |
-| 503 | Durable receipt unavailable; Post must retry the same immutable delivery. |
+| 503 | Account verification or durable receipt unavailable; Post must retry the same immutable delivery. |
 
 The executable schema is the attributed `post-contract.ts`. CFL accepts only
 version 1 inbound non-mutation message deliveries from the configured agent and
-startup-discovered accounts/platforms. Attachment references must exactly match
+successfully discovered accounts/platforms. An unavailable verification gives
+503; a successful lookup with an unknown or mismatched account gives 422.
+Attachment references must exactly match
 unique metadata, with truthful available/unavailable fields. Post decides wake;
 CFL never reruns per-platform allowlist, mention, alias or DM classification.
 
@@ -830,9 +838,17 @@ Receipt dedupe is scoped to Post origin, agent and delivery. Canonical message
 dedupe also binds account/conversation/message identity. A new delivery ID for an
 identical message does not enqueue another input. Original source remains
 immutable. Pending inputs and image outcomes survive restart; native reconciliation
-prevents duplicate inputs after an uncertain start. A failed native start waits
-for fresh native history after restart rather than blindly retrying. Pending
+prevents duplicate inputs after an uncertain start. An unknown native admission
+remains held until native evidence resolves it; it is never replayed merely
+because a history read did not find it. A definitively rejected start waits for
+fresh native history after restart before retry. Pending
 inputs from a different origin/agent/account binding are held, never rerouted.
+The latest account map is rechecked before durable receipt commit and native
+dispatch; work whose authority was removed during preparation remains pending.
+Post delivers FIFO per binding and account, while different accounts can arrive
+out of storage sequence order; CFL does not use that sequence as a watermark.
+No backfill is assumed for messages missed while Post was offline. Another
+consumer's ordering assumptions require independent verification before rollout.
 
 Images are fetched after receipt, with at most two persisted attempts per asset.
 The configured Post origin and encoded `/assets/<asset-id>` route are the only

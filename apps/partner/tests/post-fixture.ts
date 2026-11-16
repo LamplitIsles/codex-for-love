@@ -6,7 +6,7 @@ import { readFile } from 'node:fs/promises';
 import { ToolInputs } from '../runtime/post-contract.ts';
 import type { EventV1 } from '../runtime/post-contract.ts';
 
-// Fixed canonical examples @ lamplit-post 96f771c08aa7f217dbfb195617f7fd1021071ef3.
+// Canonical examples @ lamplit-post f29f4793673f036b02c9fd34a98fd09dc1a0323d (unchanged from 96f771c).
 export const examples = JSON.parse(await readFile(new URL('./post-examples.json', import.meta.url), 'utf8'));
 export const event = (id: string, platform: 'qq' | 'matrix' = 'qq'): EventV1 => {
   const e = structuredClone(examples.event) as EventV1;
@@ -15,7 +15,7 @@ export const event = (id: string, platform: 'qq' | 'matrix' = 'qq'): EventV1 => 
   e.message.account_id = `${platform}-main`; e.message.sequence++;
   return e;
 };
-type LookupMode = 'normal' | 'fail' | 'unauthorized' | 'stall-headers' | 'stall-body';
+type LookupMode = 'normal' | 'fail' | 'unauthorized' | 'stall-headers' | 'stall-body' | 'hold';
 export async function postService() {
   const token = 'test-only-post-agent-token', receiver = 'test-only-post-receiver';
   const requests: Array<{ method?: string; tool?: string; args?: Record<string, unknown>; path?: string; authorization?: string }> = [];
@@ -27,6 +27,7 @@ export async function postService() {
   let accountMode: LookupMode = 'normal';
   let conversationMode: LookupMode = 'normal';
   let conversationOpen = 0;
+  let releaseConversation: (() => void) | undefined;
   let discoveryOpen = 0;
   let assetOpen = 0;
   let conversationResult: unknown = examples.tools.get_conversation.result;
@@ -61,6 +62,11 @@ export async function postService() {
       if (mode === 'fail') { res.writeHead(503).end(); return; }
       if (mode === 'stall-headers') return;
       if (mode === 'stall-body') { res.writeHead(200, { 'content-type': 'application/json' }); res.write('{'); return; }
+      if (mode === 'hold' && !discovery) {
+        await new Promise<void>(resolve => { releaseConversation = resolve; res.once('close', resolve); });
+        releaseConversation = undefined;
+        if (res.destroyed) return;
+      }
     }
     const mcp = new McpServer({ name: 'post', version: '1' });
     for (const [name, input] of Object.entries(ToolInputs)) mcp.registerTool(name, { inputSchema: input }, async (args: { account_id?: string; before?: string }) => {
@@ -82,6 +88,7 @@ export async function postService() {
     get assetOpen() { return assetOpen; },
     get conversationOpen() { return conversationOpen; },
     set conversationMode(value: typeof conversationMode) { conversationMode = value; },
+    releaseConversation() { releaseConversation?.(); },
     get discoveryOpen() { return discoveryOpen; },
     set accountMode(value: typeof accountMode) { accountMode = value; },
     set conversation(value: unknown) { conversationResult = value; },

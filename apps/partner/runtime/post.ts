@@ -105,7 +105,7 @@ async function postTool(endpoint: string, token: string, name: 'list_accounts' |
 export async function discoverPost(endpoint: string, token: string, ownerSignal?: AbortSignal): Promise<PostAccounts> {
   try {
     const value = ToolOutputs.list_accounts.parse(await postTool(endpoint, token, 'list_accounts', {}, ownerSignal));
-    if (!value.items.length || new Set(value.items.map(a => a.account_id)).size !== value.items.length) throw new Error();
+    if (new Set(value.items.map(a => a.account_id)).size !== value.items.length) throw new Error();
     return new Map(value.items.map(a => [a.account_id, a.platform]));
   } catch { throw new Error('Post startup discovery failed; check endpoint and private agent credential'); }
 }

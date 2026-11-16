@@ -448,7 +448,11 @@ to an admitted conversation through Post MCP without a separate human instructio
 Post checks the actual send authorization. CFL does not automatically forward
 the final answer to Post.
 
-Post account discovery runs at startup. When a delivery names an account/platform
+Post account discovery starts in the background after Partner initialization;
+Post downtime, timeouts and rejected remote credentials do not prevent local
+interaction. Failed discovery retries with bounded, cancellable backoff. Recovery
+refreshes the authoritative account map, including a valid empty account list,
+and wakes eligible retained work. When a delivery names an account/platform
 missing from that map, CFL checks the same configured Post MCP with its private
 agent credential before recording a receipt. A newly authorized account can
 therefore deliver without restarting CFL. Known matching accounts reuse the map;
@@ -457,7 +461,12 @@ cross-agent events fail validation before discovery. A successful lookup that
 still does not list the account/platform returns 422; an unavailable or unusable
 lookup returns retryable 503 without a receipt. Retry the same immutable delivery,
 not a new delivery ID. Concurrent misses share one bounded lookup, and shutdown
-cancels and settles in-flight discovery before closing storage.
+cancels and settles in-flight discovery before closing storage. Before native
+dispatch, CFL rechecks the latest discovered source authorization; revoked work
+remains pending while other eligible work can proceed. Post guarantees
+FIFO per binding and account; different accounts may arrive out of storage
+sequence order. No messages missed while Post itself was offline are assumed to
+be recovered. Other consumers' ordering assumptions require separate verification.
 
 Before submitting accepted Post work to the native turn, CFL reads authenticated
 `list_conversations` pages for the source account, bounded to ten pages, 100 items

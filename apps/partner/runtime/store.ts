@@ -712,7 +712,7 @@ export class Store {
   }
 
   /** Receipt, original provenance and pending input commit before HTTP ACK. */
-  async recordPostEvent(service: string, event: EventV1, body: string): Promise<string> {
+  async recordPostEvent(service: string, event: EventV1, body: string, beforeCommit?: () => void): Promise<string> {
     return this.transaction(() => {
       const id = postInputId(service, event);
       this.assertNotRetired(id);
@@ -733,12 +733,31 @@ export class Store {
       }
       this.db.prepare('INSERT INTO post_receipts_v1(service,agent,delivery,body,message_id) VALUES(?,?,?,?,?)').run(service,event.agent_id,event.delivery_id,body,id);
       return id;
-    });
+    }, beforeCommit);
   }
   async postContext(id: string): Promise<{ service: string; event: EventV1; media: Record<string,string>; ready: boolean } | undefined> {
     return this.transaction(() => {
       const row = this.db.prepare('SELECT service,event,media,ready FROM post_sources_v1 WHERE message_id=?').get(id) as { service: string; event: string; media: string; ready: number } | undefined;
       return row ? { service: row.service, event: JSON.parse(row.event), media: JSON.parse(row.media), ready: Boolean(row.ready) } : undefined;
+    });
+  }
+  /** Mark a Post native admission before dispatch; an unknown result must not be replayed. */
+  async beginPostAdmission(id: string, sessionId: string): Promise<boolean> {
+    return this.transaction(() => {
+      if (!this.db.prepare('SELECT 1 FROM post_sources_v1 s JOIN pending_inputs p ON p.message_id=s.message_id WHERE s.message_id=?').get(id)) return false;
+      if (this.db.prepare('SELECT 1 FROM shared_submissions WHERE operation_id=?').get(id)) return false;
+      this.db.prepare('INSERT INTO shared_submissions(operation_id,session_id,fingerprint) VALUES(?,?,?)').run(id, sessionId, 'post-native-admission');
+      this.db.prepare("INSERT INTO delivery_attempts(operation_id,attempt,state) VALUES(?,1,'unknown')").run(id);
+      return true;
+    });
+  }
+  async postAdmissionUnknown(id: string): Promise<boolean> {
+    return this.transaction(() => !!this.db.prepare("SELECT 1 FROM shared_submissions s JOIN delivery_attempts d ON d.operation_id=s.operation_id WHERE s.operation_id=? AND s.fingerprint='post-native-admission' AND d.state='unknown'").get(id));
+  }
+  async clearPostAdmission(id: string): Promise<void> {
+    await this.transaction(() => {
+      this.db.prepare("DELETE FROM delivery_attempts WHERE operation_id IN (SELECT operation_id FROM shared_submissions WHERE operation_id=? AND fingerprint='post-native-admission')").run(id);
+      this.db.prepare("DELETE FROM shared_submissions WHERE operation_id=? AND fingerprint='post-native-admission'").run(id);
     });
   }
   async postSources(ids: readonly string[]) {
@@ -873,6 +892,10 @@ export class Store {
         }
       }
       const retired = this.db.prepare('DELETE FROM pending_inputs WHERE message_id=?').run(id).changes;
+      if (id.startsWith('post:v1:')) {
+        this.db.prepare("DELETE FROM delivery_attempts WHERE operation_id IN (SELECT operation_id FROM shared_submissions WHERE operation_id=? AND fingerprint='post-native-admission')").run(id);
+        this.db.prepare("DELETE FROM shared_submissions WHERE operation_id=? AND fingerprint='post-native-admission'").run(id);
+      }
       if (retired) changed = true;
       if (changed) this.addRevision(id);
     });

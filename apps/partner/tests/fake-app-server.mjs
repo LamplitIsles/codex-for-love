@@ -445,9 +445,10 @@ async function handle(request) {
       return page(items, p);
     }
     case 'turn/start': {
+      if (control().holdUnknownStart) { await new Promise(resolve => setTimeout(resolve, 1500)); rpcError(-32603, 'fixture delayed ambiguous admission'); }
       if (process.env.FAKE_IMAGES_FIXTURE === 'true' && ['unconsumed', 'rejected'].includes(control().mode)) rpcError(-32600, 'fixture explicitly rejected input before acceptance');
       if (process.env.FAKE_IMAGES_FIXTURE === 'true' && control().mode === 'uncertain') rpcError(-32603, 'fixture ambiguous delivery');
-      if (control().rejectStart) rpcError(-32603, 'fixture turn start temporarily unavailable');
+      if (control().rejectStart) rpcError(process.env.FAKE_REJECT_START_INVALID === 'true' ? -32600 : -32603, 'fixture turn start temporarily unavailable');
       if (state.active) rpcError(-32600, 'cannot start a turn while another turn is active');
       if (p.serviceTierForTurn === 'priority' && state.fastModeEnabled === false) rpcError(-32600, 'fixture FastMode gate disabled');
       state.turnTiers = [...(state.turnTiers ?? []), { threadId: p.threadId, serviceTier: p.serviceTierForTurn ?? p.serviceTier ?? state.serviceTier ?? 'default' }];

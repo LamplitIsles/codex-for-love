@@ -40,11 +40,277 @@ async function host(partner: Partner, dir: string, receiver: string) {
   return { ...app, origin, send(value: unknown, token = receiver) { return fetch(origin + '/api/post/events',{ method:'POST',headers: { authorization:`Bearer ${token}`, 'content-type':'application/json' },body: typeof value === 'string' ? value : JSON.stringify(value) }); } };
 }
 
+test('empty authorized account set replaces previous authority and concurrent misses cannot retain deliveries', async () => {
+  const s = await setup(), { f, post } = s; let h: Awaited<ReturnType<typeof host>> | undefined;
+  try {
+    post.accounts = { items: [] };
+    assert.equal((await discoverPost(post.endpoint, post.token)).size, 0);
+    let partner = await f.createPartner(); h = await host(partner, f.directory, post.receiver);
+    assert.equal((await h.send(event('initial-empty'))).status, 422);
+    const emptyLookups = discoveries(post);
+    await new Promise(resolve => setTimeout(resolve, 1100));
+    assert.equal(discoveries(post), emptyLookups, 'a successful empty list does not start failure retries');
+    await h.close(); h = undefined;
+    post.accounts = accounts(['qq']);
+    partner = await f.createPartner(); h = await host(partner, f.directory, post.receiver);
+    const prior = event('prior-known'); prior.message.assets = []; prior.message.content = [{ type:'text', text:'prior' }];
+    assert.equal((await h.send(prior)).status, 202);
+    await eventually(async () => await f.consumed(postInputId(post.endpoint, prior)) && !(await partner.snapshot()).typing);
+    post.accounts = { items: [] };
+    const probe = event('empty-refresh', 'matrix');
+    assert.equal((await h.send(probe)).status, 422);
+    const revoked = event('empty-revoked');
+    const responses = await Promise.all(Array.from({ length: 6 }, () => h!.send(revoked)));
+    assert(responses.every(response => response.status === 503 || response.status === 422));
+    await new Promise(resolve => setTimeout(resolve, 1100));
+    assert.equal((await h.send(revoked)).status, 422);
+    assert.equal((await starts(f)).length, 1);
+    const duplicate = examples.tools.list_accounts.result.items[0];
+    post.accounts = { items: [duplicate, duplicate] };
+    await assert.rejects(discoverPost(post.endpoint, post.token));
+  } finally { await h?.close(); await s.close(); }
+});
+
+test('receipt cannot commit after a concurrent authority refresh removes its account', async t => {
+  const s = await setup(), { f, post } = s; let h: Awaited<ReturnType<typeof host>> | undefined;
+  const held = event('receipt-revocation');
+  let reached!: () => void, release!: () => void;
+  const waiting = new Promise<void>(resolve => { reached = resolve; });
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const original = Store.prototype.recordPostEvent;
+  t.mock.method(Store.prototype, 'recordPostEvent', async function(this: Store, ...args: Parameters<Store['recordPostEvent']>) {
+    if (args[1].delivery_id === held.delivery_id) { reached(); await gate; }
+    return original.call(this, ...args);
+  });
+  try {
+    const partner = await f.createPartner(); h = await host(partner, f.directory, post.receiver);
+    const pending = h.send(held); await waiting;
+    post.accounts = { items: [] };
+    const probe = event('receipt-refresh', 'matrix'); probe.message.account_id = 'ungranted';
+    assert.equal((await h.send(probe)).status, 422);
+    release();
+    assert.equal((await pending).status, 422);
+    assert.equal((await starts(f)).length, 0);
+    await h.close(); h = undefined;
+    const db = new DatabaseSync(partnerPaths(f.workspace).database);
+    assert.equal(db.prepare('SELECT 1 FROM post_receipts_v1 WHERE delivery=?').get(held.delivery_id), undefined);
+    assert.equal(db.prepare('SELECT 1 FROM post_sources_v1 WHERE message_id=?').get(postInputId(post.endpoint, held)), undefined); db.close();
+  } finally { release(); await h?.close(); await s.close(); }
+});
+
+test('revoked account cannot dispatch after stalled preparation, while another account proceeds', async () => {
+  const s = await setup(), { f, post } = s; let h: Awaited<ReturnType<typeof host>> | undefined;
+  const held = event('revoked-during-name'); held.message.assets = []; held.message.content = [{ type:'text', text:'held' }];
+  const allowed = event('still-authorized', 'matrix'); allowed.message.assets = []; allowed.message.content = [{ type:'text', text:'allowed' }];
+  const id = postInputId(post.endpoint, held);
+  try {
+    let partner = await f.createPartner(); h = await host(partner, f.directory, post.receiver);
+    post.conversationMode = 'hold';
+    assert.equal((await h.send(held)).status, 202);
+    await eventually(async () => post.conversationOpen === 1);
+    post.accounts = accounts(['matrix']);
+    const probe = event('trigger-refresh'); probe.message.account_id = 'not-authorized';
+    assert.equal((await h.send(probe)).status, 422);
+    assert.equal((await h.send(allowed)).status, 202);
+    post.conversationMode = 'normal'; post.releaseConversation();
+    await eventually(async () => await f.consumed(postInputId(post.endpoint, allowed)) && !(await partner.snapshot()).typing);
+    assert.equal((await starts(f)).filter(call => call.clientUserMessageId === id).length, 0);
+    await h.close(); h = undefined;
+    const db = new DatabaseSync(partnerPaths(f.workspace).database);
+    assert(db.prepare('SELECT 1 FROM pending_inputs WHERE message_id=?').get(id));
+    assert.equal(db.prepare('SELECT 1 FROM delivery_attempts WHERE operation_id=?').get(id), undefined); db.close();
+    post.accounts = accounts(['qq', 'matrix']);
+    partner = await f.createPartner(); h = await host(partner, f.directory, post.receiver);
+    await eventually(async () => await f.consumed(id) && !(await partner.snapshot()).typing);
+    assert.equal((await starts(f)).filter(call => call.clientUserMessageId === id).length, 1);
+  } finally { post.releaseConversation(); await h?.close(); await s.close(); }
+});
+
+test('revocation during durable native admission clears the marker before dispatch', async t => {
+  const s = await setup(), { f, post } = s; let h: Awaited<ReturnType<typeof host>> | undefined;
+  const held = event('revoked-during-claim'); held.message.assets = []; held.message.content = [{ type:'text', text:'held' }];
+  const allowed = event('allowed-during-claim', 'matrix'); allowed.message.assets = []; allowed.message.content = [{ type:'text', text:'allowed' }];
+  const id = postInputId(post.endpoint, held);
+  let claimed!: () => void, release!: () => void;
+  const reached = new Promise<void>(resolve => { claimed = resolve; });
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const original = Store.prototype.beginPostAdmission;
+  t.mock.method(Store.prototype, 'beginPostAdmission', async function(this: Store, inputId: string, sessionId: string) {
+    const result = await original.call(this, inputId, sessionId);
+    if (inputId === id) { claimed(); await gate; }
+    return result;
+  });
+  try {
+    const partner = await f.createPartner(); h = await host(partner, f.directory, post.receiver);
+    assert.equal((await h.send(held)).status, 202);
+    await reached;
+    post.accounts = accounts(['matrix']);
+    const probe = event('claim-refresh'); probe.message.account_id = 'ungranted';
+    assert.equal((await h.send(probe)).status, 422);
+    assert.equal((await h.send(allowed)).status, 202);
+    release();
+    await eventually(async () => await f.consumed(postInputId(post.endpoint, allowed)) && !(await partner.snapshot()).typing);
+    assert.equal((await starts(f)).filter(call => call.clientUserMessageId === id).length, 0);
+    await h.close(); h = undefined;
+    const db = new DatabaseSync(partnerPaths(f.workspace).database);
+    assert(db.prepare('SELECT 1 FROM pending_inputs WHERE message_id=?').get(id));
+    assert.equal(db.prepare('SELECT 1 FROM delivery_attempts WHERE operation_id=?').get(id), undefined); db.close();
+  } finally { release(); await h?.close(); await s.close(); }
+});
+
+test('shutdown during durable native admission clears the unsent marker', async t => {
+  const s = await setup(), { f, post } = s; let h: Awaited<ReturnType<typeof host>> | undefined;
+  const held = event('shutdown-during-claim'); held.message.assets = []; held.message.content = [{ type:'text', text:'held' }];
+  const id = postInputId(post.endpoint, held);
+  let claimed!: () => void, release!: () => void;
+  const reached = new Promise<void>(resolve => { claimed = resolve; });
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const original = Store.prototype.beginPostAdmission;
+  t.mock.method(Store.prototype, 'beginPostAdmission', async function(this: Store, inputId: string, sessionId: string) {
+    const result = await original.call(this, inputId, sessionId);
+    if (inputId === id) { claimed(); await gate; }
+    return result;
+  });
+  try {
+    let partner = await f.createPartner(); h = await host(partner, f.directory, post.receiver);
+    assert.equal((await h.send(held)).status, 202);
+    await reached;
+    const closing = partner.close(); release(); await closing;
+    assert.equal((await starts(f)).filter(call => call.clientUserMessageId === id).length, 0);
+    await h.close(); h = undefined;
+    const db = new DatabaseSync(partnerPaths(f.workspace).database);
+    assert(db.prepare('SELECT 1 FROM pending_inputs WHERE message_id=?').get(id));
+    assert.equal(db.prepare('SELECT 1 FROM delivery_attempts WHERE operation_id=?').get(id), undefined); db.close();
+    partner = await f.createPartner(); h = await host(partner, f.directory, post.receiver);
+    await eventually(async () => await f.consumed(id));
+    assert.equal((await starts(f)).filter(call => call.clientUserMessageId === id).length, 1);
+  } finally { release(); await h?.close(); await s.close(); }
+});
+
+test('offline startup serves local work, retries safely, and wakes retained work after authority recovers', { timeout: 20_000 }, async t => {
+  const s = await setup(), { f, post } = s; let h: Awaited<ReturnType<typeof host>> | undefined;
+  const lines: string[] = [];
+  t.mock.method(console, 'error', (...args: unknown[]) => { lines.push(args.map(String).join(' ')); });
+  const retained = event('before-outage');
+  retained.message.content = [{ type:'text', text:'private retained body' }]; retained.message.assets = [];
+  try {
+    await mkdir(join(f.workspace,'.lamplit'), { recursive:true });
+    const store = new Store(partnerPaths(f.workspace).database);
+    await store.recordPostEvent(post.endpoint, retained, JSON.stringify(retained)); await store.close();
+    post.accountMode = 'unauthorized';
+    const partner = await f.createPartner(); h = await host(partner, f.directory, post.receiver);
+    await eventually(async () => discoveries(post) >= 1);
+    assert.equal((await h.send(event('retry-outage'), 'wrong')).status, 401);
+    const retry = event('retry-outage');
+    assert.equal((await h.send(retry)).status, 503);
+    await partner.submit('local-during-post-outage', 'local fixture message');
+    await eventually(async () => await f.consumed('local-during-post-outage') && !(await partner.snapshot()).typing);
+    assert.equal(await f.consumed(postInputId(post.endpoint, retained)), false);
+    await new Promise(resolve => setTimeout(resolve, 2300));
+    assert(discoveries(post) <= 3, 'persistent errors have bounded retry rate');
+    post.accountMode = 'normal';
+    await eventually(async () => await f.consumed(postInputId(post.endpoint, retained)), 10_000);
+    assert.equal((await h.send(retry)).status, 202);
+    assert.equal((await h.send(retry)).status, 202);
+    await eventually(async () => await f.consumed(postInputId(post.endpoint,retry)) && !(await partner.snapshot()).typing);
+    assert.equal((await starts(f)).filter(call => call.clientUserMessageId === postInputId(post.endpoint,retry)).length, 1);
+    const discoveryLogs = lines.filter(line => line.includes('post.discovery')).join('\n');
+    assert.match(discoveryLogs, /unavailable/); assert.match(discoveryLogs, /available/);
+    for (const secret of [post.token, post.receiver, 'private retained body', post.endpoint]) assert(!discoveryLogs.includes(secret));
+  } finally { await h?.close(); await s.close(); }
+});
+
+test('connection-refused Post does not prevent local interaction', async () => {
+  const s = await setup(), { f, post } = s;
+  await post.close();
+  try {
+    const partner = await f.createPartner();
+    await partner.submit('local-connection-refused', 'test-only local interaction');
+    await eventually(async () => await f.consumed('local-connection-refused'));
+  } finally { await f.close(); }
+});
+
+for (const mode of ['stall-headers', 'stall-body'] as const) test(`offline discovery ${mode} is single-flight and shutdown drains it`, async () => {
+  const s = await setup(), { f, post } = s; let h: Awaited<ReturnType<typeof host>> | undefined;
+  try {
+    post.accountMode = mode;
+    const partner = await f.createPartner(); h = await host(partner, f.directory, post.receiver);
+    await eventually(async () => post.discoveryOpen === 1);
+    const requests = Array.from({ length: 8 }, (_, i) => h!.send(event(`offline-${i}`)));
+    await new Promise(resolve => setTimeout(resolve, 100));
+    assert.equal(post.discoveryOpen, 1); assert.equal(discoveries(post), 1);
+    const began = Date.now(); await partner.close();
+    assert(Date.now() - began < 2000);
+    assert.deepEqual((await Promise.all(requests)).map(r => r.status), Array(8).fill(503));
+    await eventually(async () => post.discoveryOpen === 0);
+    const count = discoveries(post); await new Promise(resolve => setTimeout(resolve, 1100)); assert.equal(discoveries(post), count);
+  } finally { await h?.close(); await s.close(); }
+});
+
+test('inverted cross-account storage sequences retain each account FIFO without duplicates', async () => {
+  const s = await setup(), { f, post } = s; let h: Awaited<ReturnType<typeof host>> | undefined;
+  try {
+    const partner = await f.createPartner(); h = await host(partner, f.directory, post.receiver);
+    const entries = [event('order-a1'), event('order-b1','matrix'), event('order-a2'), event('order-b2','matrix')];
+    for (const [i,e] of entries.entries()) { e.message.sequence = [20, 10, 21, 11][i]!; e.message.content = [{ type:'text',text:e.message.id }]; e.message.assets = []; }
+    for (const e of entries) assert.equal((await h.send(e)).status, 202);
+    await eventually(async () => (await starts(f)).length === entries.length && !(await partner.snapshot()).typing);
+    assert.deepEqual((await starts(f)).map(call => call.clientUserMessageId), entries.map(e => postInputId(post.endpoint,e)));
+    for (const e of entries) assert.equal((await h.send(e)).status, 202);
+    assert.equal((await starts(f)).length, entries.length);
+    await h.close(); h = undefined;
+    const db = new DatabaseSync(partnerPaths(f.workspace).database);
+    assert.equal((db.prepare("SELECT count(*) AS count FROM shared_submissions WHERE fingerprint='post-native-admission'").get() as { count:number }).count, 0, 'observed admissions retire their temporary markers');
+    db.close();
+  } finally { await h?.close(); await s.close(); }
+});
+
+test('unknown native admission remains held through Post recovery and restart', { timeout: 20_000 }, async () => {
+  const s = await setup(), { f, post } = s; let h: Awaited<ReturnType<typeof host>> | undefined;
+  const item = event('unknown-native'); item.message.content = [{ type:'text', text:'unknown native fixture' }]; item.message.assets = [];
+  const id = postInputId(post.endpoint, item);
+  f.appServer.requestTimeoutMs = 300;
+  try {
+    await writeFile(join(f.directory,'control.json'), JSON.stringify({ holdUnknownStart:true }));
+    let partner = await f.createPartner(); h = await host(partner, f.directory, post.receiver);
+    assert.equal((await h.send(item)).status, 202);
+    await eventually(async () => (await partner.snapshot()).messages.some(m => m.id === id && m.delivery === 'unresolved'));
+    assert.equal((await starts(f)).filter(call => call.clientUserMessageId === id).length, 1);
+    await h.close(); h = undefined;
+    const db = new DatabaseSync(partnerPaths(f.workspace).database);
+    assert.equal((db.prepare('SELECT state FROM delivery_attempts WHERE operation_id=?').get(id) as { state:string }).state, 'unknown'); db.close();
+    await writeFile(join(f.directory,'control.json'), '{}');
+    post.accountMode = 'fail';
+    partner = await f.createPartner(); h = await host(partner, f.directory, post.receiver);
+    await eventually(async () => discoveries(post) >= 2);
+    post.accountMode = 'normal';
+    await eventually(async () => discoveries(post) >= 3, 6000);
+    await new Promise(resolve => setTimeout(resolve, 300));
+    assert.equal((await h.send(item)).status, 202);
+    await partner.checkAlarms();
+    assert.equal((await starts(f)).filter(call => call.clientUserMessageId === id).length, 1, 'no replay while native outcome is unknown');
+    await partner.submit('local-with-unknown-post', 'local fixture');
+    await eventually(async () => await f.consumed('local-with-unknown-post'));
+  } finally { await h?.close(); await s.close(); }
+});
+
+test('failure during native startup leaves no background Post discovery', async () => {
+  const s = await setup(), { f, post } = s;
+  try {
+    f.appServer.env.FAKE_HISTORY_ERROR = 'synthetic startup failure';
+    await assert.rejects(f.createPartner());
+    await new Promise(resolve => setTimeout(resolve, 1100));
+    assert.equal(discoveries(post), 0);
+    assert.equal(post.discoveryOpen, 0);
+  } finally { await s.close(); }
+});
+
 test('later authorized QQ account reaches receiver without restart after Matrix-only startup', async () => {
   const s = await setup(), { f, post } = s; let h: Awaited<ReturnType<typeof host>> | undefined;
   try {
     post.accounts = accounts(['matrix']);
     const partner = await f.createPartner(); h = await host(partner, f.directory, post.receiver);
+    await eventually(async () => discoveries(post) === 1 && post.discoveryOpen === 0);
     post.accounts = accounts(['matrix', 'qq']);
     const qq = event('later-qq');
     const response = await h.send(qq);
@@ -63,6 +329,7 @@ test('late account refresh preserves validation, authority, retryable failures a
   try {
     post.accounts = accounts(['matrix']);
     const partner = await f.createPartner(); h = await host(partner, f.directory, post.receiver);
+    await eventually(async () => discoveries(post) === 1 && post.discoveryOpen === 0);
     const qq = event('refresh-guards');
     const before = discoveries(post);
     const invalids = [
@@ -79,23 +346,28 @@ test('late account refresh preserves validation, authority, retryable failures a
     assert.equal((await h.send(qq)).status, 422, 'unknown account not listed by authority');
     post.accounts = accounts(['matrix']);
     const wrongPlatform = event('wrong-platform'); wrongPlatform.message.account_id = 'matrix-main';
+    await new Promise(resolve => setTimeout(resolve, 1100));
     assert.equal((await h.send(wrongPlatform)).status, 422);
     assert.equal((await starts(f)).length, 0);
     assert.equal(post.requests.filter(r => r.path?.startsWith('/assets')).length, 0);
 
     post.accountMode = 'fail';
+    await new Promise(resolve => setTimeout(resolve, 1100));
     assert.equal((await h.send(qq)).status, 503, 'transport failure is retryable');
     post.accountMode = 'unauthorized';
+    await new Promise(resolve => setTimeout(resolve, 1100));
     assert.equal((await h.send(qq)).status, 503, 'failed authority authentication cannot authorize the account');
-    post.accountMode = 'normal'; post.accounts = { items: [] };
+    post.accountMode = 'normal'; post.accounts = { items: 'invalid' };
+    await new Promise(resolve => setTimeout(resolve, 2100));
     assert.equal((await h.send(qq)).status, 503, 'unusable authority is not a terminal event rejection');
     post.accounts = accounts(['matrix', 'qq']);
     // Changed content after failed lookups proves no earlier durable receipt.
     qq.message.content.push({ type: 'text', text: 'test-only retry after failed discovery' });
+    await eventually(async () => (await h!.send(qq)).status === 202, 10_000);
     const lookups = discoveries(post);
     const replies = await Promise.all(Array.from({ length: 4 }, () => h!.send(qq)));
     assert.deepEqual(replies.map(r => r.status), [202, 202, 202, 202]);
-    assert.equal(discoveries(post), lookups + 1, 'concurrent misses share one lookup');
+    assert.equal(discoveries(post), lookups, 'known concurrent duplicates need no lookup');
     await eventually(async () => (await starts(f)).length === 1 && !(await partner.snapshot()).typing);
     const conflict = structuredClone(qq); conflict.message.sender.native_id = 'changed';
     assert.equal((await h.send(conflict)).status, 409);
@@ -103,11 +375,13 @@ test('late account refresh preserves validation, authority, retryable failures a
     assert.equal((await h.send(qq)).status, 202);
     assert.equal((await h.send(event('known-matrix', 'matrix'))).status, 202);
     await eventually(async () => (await starts(f)).length === 2 && !(await partner.snapshot()).typing);
-    assert.equal(discoveries(post), lookups + 1, 'known accounts need no lookup');
+    assert.equal(discoveries(post), lookups, 'known accounts need no lookup');
     assert.equal((await starts(f))[0]!.threadId, (await starts(f))[1]!.threadId);
     post.accountMode = 'normal'; post.accounts = accounts(['matrix']);
+    await new Promise(resolve => setTimeout(resolve, 1100));
     const ungranted = event('not-authorized'); ungranted.message.account_id = 'ungranted';
     assert.equal((await h.send(ungranted)).status, 422);
+    await new Promise(resolve => setTimeout(resolve, 1100));
     assert.equal((await h.send(qq)).status, 422, 'a refreshed map does not retain removed accounts');
     await h.close(); h = undefined;
     post.accounts = accounts(['matrix', 'qq']);
@@ -348,7 +622,7 @@ test('Post diagnostics expose only finite receiver, admission, native and send c
   t.mock.method(console, 'error', (...args: unknown[]) => { lines.push(args.map(String).join(' ')); });
   const records = () => lines.filter(line => line.startsWith('[partner] ')).map(line => JSON.parse(line.slice(10))).filter(r => r.event.startsWith('post.'));
   try {
-    f.appServer.env.FAKE_STREAM_FIXTURE = 'true'; await f.chatPhase('partial');
+    f.appServer.env.FAKE_STREAM_FIXTURE = 'true'; f.appServer.env.FAKE_REJECT_START_INVALID = 'true'; await f.chatPhase('partial');
     const partner = await f.createPartner(); h = await host(partner, f.directory, post.receiver);
     const direct = event('DIAGNOSTIC_PRIVATE_ID'); direct.message.conversation.type = 'direct'; direct.wake.reason = 'direct_message';
     direct.message.content = [{ type: 'text', text: 'DIAGNOSTIC_PRIVATE_CONTENT' }]; direct.message.assets = [];
@@ -357,7 +631,7 @@ test('Post diagnostics expose only finite receiver, admission, native and send c
     assert.equal((await h.send({ ...direct, agent_id: 'other' })).status, 422);
     const unknown = structuredClone(direct); unknown.message.account_id = 'DIAGNOSTIC_PRIVATE_ACCOUNT';
     assert.equal((await h.send(unknown)).status, 422);
-    post.accountMode = 'fail'; assert.equal((await h.send(unknown)).status, 503); post.accountMode = 'normal';
+    post.accountMode = 'fail'; await new Promise(resolve => setTimeout(resolve, 1100)); assert.equal((await h.send(unknown)).status, 503); post.accountMode = 'normal';
     // The fake logs the request before it starts the turn. Hold it at that
     // boundary so the diagnostics test covers this ordering deterministically.
     const controlPath = join(f.directory, 'control.json');
@@ -464,7 +738,10 @@ test('receiver auth and semantic validation precede durable receipt; storage fai
       { ...wrong,message:{ ...wrong.message,assets:[] } }, { ...wrong,message:{ ...wrong.message,assets:[...wrong.message.assets,...wrong.message.assets] } },
       { ...wrong,message:{ ...wrong.message,assets:[{ ...wrong.message.assets[0],download_path:'https://evil.test/assets/ast_example' }] } },
       { ...wrong,wake:{ reason:'unauthenticated_boolean' } } ];
-    for (const value of cases) assert.equal((await h.send(value)).status,422);
+    for (const value of cases) {
+      const status = (await h.send(value)).status;
+      assert([422, 503].includes(status), 'a throttled account check is retryable');
+    }
     assert.equal((await starts(f)).length,0);
     assert.equal(post.requests.filter(r => r.path?.startsWith('/assets')).length,0);
     const original = partner.ingestPost;
@@ -613,20 +890,23 @@ test('SQLite receipt conflict/rollback, canonical message dedupe, media checkpoi
   } finally { await store.close(); await f.close(); }
 });
 
-test('partial configuration, reused secrets and invalid account discovery fail closed without native startup', async () => {
+test('partial configuration and reused secrets fail locally; invalid discovery grants no authority', async () => {
   const s = await setup(), {f,post} = s;
   try {
     f.credentials.post_receiver = undefined; await assert.rejects(f.createPartner(),/requires/);
     f.credentials.post_receiver = post.token; await assert.rejects(f.createPartner(),/must differ/);
-    f.credentials.post_receiver = post.receiver; post.accounts = { accounts:[] };
-    await assert.rejects(f.createPartner(),/Post startup discovery failed/);
     assert.equal((await f.requests()).length,0);
-    for (const value of [null,{ items:[] },{ items:[examples.tools.list_accounts.result.items[0],examples.tools.list_accounts.result.items[0]] }]) { post.accounts=value; await assert.rejects(discoverPost(post.endpoint,post.token),/Post startup/); }
+    f.credentials.post_receiver = post.receiver; post.accounts = { accounts:[] };
+    const partner = await f.createPartner();
+    await assert.rejects(partner.ingestPost(event('bad-discovery'), JSON.stringify(event('bad-discovery'))));
+    await partner.close();
+    for (const value of [null,{ items:'invalid' },{ items:[examples.tools.list_accounts.result.items[0],examples.tools.list_accounts.result.items[0]] }]) { post.accounts=value; await assert.rejects(discoverPost(post.endpoint,post.token),/Post startup/); }
   } finally { await s.close(); }
 });
 
 test('Post deliveries remain ordered during compaction and survive a rejected native start without repeating images', async () => {
   const s = await setup(), {f,post} = s; let h: Awaited<ReturnType<typeof host>> | undefined;
+  f.appServer.env.FAKE_REJECT_START_INVALID = 'true';
   try {
     await f.holdCompaction(true,true);
     let partner = await f.createPartner(); h = await host(partner,f.directory,post.receiver);
@@ -711,6 +991,7 @@ test('historical Matrix provenance remains truthful in existing public history a
 
 test('a failed Post head blocks later Post inputs until restart reconciliation', async t => {
   const s = await setup(), { f,post } = s; let h: Awaited<ReturnType<typeof host>> | undefined;
+  f.appServer.env.FAKE_REJECT_START_INVALID = 'true';
   f.config.keet = { endpoint:post.endpoint }; f.credentials.keet = 'synthetic-keet-only-token';
   const a = event('fifo-a'), b = event('fifo-b','matrix');
   for (const e of [a,b]) { e.message.assets = []; e.message.content = [{ type:'text',text:e.message.id }]; }
@@ -749,6 +1030,7 @@ test('a failed Post head blocks later Post inputs until restart reconciliation',
 
 test('Post native images retain content order with reversed metadata and checkpoint restart', async t => {
   const s = await setup(), {f,post} = s; let h: Awaited<ReturnType<typeof host>> | undefined;
+  f.appServer.env.FAKE_REJECT_START_INVALID = 'true';
   const a = post.bytes, b = await sharp({ create:{ width:1,height:1,channels:3,background:'#1f8c45' } }).png().toBuffer();
   post.assetBytes.set('ast_a',a); post.assetBytes.set('ast_b',b);
   const e = event('ordered-images');
