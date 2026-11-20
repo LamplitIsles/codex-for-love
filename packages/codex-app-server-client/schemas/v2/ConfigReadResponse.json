@@ -73,6 +73,16 @@
           ],
           "description": "Per-account approval settings keyed by link ID."
         },
+        "omit_tools_from": {
+          "description": "Additional model-facing surfaces omitted for this connector's tools.",
+          "items": {
+            "$ref": "#/definitions/ToolExposureSurface"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
         "open_world_enabled": {
           "type": [
             "boolean",
@@ -511,6 +521,17 @@
               "type": "null"
             }
           ]
+        },
+        "client_search_provider": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/WebSearchProvider"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Effective tools.client_search_provider hint. Model-selected providers take precedence."
         },
         "compact_prompt": {
           "type": [
@@ -1020,6 +1041,32 @@
       },
       "type": "object"
     },
+    "ToolExposureSurface": {
+      "description": "A model-facing surface on which a tool can be exposed.",
+      "oneOf": [
+        {
+          "description": "Nested tools available to Code Mode scripts.",
+          "enum": [
+            "code_mode"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Tools discovered later through tool search.",
+          "enum": [
+            "deferred"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Tools present in the model's initial tool list.",
+          "enum": [
+            "direct"
+          ],
+          "type": "string"
+        }
+      ]
+    },
     "ToolsV2": {
       "properties": {
         "web_search": {
@@ -1088,6 +1135,14 @@
         "cached",
         "indexed",
         "live"
+      ],
+      "type": "string"
+    },
+    "WebSearchProvider": {
+      "description": "Provider preference selected by the resolved model catalog entry.",
+      "enum": [
+        "standalone",
+        "search_mcp"
       ],
       "type": "string"
     },

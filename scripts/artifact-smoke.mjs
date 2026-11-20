@@ -2,19 +2,17 @@ import { execFileSync, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import { createServer } from 'node:net';
-import { mkdtemp, mkdir, readFile, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises';
-import { createRequire } from 'node:module';
+import { mkdtemp, mkdir, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { prepareCodex } from '../apps/partner/runtime/startup-codex.ts';
 import { SUPPORTED_CODEX_VERSION } from '../apps/partner/runtime/config.ts';
 import { seedSmokeFrontend, smokeHtml, smokeRevision } from './smoke-frontend.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const mainPackageName = '@lamplitisles/codex-for-love';
-const mac = process.platform === 'darwin' && process.arch === 'arm64';
-if (!mac && (process.platform !== 'linux' || process.arch !== 'x64')) throw new Error('Artifact smoke supports Linux x64 and macOS ARM64 only.');
-const nativePackageName = mac ? '@lamplitisles/codex-for-love-darwin-arm64' : '@lamplitisles/codex-for-love-linux-x64';
+if (process.platform !== 'linux' || process.arch !== 'x64') throw new Error('Artifact smoke supports Linux x64 only.');
 const temporary = await realpath(await mkdtemp(join(tmpdir(), 'cfl-artifact-smoke-')));
 
 function archiveManifest(archive) {
@@ -31,35 +29,18 @@ async function waitForServer(child, observed, stderr) {
 }
 
 try {
-  const publicRegistry = process.env.CFL_PUBLIC_SMOKE === '1';
   const artifacts = process.env.CFL_ARTIFACT_DIR ? resolve(process.env.CFL_ARTIFACT_DIR) : join(temporary, 'artifacts');
-  if (!process.env.CFL_ARTIFACT_DIR && !publicRegistry) {
+  if (!process.env.CFL_ARTIFACT_DIR) {
     execFileSync('mkdir', ['-p', artifacts]);
     for (const directory of ['packages/codex-for-love']) {
       execFileSync('npm', ['pack', '--json', '--pack-destination', artifacts], { cwd: join(root, directory), stdio: 'inherit' });
     }
   }
-  const tarballs = publicRegistry ? [] : (await readdir(artifacts)).filter(name => name.endsWith('.tgz'));
-  const sourceManifest = JSON.parse(await readFile(join(root, 'packages', 'codex-for-love', 'package.json'), 'utf8'));
-  const releaseVersion = process.env.CFL_RELEASE_VERSION ?? sourceManifest.version;
-  const main = publicRegistry ? `${mainPackageName}@${releaseVersion}` : tarballs.find((name) => archiveManifest(join(artifacts, name)).name === mainPackageName);
+  const tarballs = (await readdir(artifacts)).filter(name => name.endsWith('.tgz'));
+  const main = tarballs.find((name) => archiveManifest(join(artifacts, name)).name === mainPackageName);
   if (!main) throw new Error('Expected one main tarball.');
-  const mainManifest = publicRegistry ? sourceManifest : archiveManifest(join(artifacts, main));
-  const nativeVersion = mainManifest.optionalDependencies?.[nativePackageName];
-  if (typeof nativeVersion !== 'string') throw new Error('Main package does not pin an exact native package version.');
-  const native = `${nativePackageName}@${nativeVersion}`;
   const prefix = join(temporary, 'prefix');
-  const installInputs = [publicRegistry ? main : join(artifacts, main)];
-  if (process.env.CFL_NATIVE_TARBALL) {
-    if (publicRegistry) throw new Error('A local native tarball cannot establish public-registry acceptance.');
-    const archive = resolve(process.env.CFL_NATIVE_TARBALL);
-    const candidate = archiveManifest(archive);
-    if (candidate.name !== nativePackageName || candidate.version !== nativeVersion
-      || candidate.os?.join(',') !== process.platform || candidate.cpu?.join(',') !== process.arch) {
-      throw new Error('Local native tarball does not match the main pin and matching host.');
-    }
-    installInputs.push(archive);
-  }
+  const installInputs = [join(artifacts, main)];
   const isolatedEnv = { PATH: process.env.PATH, HOME: join(temporary, 'home'),
     CODEX_HOME: join(temporary, 'codex-home'), XDG_CONFIG_HOME: join(temporary, 'config'),
     XDG_DATA_HOME: join(temporary, 'data'), XDG_CACHE_HOME: join(temporary, 'cache'),
@@ -69,21 +50,16 @@ try {
   execFileSync('npm', ['install', '--global', '--ignore-scripts', '--prefer-online', '--prefix', prefix, ...installInputs], { stdio: 'inherit', timeout: 120_000, env: isolatedEnv });
   execFileSync(join(prefix, 'bin', 'codex-for-love'), ['--help'], { stdio: 'inherit', env: isolatedEnv });
   const mainRoot = join(prefix, 'lib', 'node_modules', '@lamplitisles', 'codex-for-love');
-  const installedRequire = createRequire(join(mainRoot, 'bin', 'codex-for-love.mjs'));
-  const nativeManifestPath = installedRequire.resolve(`${nativePackageName}/package.json`);
-  const installedNativeVersion = JSON.parse(await readFile(nativeManifestPath, 'utf8')).version;
-  if (installedNativeVersion !== nativeVersion) throw new Error(`Expected ${native}, installed ${installedNativeVersion ?? 'unknown'}.`);
-  const nativeRoot = dirname(nativeManifestPath);
+  const nativeRoot = await prepareCodex({ cache: join(isolatedEnv.XDG_CACHE_HOME, 'lamplitisles/codex-for-love/codex'),
+    ...(process.env.CFL_NATIVE_ARCHIVE ? { download: async (_url, destination) => { const { copyFile } = await import('node:fs/promises'); await copyFile(resolve(process.env.CFL_NATIVE_ARCHIVE), destination); } } : {}) });
   const reportedVersion = execFileSync(join(nativeRoot, 'bin', 'codex-app-server'), ['--version'], { encoding: 'utf8', env: isolatedEnv }).trim();
-  if (reportedVersion !== `codex-app-server ${SUPPORTED_CODEX_VERSION}`) throw new Error(`Unsupported packaged app-server: ${reportedVersion}`);
+  if (reportedVersion !== `codex-app-server ${SUPPORTED_CODEX_VERSION}`) throw new Error(`Unsupported app-server: ${reportedVersion}`);
   console.log(reportedVersion);
   execFileSync(join(nativeRoot, 'bin', 'codex-code-mode-host'), ['--help'], { stdio: 'ignore', env: isolatedEnv });
 
   const fakeServer = join(root, 'apps', 'partner', 'tests', 'fake-app-server-entry.mjs');
-  const fakeExecutable = join(nativeRoot, 'bin', 'codex-app-server');
-  const fakeReplacement = `${fakeExecutable}.fake`;
-  await writeFile(fakeReplacement, `#!/usr/bin/env node\nimport ${JSON.stringify(pathToFileURL(fakeServer).href)};\n`, { mode: 0o755 });
-  await rename(fakeReplacement, fakeExecutable);
+  const fakeExecutable = join(temporary, 'fake-app-server.mjs');
+  await writeFile(fakeExecutable, `#!/usr/bin/env node\nimport ${JSON.stringify(pathToFileURL(fakeServer).href)};\n`, { mode: 0o755 });
   const fixture = join(temporary, 'fixture');
   await seedSmokeFrontend(isolatedEnv.XDG_CACHE_HOME);
   await mkdir(fixture, { recursive: true });
@@ -94,9 +70,35 @@ try {
   const port = reserve.address().port;
   await new Promise((resolve, reject) => reserve.close(error => error ? reject(error) : resolve()));
   const marker = `CFL_SMOKE_HTTP_OK_${randomUUID()}`;
-  await writeFile(join(fixture, 'partner.toml'), `name = "Mica"\nfrontend = "${smokeRevision}"\nprompts = { persona = "./persona.md" }\nstate = "./state"\nworkspace = "./workspace"\nport = ${port}\n[codex]\ncommand = "./must-not-be-selected"\n`);
+  await writeFile(join(fixture, 'partner.toml'), `name = "Mica"\nfrontend = "${smokeRevision}"\nprompts = { persona = "./persona.md" }\nstate = "./state"\nworkspace = "./workspace"\nport = ${port}\n[codex]\ncommand = "${fakeExecutable}"\n`);
   const workspace = join(fixture, 'workspace');
-  const runtime = spawn(join(prefix, 'bin', 'codex-for-love'), ['serve', join(fixture, 'partner.toml')], {
+  await writeFile(join(isolatedEnv.CODEX_HOME, 'config.toml'), `[projects.${JSON.stringify(workspace)}]\ntrust_level = "trusted"\n[features]\nplugins = false\n`);
+  // The packaged launcher must consume the verified real archive from the isolated cache.
+  const real = spawn(join(prefix, 'bin', 'codex-for-love'), ['serve', join(fixture, 'partner.toml')], {
+    detached: true, env: { ...isolatedEnv, CODEX_DISABLE_FEEDBACK: '1', CODEX_DISABLE_UPDATE_CHECK: '1' }, stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let realOutput = '';
+  real.stderr.on('data', chunk => { realOutput = (realOutput + chunk).slice(-8000); });
+  const realClosed = once(real, 'close');
+  try {
+    let ready = false;
+    for (let attempt = 0; attempt < 600; attempt++) {
+      if (real.exitCode !== null || real.signalCode !== null) throw new Error(`Packaged real Codex startup failed: ${realOutput}`);
+      try { await fetch(`http://127.0.0.1:${port}/`, { signal: AbortSignal.timeout(500) }); ready = true; break; } catch {}
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    if (!ready) throw new Error(`Packaged real Codex did not listen: ${realOutput}`);
+    console.log('Packaged launcher served with the verified real Codex release.');
+  } finally {
+    real.kill('SIGTERM');
+    let timer;
+    try { await Promise.race([realClosed, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Packaged real runtime did not stop')), 10000); })]); }
+    finally { clearTimeout(timer); try { process.kill(-real.pid, 'SIGKILL'); } catch (error) { if (error.code !== 'ESRCH') throw error; } }
+  }
+  // The behavioral probe uses a fresh fake-server workspace and sends no external messages.
+  await rm(workspace, { recursive: true, force: true });
+  await rm(join(fixture, 'state'), { recursive: true, force: true });
+  const runtime = spawn(process.execPath, [join(mainRoot, 'vendor/runtime/cli.mjs'), 'serve', join(fixture, 'partner.toml')], {
     detached: true,
     env: { ...isolatedEnv, NODE_OPTIONS: `--import=${pathToFileURL(join(root, 'scripts/artifact-smoke-probe.mjs')).href}`, CFL_SMOKE_PROBE_PORT: String(port), CFL_SMOKE_PROBE_MARKER: marker, CFL_SMOKE_PROBE_HTML: smokeHtml, FAKE_SERVER_ROOT: fixture, FAKE_SERVER_STATE: join(fixture, 'fake-state.json'), FAKE_SERVER_REQUESTS: join(fixture, 'requests.jsonl'), FAKE_SERVER_CONTROL: join(fixture, 'control.json'), FAKE_HOOK_COMMAND: `'${process.execPath}' '${join(mainRoot, 'vendor', 'runtime', 'session-start-hook.mjs')}' '${join(workspace, '.lamplit', 'context-bootstrap.json')}'`, FAKE_CONFIG_PATH: join(workspace, '.codex', 'config.toml') },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -126,7 +128,7 @@ try {
       try { process.kill(-runtime.pid, 'SIGKILL'); } catch (error) { if (error.code !== 'ESRCH') throw error; }
     }
   }
-  console.log(JSON.stringify({ prefix, native, main, nativeVersion }, null, 2));
+  console.log(JSON.stringify({ prefix, main, codexVersion: SUPPORTED_CODEX_VERSION }, null, 2));
 } finally {
   await rm(temporary, { recursive: true, force: true });
 }

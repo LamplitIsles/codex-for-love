@@ -11,6 +11,7 @@ import { createWebServer } from './server.ts';
 import { createConversationSearch } from './conversation-search.ts';
 import { migrateRelationshipJournal } from './migrate-relationship-journal.ts';
 import { prepareFrontend } from './startup-frontend.ts';
+import { prepareCodex } from './startup-codex.ts';
 import { AuthStore } from './auth.ts';
 import { openMigratedVault } from './migrated-vault.ts';
 import { acquirePrivateFileLock } from './private-file-lock.ts';
@@ -18,12 +19,8 @@ import { acquirePrivateFileLock } from './private-file-lock.ts';
 const cliArgs = process.argv.slice(2);
 if (cliArgs[0] === '--') cliArgs.shift();
 if (cliArgs[1] === '--') cliArgs.splice(1, 1);
-const nativeRootIndex = cliArgs.indexOf('--native-package-root');
-const nativePackageRoot = nativeRootIndex === -1 ? undefined : cliArgs[nativeRootIndex + 1];
-if (nativeRootIndex !== -1) {
-  if (!nativePackageRoot) throw new Error('--native-package-root requires a package root');
-  cliArgs.splice(nativeRootIndex, 2);
-}
+const managedNative = cliArgs.includes('--managed-native');
+if (managedNative) cliArgs.splice(cliArgs.indexOf('--managed-native'), 1);
 if (cliArgs.includes('--help') || cliArgs.includes('-h')) {
   console.log('Usage: codex-for-love <serve|pair|credential|asset-fetch|asset-upload|import-session|import-stickers|migrate-relationship-journal> <config.toml>');
   process.exit(0);
@@ -34,15 +31,9 @@ const positionalArgs = cliArgs.filter((argument) => argument !== '--dry-run' && 
 const [command, configPath, name, companionStatePath, attachmentRoot, destinationPath, dshSettingsPath] = positionalArgs;
 if (!configPath) throw new Error('Usage: cli.ts <serve|pair|credential|asset-fetch|asset-upload|import-session|import-stickers|migrate-relationship-journal> <config.toml>');
 let config = await loadConfig(resolve(configPath));
-if (nativePackageRoot) {
-  const root = resolve(nativePackageRoot);
-  config = {
-    ...config,
-    codex: {
-      ...config.codex,
-      command: join(root, 'bin', 'codex-app-server'),
-    },
-  };
+if (managedNative && (command === 'serve' || command === 'import-session')) {
+  const root = await prepareCodex();
+  config = { ...config, codex: { ...config.codex, command: join(root, 'bin', 'codex-app-server') } };
 }
 if (command === 'import-stickers') {
   if (!name || companionStatePath) throw new Error('Usage: cli.ts import-stickers <config.toml> <directory>');

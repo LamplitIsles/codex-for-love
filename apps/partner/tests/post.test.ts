@@ -1225,8 +1225,9 @@ test('Post display suppresses only the exact available shared image and preserve
     e.message.content = [{ type: 'text', text: 'original body' }, { type: 'image', asset_id: original.asset_id },
       { type: 'image', asset_id: 'missing-image' }, ...(['file', 'audio', 'video'] as const).map(type => ({ type, asset_id: type }))];
     assert.equal((await h.send(e)).status, 202);
-    await eventually(async () => (await starts(f)).length === 1 && !(await partner.snapshot()).typing);
-    const call = (await starts(f))[0]!, id = postInputId(post.endpoint, e);
+    const id = postInputId(post.endpoint, e);
+    await eventually(async () => (await starts(f)).length === 1 && await f.consumed(id) && !(await partner.snapshot()).typing);
+    const call = (await starts(f))[0]!;
     assert(call.input[0]!.text!.includes('[image "ast_example": attached]'), 'native body stays unchanged');
     let message = (await createCodexChatBackend(partner).read()).messages.find(m => m.id === id)!;
     assert(!message.text.includes('[image "ast_example"'), 'actual available shared attachment represents this exact image part');

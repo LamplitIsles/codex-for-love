@@ -19,7 +19,7 @@
       ]
     },
     "searchTerm": {
-      "description": "Case-insensitive literal substring to find in visible user messages and final assistant messages.",
+      "description": "Case-insensitive literal substring to find in visible user messages and both partial and final assistant answers.",
       "type": "string"
     },
     "threadId": {

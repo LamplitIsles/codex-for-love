@@ -5,6 +5,7 @@ export const clientNotificationMethods = [
 ] as const;
 
 export const serverNotificationMethods = [
+  "account/gatewayOAuth/changed",
   "account/login/completed",
   "account/rateLimits/updated",
   "account/updated",
@@ -53,6 +54,7 @@ export const serverNotificationMethods = [
   "serverRequest/resolved",
   "skills/changed",
   "thread/archived",
+  "thread/attachment/updated",
   "thread/closed",
   "thread/compacted",
   "thread/deleted",
@@ -61,8 +63,10 @@ export const serverNotificationMethods = [
   "thread/goal/cleared",
   "thread/goal/updated",
   "thread/name/updated",
+  "thread/prediction/updated",
   "thread/project/updated",
   "thread/queue/changed",
+  "thread/readState/changed",
   "thread/realtime/closed",
   "thread/realtime/error",
   "thread/realtime/item/completed",
@@ -75,6 +79,7 @@ export const serverNotificationMethods = [
   "thread/realtime/transcript/delta",
   "thread/realtime/transcript/done",
   "thread/reverted",
+  "thread/section/changed",
   "thread/settings/updated",
   "thread/started",
   "thread/status/changed",

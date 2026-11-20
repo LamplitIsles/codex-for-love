@@ -26,8 +26,7 @@ materialization errors remain durable application facts. The Companion does not
 call the app-server durable queue APIs. Official history is read through
 paginated thread APIs on startup, refresh and resume.
 
-CFL owns the app-server version contract, currently `0.164.0`; the published
-main package pins its matching native packages. TOML does not support
+CFL owns the app-server version contract, currently `0.170.0`; the main package pins its Forgejo release archive and digest. TOML does not support
 `codex.version`. Legacy `codex.model` and `codex.fast` are accepted and ignored,
 without entering runtime Config. Settings persist model and Fast in one workspace
 preference, defaulting to `gpt-6.1-sol` and Fast on.

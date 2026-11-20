@@ -39,9 +39,7 @@ try {
   const ecosystemServers = parse(await readFile(join(path, 'vendor', 'ecosystem-mcp.example.toml'), 'utf8')).mcp_servers;
   if (Object.keys(ecosystemServers ?? {}).sort().join(',') !== 'flicknote,web') throw new Error(`${name} has an unexpected ecosystem MCP template.`);
   if (JSON.stringify(manifest).includes('github:')) throw new Error(`${name} exposes a Git dependency.`);
-  for (const native of ['@lamplitisles/codex-for-love-linux-x64', '@lamplitisles/codex-for-love-darwin-arm64']) {
-    if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/u.test(manifest.optionalDependencies?.[native] ?? '')) throw new Error(`${name} does not pin ${native} exactly.`);
-  }
+  if (Object.keys(manifest.optionalDependencies ?? {}).some(name => name.startsWith('@lamplitisles/codex-for-love-'))) throw new Error('Native npm packages must not be selected.');
   console.log(`${name}: ${packed.size} bytes, ${files.size} files`);
 } finally {
   await rm(temporary, { recursive: true, force: true });

@@ -1,14 +1,12 @@
 # Codex for Love
 
-This is the Linux x64 and macOS ARM64 standalone app-server runtime. npm
-installs the matching pinned platform package automatically; the launcher
-selects and verifies its app-server and code-mode host before startup.
-
-The installed main package determines the native package and supported Codex
-app-server version. Upgrade the main package to use its selected runtime;
-native packages may remain unchanged between application releases. TOML
-configures the model and runtime options. `codex.version` is not supported;
-remove that field from an existing configuration before upgrading.
+This standalone runtime supports Linux x64, requires Node 24 and `curl`, and
+selects Codex 0.170.0 from an exact Forgejo release. The first start downloads
+and verifies the archive; verified cached files support offline startup. Protect
+`$XDG_CACHE_HOME/lamplitisles/codex-for-love/codex` (or the equivalent under
+`~/.cache`) as private service-account state. A corrupt cache is replaced only
+after a successful verified download. Public npm releases are paused; obtain a
+reviewed CFL snapshot from the Forgejo registry. `codex.version` is unsupported.
 
 The installed `vendor/ecosystem-mcp.example.toml` is an optional, static
 example for adding FlickNote and Guion Web after CFL has created its minimal
@@ -23,7 +21,7 @@ manifest, service worker and management. The obsolete `/slice` entry is removed.
 An omitted root TOML `frontend` defaults to `"latest"`, resolving canonical App
 main at each startup. Set `frontend` to a full lowercase commit SHA for a
 reproducible version or rollback. Initial preparation needs `curl` and network
-access to the matching prebuilt GitHub App release. A newly merged revision may
+access to the matching prebuilt Forgejo App package. A newly merged revision may
 need time for its release to be published.
 CFL logs the resolved revision and stops on download, integrity, or
 compiled-contract mismatch; it never falls back to another App. An exact

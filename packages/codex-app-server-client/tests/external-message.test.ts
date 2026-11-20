@@ -6,7 +6,7 @@ import type { Turn } from "../src/generated/protocol/v2/Turn";
 import { FakeAppServer, type FakeRpcMessage } from "./fake-app-server";
 
 const userAgent = "codex_cli_rs/0.153.4 (test)";
-const turn = (status: Turn["status"] = "completed"): Turn => ({ id: "turn-1", status, items: [],
+const turn = (status: Turn["status"] = "completed"): Turn => ({ id: "turn-1", rootTurnId: null, status, items: [],
   itemsView: "full", error: null, startedAt: 1, completedAt: status === "inProgress" ? null : 2,
   durationMs: status === "inProgress" ? null : 1_000 });
 

@@ -35,9 +35,8 @@ persona = "./persona.example.md"
 
 [codex]
 # Model and Fast are saved in dashboard Settings; legacy entries are ignored.
-# The installed launcher selects its matching standalone app-server from its
-# exact main-package native dependency pin. A checkout configuration may set
-# command to a direct codex-app-server path.
+# The installed launcher selects the pinned, verified Forgejo Codex release.
+# A checkout configuration may set command to a direct codex-app-server path.
 # CFL owns the supported app-server version; do not set codex.version.
 # Local compaction is enabled by default. Set false for upstream routing;
 # a custom compaction prompt cannot be used when it is false.

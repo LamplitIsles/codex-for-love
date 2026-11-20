@@ -4,7 +4,6 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
-import { createRequire } from 'node:module';
 import { join, resolve } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { snapshotVersion } from './snapshot-publish.mjs';
@@ -12,9 +11,6 @@ import { saveSnapshot, snapshotHandler, verifySnapshotRequests, withRoutingWorks
 
 const [input, sha, expectedHash] = process.argv.slice(2);
 if (!input || !/^[a-f0-9]{40}$/u.test(sha ?? '') || !/^[a-f0-9]{64}$/u.test(expectedHash ?? '')) throw new Error('Usage: node scripts/snapshot-registry-install.check.mjs <owner-built-snapshot.tgz> <full-CFL-commit-SHA> <independently-recorded-SHA256>');
-const supported = { 'linux-x64': '@lamplitisles/codex-for-love-linux-x64', 'darwin-arm64': '@lamplitisles/codex-for-love-darwin-arm64' };
-const nativeName = supported[`${process.platform}-${process.arch}`];
-if (!nativeName) throw new Error('Routing check requires a supported Linux x64 or macOS arm64 host');
 const artifact = resolve(input);
 await withRoutingWorkspace(async ({ root, check, listen, run }) => {
   const mainBytes = await saveSnapshot(artifact, root, expectedHash, check);
@@ -78,8 +74,10 @@ await withRoutingWorkspace(async ({ root, check, listen, run }) => {
   const { code, output } = await run('npm', args, { cwd: root, env });
   assert.equal(code, 0, output);
   verifySnapshotRequests(requests.forge);
-  assert.ok(requests.npm.some(path => decodeURIComponent(path).slice(1) === nativeName), 'native metadata must be requested from npmjs server');
-  assert.ok(requests.npm.includes(`/tar/${[...packages.keys()].indexOf(nativeName)}`), 'native tarball must be requested from npmjs server');
+  for (const dependency of Object.keys(staged.dependencies)) {
+    assert.ok(requests.npm.some(path => decodeURIComponent(path).slice(1) === dependency), `${dependency} metadata must be requested from the public registry`);
+    assert.ok(requests.npm.includes(`/tar/${[...packages.keys()].indexOf(dependency)}`), `${dependency} tarball must be requested from the public registry`);
+  }
   const mainRoot = join(prefix, 'lib/node_modules/@lamplitisles/codex-for-love');
   const compareFiles = async (source, destination, relative = '') => {
     for (const entry of await readdir(join(source, relative), { withFileTypes: true })) {
@@ -92,10 +90,5 @@ await withRoutingWorkspace(async ({ root, check, listen, run }) => {
     }
   };
   await compareFiles(mainSource, mainRoot);
-  const installedRequire = createRequire(join(mainRoot, 'package.json'));
-  const native = JSON.parse(await readFile(installedRequire.resolve(`${nativeName}/package.json`), 'utf8'));
-  assert.equal(native.version, staged.optionalDependencies[nativeName]);
-  assert.equal(native.name, nativeName);
-  assert.equal(await readFile(installedRequire.resolve(`${nativeName}/fixture.txt`), 'utf8'), `${nativeName}@${native.version}\n`);
-  console.log(`Exact snapshot ${staged.version} and synthetic ${nativeName}@${native.version} installed through separate loopback registries`);
+  console.log(`Exact snapshot ${staged.version} and synthetic public dependencies installed through separate loopback registries`);
 });

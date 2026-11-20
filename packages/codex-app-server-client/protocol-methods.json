@@ -1,10 +1,10 @@
 {
   "schemaVersion": 2,
-  "codexCliVersion": "0.154.0",
+  "codexCliVersion": "0.170.0",
   "source": {
     "repository": "https://github.com/openai/codex",
-    "tag": "rust-v0.154.0",
-    "commit": "6b9826e3aa83b1a5947db50f4332cb9c65f1b340",
+    "tag": "rust-v0.170.0",
+    "commit": "29eb79e9866b3262a777fdf8195c1b9e63684c91",
     "path": "codex-rs/app-server-protocol/src/protocol/common.rs"
   },
   "methods": [
@@ -57,6 +57,14 @@
       "variant": "UserVerificationVerify"
     },
     {
+      "method": "userVerification/cancel",
+      "response": {
+        "module": "v2/UserVerificationCancelResponse",
+        "name": "UserVerificationCancelResponse"
+      },
+      "variant": "UserVerificationCancel"
+    },
+    {
       "method": "thread/start",
       "response": {
         "module": "v2/ThreadStartResponse",
@@ -79,6 +87,22 @@
         "name": "ThreadForkResponse"
       },
       "variant": "ThreadFork"
+    },
+    {
+      "method": "thread/sample",
+      "response": {
+        "module": "v2/ThreadSampleResponse",
+        "name": "ThreadSampleResponse"
+      },
+      "variant": "ThreadSample"
+    },
+    {
+      "method": "thread/sample/cancel",
+      "response": {
+        "module": "v2/ThreadSampleCancelResponse",
+        "name": "ThreadSampleCancelResponse"
+      },
+      "variant": "ThreadSampleCancel"
     },
     {
       "method": "thread/archive",
@@ -127,6 +151,14 @@
         "name": "ThreadSetNameResponse"
       },
       "variant": "ThreadSetName"
+    },
+    {
+      "method": "thread/prediction/request",
+      "response": {
+        "module": "v2/ThreadPredictionRequestResponse",
+        "name": "ThreadPredictionRequestResponse"
+      },
+      "variant": "ThreadPredictionRequest"
     },
     {
       "method": "thread/goal/set",
@@ -209,6 +241,38 @@
       "variant": "ThreadMetadataUpdate"
     },
     {
+      "method": "thread/attachment/add",
+      "response": {
+        "module": "v2/ThreadAttachmentAddResponse",
+        "name": "ThreadAttachmentAddResponse"
+      },
+      "variant": "ThreadAttachmentAdd"
+    },
+    {
+      "method": "thread/attachment/list",
+      "response": {
+        "module": "v2/ThreadAttachmentListResponse",
+        "name": "ThreadAttachmentListResponse"
+      },
+      "variant": "ThreadAttachmentList"
+    },
+    {
+      "method": "thread/attachmentOwner/list",
+      "response": {
+        "module": "v2/ThreadAttachmentOwnerListResponse",
+        "name": "ThreadAttachmentOwnerListResponse"
+      },
+      "variant": "ThreadAttachmentOwnerList"
+    },
+    {
+      "method": "thread/attachment/remove",
+      "response": {
+        "module": "v2/ThreadAttachmentRemoveResponse",
+        "name": "ThreadAttachmentRemoveResponse"
+      },
+      "variant": "ThreadAttachmentRemove"
+    },
+    {
       "method": "thread/section/move",
       "response": {
         "module": "v2/ThreadSectionMoveResponse",
@@ -233,12 +297,36 @@
       "variant": "ThreadMemoryModeSet"
     },
     {
+      "method": "thread/memory/read",
+      "response": {
+        "module": "v2/ThreadMemoryReadResponse",
+        "name": "ThreadMemoryReadResponse"
+      },
+      "variant": "ThreadMemoryRead"
+    },
+    {
+      "method": "memory/status",
+      "response": {
+        "module": "v2/MemoryStatusResponse",
+        "name": "MemoryStatusResponse"
+      },
+      "variant": "MemoryStatus"
+    },
+    {
       "method": "memory/reset",
       "response": {
         "module": "v2/MemoryResetResponse",
         "name": "MemoryResetResponse"
       },
       "variant": "MemoryReset"
+    },
+    {
+      "method": "rollout/compress",
+      "response": {
+        "module": "v2/RolloutCompressResponse",
+        "name": "RolloutCompressResponse"
+      },
+      "variant": "RolloutCompress"
     },
     {
       "method": "thread/unarchive",
@@ -295,14 +383,6 @@
         "name": "ThreadBackgroundTerminalsTerminateResponse"
       },
       "variant": "ThreadBackgroundTerminalsTerminate"
-    },
-    {
-      "method": "thread/rollback",
-      "response": {
-        "module": "v2/ThreadRollbackResponse",
-        "name": "ThreadRollbackResponse"
-      },
-      "variant": "ThreadRollback"
     },
     {
       "method": "thread/revert",
@@ -441,6 +521,14 @@
       "variant": "ThreadRead"
     },
     {
+      "method": "thread/readState/update",
+      "response": {
+        "module": "v2/ThreadReadStateUpdateResponse",
+        "name": "ThreadReadStateUpdateResponse"
+      },
+      "variant": "ThreadReadStateUpdate"
+    },
+    {
       "method": "thread/turns/list",
       "response": {
         "module": "v2/ThreadTurnsListResponse",
@@ -457,12 +545,36 @@
       "variant": "ThreadItemsList"
     },
     {
+      "method": "thread/items/read",
+      "response": {
+        "module": "v2/ThreadItemsReadResponse",
+        "name": "ThreadItemsReadResponse"
+      },
+      "variant": "ThreadItemsRead"
+    },
+    {
+      "method": "thread/guardianReview",
+      "response": {
+        "module": "v2/ThreadGuardianReviewResponse",
+        "name": "ThreadGuardianReviewResponse"
+      },
+      "variant": "ThreadGuardianReview"
+    },
+    {
       "method": "thread/inject_items",
       "response": {
         "module": "v2/ThreadInjectItemsResponse",
         "name": "ThreadInjectItemsResponse"
       },
       "variant": "ThreadInjectItems"
+    },
+    {
+      "method": "thread/prepareApprovedPlan",
+      "response": {
+        "module": "v2/ThreadPrepareApprovedPlanResponse",
+        "name": "ThreadPrepareApprovedPlanResponse"
+      },
+      "variant": "ThreadPrepareApprovedPlan"
     },
     {
       "method": "skills/list",
@@ -825,6 +937,46 @@
       "variant": "ModelList"
     },
     {
+      "method": "account/gatewayOAuth/read",
+      "response": {
+        "module": "v2/GatewayOAuthReadResponse",
+        "name": "GatewayOAuthReadResponse"
+      },
+      "variant": "GatewayOAuthRead"
+    },
+    {
+      "method": "account/gatewayOAuth/login",
+      "response": {
+        "module": "v2/GatewayOAuthLoginResponse",
+        "name": "GatewayOAuthLoginResponse"
+      },
+      "variant": "GatewayOAuthLogin"
+    },
+    {
+      "method": "account/gatewayOAuth/cancel",
+      "response": {
+        "module": "v2/GatewayOAuthCancelResponse",
+        "name": "GatewayOAuthCancelResponse"
+      },
+      "variant": "GatewayOAuthCancel"
+    },
+    {
+      "method": "modelProvider/list",
+      "response": {
+        "module": "v2/ModelProviderListResponse",
+        "name": "ModelProviderListResponse"
+      },
+      "variant": "ModelProviderList"
+    },
+    {
+      "method": "modelProvider/config/write",
+      "response": {
+        "module": "v2/ModelProviderConfigWriteResponse",
+        "name": "ModelProviderConfigWriteResponse"
+      },
+      "variant": "ModelProviderConfigWrite"
+    },
+    {
       "method": "modelProvider/capabilities/read",
       "response": {
         "module": "v2/ModelProviderCapabilitiesReadResponse",
@@ -1049,6 +1201,22 @@
       "variant": "BedrockSetup"
     },
     {
+      "method": "account/gcp/setup",
+      "response": {
+        "module": "v2/GcpSetupResponse",
+        "name": "GcpSetupResponse"
+      },
+      "variant": "GcpSetup"
+    },
+    {
+      "method": "account/bedrock/checkGovCloudRequirements",
+      "response": {
+        "module": "v2/BedrockCheckGovCloudRequirementsResponse",
+        "name": "BedrockCheckGovCloudRequirementsResponse"
+      },
+      "variant": "BedrockCheckGovCloudRequirements"
+    },
+    {
       "method": "account/login/cancel",
       "response": {
         "module": "v2/CancelLoginAccountResponse",
@@ -1057,12 +1225,36 @@
       "variant": "CancelLoginAccount"
     },
     {
+      "method": "accountSession/list",
+      "response": {
+        "module": "v2/AccountSessionsResponse",
+        "name": "AccountSessionsResponse"
+      },
+      "variant": "AccountSessionsList"
+    },
+    {
+      "method": "accountSession/switch",
+      "response": {
+        "module": "v2/AccountSessionsSwitchResponse",
+        "name": "AccountSessionsSwitchResponse"
+      },
+      "variant": "AccountSessionsSwitch"
+    },
+    {
       "method": "account/logout",
       "response": {
         "module": "v2/LogoutAccountResponse",
         "name": "LogoutAccountResponse"
       },
       "variant": "LogoutAccount"
+    },
+    {
+      "method": "account/securitySetup/read",
+      "response": {
+        "module": "v2/GetAccountSecuritySetupResponse",
+        "name": "GetAccountSecuritySetupResponse"
+      },
+      "variant": "GetAccountSecuritySetup"
     },
     {
       "method": "account/rateLimits/read",
@@ -1111,6 +1303,14 @@
         "name": "FeedbackUploadResponse"
       },
       "variant": "FeedbackUpload"
+    },
+    {
+      "method": "feedback/save",
+      "response": {
+        "module": "v2/FeedbackSaveResponse",
+        "name": "FeedbackSaveResponse"
+      },
+      "variant": "FeedbackSave"
     },
     {
       "method": "command/exec",

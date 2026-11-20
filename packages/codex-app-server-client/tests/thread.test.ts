@@ -155,6 +155,7 @@ describe("turn event routing and handles", () => {
 function turn(id: string, status: Turn["status"]): Turn {
   return {
     id,
+    rootTurnId: null,
     status,
     items: [],
     itemsView: "full",

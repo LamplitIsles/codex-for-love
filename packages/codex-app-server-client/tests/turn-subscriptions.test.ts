@@ -5,12 +5,12 @@ import type { ServerNotificationEnvelope as Notification } from "../src/generate
 
 const scope = { threadId: "thread-1", turnId: "turn-1" };
 const item: Notification = { method: "item/completed", params: { ...scope, completedAtMs: 1,
-  item: { type: "agentMessage", id: "reply", text: "done", phase: "final_answer", memoryCitation: null, delivery: null } } };
+  item: { type: "agentMessage", moderation: null, id: "reply", text: "done", phase: "final_answer", memoryCitation: null, delivery: null } } };
 const tokens = { inputTokens: 2, cachedInputTokens: 0, outputTokens: 3, reasoningOutputTokens: 0, totalTokens: 5 };
 const usage: Notification = { method: "thread/tokenUsage/updated", params: { ...scope,
   tokenUsage: { last: tokens, total: tokens, modelContextWindow: null } } };
-const completion: Notification = { method: "turn/completed", params: { threadId: scope.threadId,
-  turn: { id: scope.turnId, status: "completed", items: [], itemsView: "full", error: null,
+const completion: Extract<Notification, { method: "turn/completed" }> = { method: "turn/completed", params: { threadId: scope.threadId,
+  turn: { id: scope.turnId, rootTurnId: null, status: "completed", items: [], itemsView: "full", error: null,
     startedAt: 1, completedAt: 2, durationMs: 1_000 } } };
 const delta: Notification = { method: "item/agentMessage/delta", params: { ...scope, itemId: "reply", delta: "token" } };
 const states = (router: TurnEventRouter): Map<string, { early: unknown[]; items: Map<string, unknown> }> => Reflect.get(router, "states");
@@ -27,7 +27,7 @@ describe("independent subscriptions to one turn", () => {
     release();
     expect(sibling.unread()).toHaveLength(0);
     router.route({ ...item, params: { ...item.params, threadId: "fork", item: {
-      type: "agentMessage", id: "fork-reply", text: "fork only", phase: "final_answer", memoryCitation: null, delivery: null,
+      type: "agentMessage", moderation: null, id: "fork-reply", text: "fork only", phase: "final_answer", memoryCitation: null, delivery: null,
     } } });
     router.route({ ...completion, params: { ...completion.params, threadId: "fork" } });
     expect(await collectTurnResult(joined, scope.turnId)).toEqual(await collectTurnResult(first, scope.turnId));

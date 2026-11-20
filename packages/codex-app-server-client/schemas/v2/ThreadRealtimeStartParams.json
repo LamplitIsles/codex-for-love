@@ -37,22 +37,38 @@
         "alloy",
         "arbor",
         "ash",
+        "aube",
         "ballad",
         "breeze",
+        "bubbie",
         "cedar",
         "coral",
         "cove",
         "echo",
         "ember",
+        "haetsal",
+        "hanul",
+        "himari",
         "juniper",
+        "leher",
         "maple",
         "marin",
+        "miko",
+        "neer",
+        "porto",
+        "rindo",
+        "rio",
+        "rivage",
         "sage",
+        "selva",
         "shimmer",
         "sol",
+        "sonna",
         "spruce",
+        "tinta",
         "vale",
-        "verse"
+        "verse",
+        "viola"
       ],
       "type": "string"
     },
@@ -138,6 +154,10 @@
   },
   "description": "EXPERIMENTAL - start a thread-scoped realtime session.",
   "properties": {
+    "backendReasoningStatus": {
+      "description": "Relays public reasoning summaries as quiet context for realtime V3 delegations. Defaults to false.",
+      "type": "boolean"
+    },
     "clientManagedHandoffs": {
       "description": "Leaves Codex response handoffs to the client's explicit append calls instead of forwarding them automatically. Defaults to false.",
       "type": [
@@ -287,6 +307,13 @@
         {
           "type": "null"
         }
+      ]
+    },
+    "voiceSessionId": {
+      "description": "Client-generated identifier for the product voice session. This is distinct from `realtimeSessionId`.",
+      "type": [
+        "string",
+        "null"
       ]
     }
   },

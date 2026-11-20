@@ -119,40 +119,27 @@ workflow is described below.
 
 - Node 24 (the root `package.json` declares `>=24`).
 - pnpm 11.22.0, pinned by `packageManager`.
-- Linux x64 and macOS ARM64 users can install the package with
-  `npm install -g @lamplitisles/codex-for-love`. It brings the
-  exact matching native app-server and code-mode host package (musl on Linux).
-  Windows and Intel Macs are unsupported. This checkout pins
-  the matching Codex 0.164.0 native packages for both supported platforms.
-- The Partner uses `@jaminzhou/codex-app-server-client` 0.2.1 for typed,
-  Unix WebSocket connections to the app-server process managed by CFL. Its
-  generated protocol baseline is Codex 0.154.0; the
-  Codex 0.164.0 app-server is the exact target of CFL's strict SDK integration
-  checks, which must pass against the reviewed native artifact before release. CFL
-  always invokes `codex.command` as a direct app-server; the SDK
-  does not select a CLI fallback.
+- Linux x64, `curl`, and access to the pinned Forgejo release for first startup.
+  The app-server and helper are Codex 0.170.0. macOS is not supported by this
+  artifact path. The SDK protocol and runtime validation are generated from
+  Codex 0.170.0; CFL starts the app-server directly.
 - An existing official Codex login. Run `codex login status` and complete the
   official device-auth login if necessary. The app does not read, copy, parse
   or refresh credentials itself.
 
 ## Install, check and run
 
-The published CLI supplies its main-package-pinned native app-server, so an
-installed configuration omits `codex.command`. CFL owns the app-server version
-contract; `codex.version` is not a supported TOML field.
-
-Remove `codex.version` from an existing configuration before upgrading; the
-strict configuration schema rejects it.
-
-```sh
-npm install -g @lamplitisles/codex-for-love
-codex-for-love serve /path/to/partner.toml
-```
-
-It never compiles or downloads native code in an install hook. The main package
-pins an immutable native package version per supported platform; later CFL
-application releases may keep those versions unchanged. An official Codex login remains
-operator-owned.
+Install a reviewed Forgejo snapshot tarball with npm's default public registry
+for its ordinary dependencies, then run `codex-for-love serve /path/to/partner.toml`.
+Public npm publication is paused. The launcher selects the pinned Forgejo
+`v0.170.0-cfl.1` archive, verifies its SHA-256 and caches its files under
+`$XDG_CACHE_HOME/lamplitisles/codex-for-love/codex` (default `~/.cache`).
+Keep that cache private to the service account. A verified cache starts offline;
+missing or damaged files require a successful verified download. A download,
+archive, integrity or version failure stops startup. To update Codex, review the
+release identity, archive digest, file hashes and generated protocol together in
+a CFL change. The installed configuration omits `codex.command`; `codex.version`
+is not a supported TOML field.
 
 For checkout development, retain the pinned pnpm workflow:
 
@@ -335,7 +322,7 @@ pnpm --filter @lamplitisles/partner cli import-session \
 ```
 
 The command translates every finalized user and Partner text message and
-completed compact boundary into a native Codex 0.164.0 rollout. A historical
+completed compact boundary into a native Codex 0.170.0 rollout. A historical
 turn superseded by a later turn may lack `turn/end`; its finalized messages are
 still retained. Official pagination keeps
 the complete visible conversation, while only the newest compact replacement
@@ -348,7 +335,7 @@ byte-for-byte into `<new-workspace>/.lamplit/historical-media/`, and associated
 with their original user messages. The two DSH Companion avatars are decoded
 from the explicit DSH settings file into `<new-workspace>/.lamplit/profile/`;
 TOML stores their workspace-relative paths. Persona remains CFL-owned. Because
-Codex 0.164.0 path resume does not run the SessionStart startup hook, the
+Codex 0.170.0 path resume does not run the SessionStart startup hook, the
 converter places current relationship context directly into the initial active
 history exactly once; later compact hooks refresh it normally.
 
@@ -360,7 +347,7 @@ command does not claim rollback. All automated checks use temporary state and a
 fake or loopback provider.
 
 Run the isolated fixture suite with `pnpm test`. The pinned-runtime import
-check additionally requires the Codex 0.164.0 app-server executable and still uses
+check additionally requires the Codex 0.170.0 app-server executable and still uses
 only a loopback Responses provider:
 
 ```sh
@@ -623,27 +610,9 @@ Source provenance and retained upstream licenses are recorded in
 
 ## Publishing the main package
 
-The main manifest's exact optional-dependency versions are the native package
-selection contract. Main-package CI verifies that each pinned package is public,
-matches its declared platform, and has no install hook before building CFL; it
-never compiles Rust or downloads a Codex GitHub Release.
-
-After a reviewed commit is on `main`, publish a CFL main release by pushing one
-strict semver tag through the governed Git workflow, for example
-`v0.1.0-beta.1` or `v0.1.0`. The tag is the only main-package version source.
-The workflow stages a disposable manifest at that version, leaving the checkout,
-lockfile, and native dependency pins unchanged. A native-only publication does
-not select a new installed runtime: first merge the reviewed main-package change
-that pins its public native versions, then create the main-package tag.
-Prerelease tags use npm's `beta` dist-tag; stable tags use `latest`. The OIDC
-workflow verifies its packed tarball, performs an isolated installed-runtime
-HTTP smoke check, and publishes with provenance. It safely skips an existing
-version only when its immutable npm integrity matches the staged tarball.
-
-Do not use `git push` directly for this governed release operation. After the
-required review, use the repository's `og` tag-push workflow. The Trusted
-Publisher setup is a separate human-only `.scratch` wizard; no npm token or
-GitHub secret is used by this repository.
+Public npm publication is paused. The former tag-driven npm publishing workflow
+and native npm package selection have been retired. Forgejo main-branch snapshot
+publication continues as described below; publication does not deploy CFL.
 
 ## Shared App images
 
@@ -687,29 +656,20 @@ and remove only that SHA directory; the next startup downloads it again.
 
 Woodpecker builds and verifies a CFL snapshot on pushes to `main` and publishes
 `<base>.snapshot.g<full-commit-SHA>` (or `<base>-snapshot.g<SHA>` for a stable
-base) to the LamplitIsles Forgejo npm registry. It retains public npm native
-package pins and does not bundle the App browser. Snapshot publication does not
-install or restart Shio. The repository's GitHub tag-driven public npm release
-process above remains separate.
+base) to the LamplitIsles Forgejo npm registry. It does not bundle the App
+browser or native Codex binaries and does not install or restart Shio. Select
+the exact snapshot tarball from Forgejo metadata and verify its SHA-512 before
+installation. Keep npmjs as the default registry for public dependencies.
+For host installation, promotion and rollback see
+[canonical environments](development-environments.md).
 
-For a deliberate package update, select the exact snapshot tarball URL from the
-Forgejo npm package metadata and verify its SHA-512 integrity. Use the default registry
-`https://registry.npmjs.org/` without an `@lamplitisles` scope registry override,
-so native optional packages resolve from npmjs. For the exact Shio snapshot
-`0.1.0-beta.0.snapshot.g6881b22d5eda6fdd6715867fdb6397666308adf4`, the Forgejo
-tarball was first downloaded and its integrity verified; npm then installed the
-local tarball into the approved versioned prefix with that default registry and
-`--ignore-scripts`. npm resolved the Linux native package and sharp/koffi, the
-native executables passed help/version checks, and sharp/koffi native modules
-loaded. This does not establish native business, conversation or cross-platform
-behavior.
-For the planned fixed-prefix workflow, stop Shio before later in-place updates;
-retain the previous tarball and reinstall it for rollback, since the previous
-dependency tree is not retained. As of 2026-11-03, the 003d716 candidate was
-preinstalled and initially verified in the fixed prefix but not activated; Shio
-was still running 6881. For Shio installation, promotion and rollback, follow
-[canonical environments](development-environments.md). Do not set the whole
-scope to Forgejo: it also contains the public native dependencies.
+Historically, Shio snapshot `0.1.0-beta.0.snapshot.g6881b22d5eda6fdd6715867fdb6397666308adf4`
+was installed from an integrity-verified Forgejo tarball with npmjs as the
+default registry. npm resolved its Linux native package and sharp/koffi; their
+help, version and module-load checks passed. As of 2026-11-03 the 003d716
+candidate was preinstalled in the fixed prefix but not activated, and Shio was
+still running 6881. Those observations describe that older deployment, not the
+new artifact path.
 
 Woodpecker requires the `forgejo_packages_token` secret with package publication
 access for LamplitIsles. The publisher authenticates directly against the npm
@@ -755,7 +715,7 @@ compiled public contracts with frozen CFL dependencies. The selected frontend
 is prepared independently at startup and must match those contracts. npm packaging
 and publication are optional. For host-local source promotion and code/assets
 rollback, follow [development environments](development-environments.md). Keep
-state/config/native package ownership with the existing instance.
+state/config/native cache ownership with the existing instance.
 
 ## Optional Post QQ / Matrix integration
 

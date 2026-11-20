@@ -103,7 +103,7 @@ at startup; prebuilt browser resources are downloaded independently. See the
 
 ## Quick start
 
-The CLI supports **Linux x64 and macOS Apple Silicon** and includes the matching standalone Codex app-server and code-mode host. It requires Node 24 and an existing official Codex login. This checkout's launcher checks that the installed native package matches the main package's exact pin before starting. CFL owns the app-server version contract; Settings select model and Fast; TOML configures other runtime options. This checkout pins Codex 0.164.0 native packages for both platforms.
+The CLI supports **Linux x64** and requires Node 24, `curl` and an existing official Codex login. On first startup it downloads the pinned Codex 0.170.0 app-server and code-mode host from Forgejo, verifies the archive and caches the verified files; a valid cache works offline. CFL owns the app-server version contract; Settings select model and Fast; TOML configures other runtime options.
 
 ### 1. Check the Codex login
 
@@ -113,11 +113,13 @@ codex login status
 
 ### 2. Install CFL
 
+Select a reviewed Forgejo snapshot tarball and verify its integrity, then install it:
+
 ```bash
-npm install -g @lamplitisles/codex-for-love
+npm install -g --ignore-scripts --registry=https://registry.npmjs.org/ /path/to/verified-cfl-snapshot.tgz
 ```
 
-Forgejo main-branch snapshots use a CI token with LamplitIsles package
+Public npm releases are paused. Forgejo main-branch snapshots use a CI token with LamplitIsles package
 publication access. Updating Shio is a separate manual operation; see
 [Forgejo snapshots](docs/operator-guide.md#forgejo-snapshots).
 
@@ -210,7 +212,7 @@ the runtime Config. Other unknown keys remain rejected. Existing configs need
 no manual edit, automatic rewrite, or migration.
 
 
-On N5, Shio is the only CFL instance: Neil’s user systemd unit `codex-for-love-shio.service`, serving port 3084. Orc manually promotes a verified Forgejo npm snapshot and its exact pinned native dependency from npmjs. The fixed installation prefix permits later updates with the service stopped, without a per-version unit change; rollback requires reinstalling the old package. Mac is a build/smoke host with no CFL service. See [Host-local Partner environments](docs/development-environments.md) for current state, preparation, promotion and rollback.
+On N5, Shio is the only CFL instance: Neil’s user systemd unit `codex-for-love-shio.service`, serving port 3084. Orc manually promotes a verified Forgejo npm snapshot. The currently deployed historical snapshot uses an npmjs native dependency. The fixed installation prefix permits later updates with the service stopped, without a per-version unit change; rollback requires reinstalling the old package. Mac is a build/smoke host with no CFL service. See [Host-local Partner environments](docs/development-environments.md) for current state, preparation, promotion and rollback.
 
 Chat backgrounds can be uploaded independently in Appearance settings, separately
 from browser appearance preferences. Optional legacy TOML remains supported:

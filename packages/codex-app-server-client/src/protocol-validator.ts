@@ -32,6 +32,7 @@ const INTEGER_FORMAT_RANGES = {
   int32: [-(1n << 31n), (1n << 31n) - 1n],
   int64: [-(1n << 63n), (1n << 63n) - 1n],
   uint: [0n, (1n << 64n) - 1n],
+  uint8: [0n, (1n << 8n) - 1n],
   uint16: [0n, (1n << 16n) - 1n],
   uint32: [0n, (1n << 32n) - 1n],
   uint64: [0n, (1n << 64n) - 1n],

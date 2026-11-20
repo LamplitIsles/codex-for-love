@@ -68,7 +68,7 @@
     "node": ">=18"
   },
   "dependencies": {
-    "@openai/codex": "0.154.0",
+    "@openai/codex": "0.170.0",
     "@types/node": "26.1.1",
     "ajv": "8.20.0",
     "ws": "8.21.1"

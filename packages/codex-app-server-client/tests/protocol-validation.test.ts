@@ -32,7 +32,6 @@ describe("generated protocol runtime validation", () => {
       IsOptional<v2.ConfigRequirements, "checkForUpdateOnStartup">,
       IsOptional<v2.ConfigRequirements, "allowLoginShell">,
       IsOptional<v2.ConfigRequirements, "feedback">,
-      IsOptional<v2.ConfigRequirements, "windowsSandboxPrivateDesktop">,
       IsOptional<v2.ExternalAgentConfigImportHistory, "providerId">,
       IsOptional<v2.ExternalAgentConfigDetectResponse, "connectors">,
       IsOptional<v2.ExternalAgentConfigImportItemTypeSuccess, "title">,
@@ -91,10 +90,9 @@ describe("generated protocol runtime validation", () => {
       true,
       true,
       true,
-      true,
     ];
 
-    expect(optionalFields).toHaveLength(36);
+    expect(optionalFields).toHaveLength(35);
   });
 
   it("validates generated request and response schemas without losing bigint values", async () => {
@@ -253,7 +251,7 @@ describe("generated protocol runtime validation", () => {
     const currentItems: ThreadItemsListResponse = {
       backwardsCursor: null,
       data: [
-        { item: { id: "item-2", type: "contextCompaction" }, turnId: "turn-1" },
+        { item: { id: "item-2", type: "contextCompaction" }, turnId: "turn-1", startedAtMs: null, completedAtMs: null },
       ],
       nextCursor: null,
     };
@@ -263,7 +261,7 @@ describe("generated protocol runtime validation", () => {
         backwardsCursor: null,
         data: [
           { id: "item-1", type: "contextCompaction" },
-          { item: { id: "item-2", type: "contextCompaction" }, turnId: "turn-1" },
+          { item: { id: "item-2", type: "contextCompaction" }, turnId: "turn-1", startedAtMs: null, completedAtMs: null },
         ],
         nextCursor: null,
       }),
@@ -317,9 +315,9 @@ describe("generated protocol runtime validation", () => {
     expect(protocolValidationMetadata).toMatchObject({
       defaultMode: "strict",
       validatedClientNotifications: 1,
-      validatedClientRequests: 162,
-      validatedClientResponses: 159,
-      validatedServerNotifications: 83,
+      validatedClientRequests: 187,
+      validatedClientResponses: 184,
+      validatedServerNotifications: 88,
       validatedServerRequests: 11,
       unavailableResponseSchemas: [
         "getAuthStatus",
@@ -376,6 +374,24 @@ describe("generated protocol runtime validation", () => {
     expect(observed[0]).toBeInstanceOf(AppServerProtocolValidationError);
     await client.close();
     await server.close();
+  });
+
+  it("keeps the connection for 0.170 audio file notifications and accepts GCP settings", async () => {
+    const server = await FakeAppServer.listen(() => undefined);
+    const client = new CodexAppServerClient({ transport: { type: "websocket", url: server.url } });
+    const received: JsonRpcNotification[] = [];
+    client.onNotification(notification => { received.push(notification); });
+    try {
+      await client.connect();
+      server.notify("item/started", { threadId: "thread-1", turnId: "turn-1", startedAtMs: 123,
+        item: { type: "userMessage", id: "item-1", clientId: null, content: [{ type: "audio", fileId: "file-1" }] } });
+      await vi.waitFor(() => expect(received).toHaveLength(1));
+      expect(client.state).toBe("connected");
+      const validator = await loadProtocolValidator();
+      expect(() => validator.assertClientRequest("modelProvider/config/write", {
+        settings: { type: "gcp", providerId: "gcp", projectId: "project", location: "region" },
+      })).not.toThrow();
+    } finally { await client.close(); await server.close(); }
   });
 
   it("closes for malformed known notifications but forwards unknown extensions", async () => {

@@ -98,7 +98,7 @@ provenance with the chunks; logical v3 keeps its separate final-message contract
 
 ## External official runtime
 
-The Partner starts its own Codex app-server `0.164.0` and connects over Unix
+The Partner starts its own Codex app-server `0.170.0` and connects over Unix
 WebSocket using `@jaminzhou/codex-app-server-client` pinned to immutable source revision
 `f265d43fcf5d9611b81a8bb490ba37190bcd443e` of
 `lamplitisles/codex-app-server-client`. The SDK supplies typed protocol
@@ -115,24 +115,16 @@ durable queue APIs. No Codex source checkout, provider
 token, Bridge model transport, OAuth parser, or compatibility adapter is
 copied into this repository.
 
-This SDK revision retains the generated `0.154.0` raw schemas and standalone
-baseline. Its existing generator applies a narrow effective compatibility
-contract: historical `namespaceTools` is optional in
-`modelProvider/capabilities/read`, while `imageGeneration` and `webSearch` remain
-required booleans. This matches the observed `0.164.0` response without fabricating
-a field or disabling strict validation. CFL keeps this exact SDK source in
-`packages/codex-app-server-client`, including its generated protocol and
-schemas. Its WebSocket close clears the watchdog when the close race settles,
-while retaining the existing timeout and termination behavior. This local fix
-does not imply an SDK release or upstream merge.
-
-The SDK is independently authored by JaminZhou under the MIT License; its
-generated protocol bindings and JSON Schema are derived from OpenAI Codex
-`0.154.0` (`rust-v0.154.0`, commit
-`6b9826e3aa83b1a5947db50f4332cb9c65f1b340`) under Apache-2.0. The applicable
-license copies are retained in
+CFL keeps this SDK source in `packages/codex-app-server-client` and regenerates
+its strict protocol bindings and JSON schemas with the official Codex CLI
+`0.170.0` from `rust-v0.170.0`, commit
+`29eb79e9866b3262a777fdf8195c1b9e63684c91`. The SDK is independently authored
+by JaminZhou under the MIT License; generated Codex artifacts are Apache-2.0.
+License copies are in
 [`licenses/jaminzhou-codex-app-server-client-MIT.txt`](../licenses/jaminzhou-codex-app-server-client-MIT.txt)
 and [`licenses/openai-codex-generated-Apache-2.0.txt`](../licenses/openai-codex-generated-Apache-2.0.txt).
+Its WebSocket close fix remains local to CFL.
+
 The release bundle also includes the license notices of the SDK's bundled
 `ajv` and `ws` dependencies and their runtime dependencies.
 
@@ -159,58 +151,18 @@ removed with that runtime.
 
 ## Native release artifact
 
-The 0.164.0 candidate pins both native packages at `0.7.0`, assembled from
-LamplitIsles Codex fork revision `cf7bc7b89dbd0bd5e02d8e7200ede137b2a5531f`
-with provenance label `cfl/v0.164.0-native.0.7.0`. The exact upstream baseline is
-`rust-v0.164.0`, commit `6aaac694803004a63c6f393d153c96d22521a6b9`.
-Native packages retain the archive's `provenance.json`, executable bytes,
-Apache-2.0 license and upstream notice. The provenance label identifies a local
-candidate; it does not claim a published Git tag, npm release or deployment.
-
-| Native source archive target | SHA256 |
-| --- | --- |
-| `x86_64-unknown-linux-musl` | `6e9b7dbf0009ec4472fe8a9bfe623be4294f99e7d23d790e82db33a1de81e30a` |
-| `aarch64-apple-darwin` | `5736d4ab31c74abd2bfffe147e22ffe38044c7e066efb639403ab77d43e7ff52` |
-
-Each archive includes the matching official Codex `0.164.0` code-mode helper.
-Linux app-server SHA256 is
-`1dda783f0411d0e6f4434cfcd415f845e40ec487c608e4a37d7e737aac5cef0e`;
-Linux helper SHA256 is
-`8ee4f472e92ac226a189e98998633b2d07f989f208515750764db660369f2926`.
-Mac ARM64 app-server SHA256 is
-`f68f7a892e16fb238f80ce75dd634d24f9ad5d14d754c201397b59ef43c8cfa6`;
-Mac helper SHA256 is
-`416721e33af8822041dc650793512b3e58d43e0be4f3a5c6187eb4dfaad3148a`.
-Linux executable bytes match the earlier `f695fb4` test candidate; its probe
-results remain attributed to that tested source, with final-source equivalence
-verified by matching bytes. Host acceptance and review evidence live in task
-scratch; packaging provenance does not establish final publication approval.
-
-### Prior 0.6.0 release
-
-The Linux x64 native npm package
-`@lamplitisles/codex-for-love-linux-x64@0.6.0` contains the Codex 0.159.1
-app-server from LamplitIsles Codex fork revision
-`880185c212186edc3211c02eb36c7dd7584917f7` and the matching official
-Linux x64 code-mode host.
-The main package's exact optional-dependency version is the only native-package
-selection contract.
-
-The macOS ARM64 package
-`@lamplitisles/codex-for-love-darwin-arm64@0.6.0` contains the Codex 0.159.1
-app-server from the same fork revision and the matching official macOS ARM64
-code-mode host. The package retains the same Codex Apache-2.0
-license and upstream notice.
-
-## npm publication workflow
-
-`.github/workflows/publish.yml` and the narrow `scripts/release-*.mjs` helpers
-adapt the OIDC publication sequence from `LamplitIsles/dsh-plugins`: strict
-semver release authority, frozen Node/pnpm setup, immutable tarball comparison,
-and provenance publication. CFL deliberately
-uses one tag-authoritative main package rather than DSH's main-push change
-detection and package matrix. It has no DSH runtime dependency, native Rust
-build, GitHub Release, npm token fallback, or automatic native publication.
+CFL pins the `codex-build` Forgejo Release `v0.170.0-cfl.1` Linux x64 musl
+archive at
+`https://forgejo.n5.guion.io/LamplitIsles/codex-build/releases/download/v0.170.0-cfl.1/codex-linux-x64-musl.tar.gz`,
+SHA-256 `f687ee0ccc12e0a4c4c45d974408936b47d970cd3276550eb0f44c71894f1397`.
+Its `provenance.json` records upstream `rust-v0.170.0` commit
+`29eb79e9866b3262a777fdf8195c1b9e63684c91`, fork reference
+`44a0a03a4658f7c5c0b2b50dd61bbac8fe263f28`, patch SHA-256
+`9f2388e80d1b348a12754db7d34c15c97b358d7986c3f24dd63a6e7a98955687`,
+and build revision `fa667e715ab6810fb9c63957ff5b1092c94aa867`; the
+producer marks that build revision unverified. The archive includes its Apache
+license and notice and the official 0.170.0 code-mode helper. CFL checks the
+archive digest and every cached file before executing it.
 
 ## Desktop installation and mobile keyboard reference
 

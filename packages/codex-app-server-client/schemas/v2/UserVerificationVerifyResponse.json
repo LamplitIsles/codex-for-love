@@ -1,6 +1,12 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "definitions": {
+    "UserVerificationBiometricType": {
+      "enum": [
+        "fingerprint"
+      ],
+      "type": "string"
+    },
     "UserVerificationProof": {
       "additionalProperties": false,
       "description": "A signature over the exact decoded challenge. The verifier validates and consumes it.",
@@ -21,6 +27,17 @@
     }
   },
   "properties": {
+    "biometricType": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/UserVerificationBiometricType"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Native-reported authentication method for this signature. Older servers omit it. This is approval context, not part of the signed proof."
+    },
     "proof": {
       "$ref": "#/definitions/UserVerificationProof"
     }

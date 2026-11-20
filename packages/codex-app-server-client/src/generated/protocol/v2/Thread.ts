@@ -37,6 +37,10 @@ sessionId: string,
  */
 forkedFromId: string | null,
 /**
+ * Parent that owns this persisted attached thread, independent of fork or spawn lineage.
+ */
+attachedToThreadId: string | null,
+/**
  * The ID of the parent thread. This will only be set if this thread is a subagent.
  */
 parentThreadId: string | null,
@@ -151,7 +155,7 @@ name: string | null,
  */
 daybreakEnabled?: boolean | null,
 /**
- * Only populated on `thread/resume`, `thread/rollback`, `thread/fork`, and `thread/read`
+ * Only populated on `thread/resume`, `thread/fork`, and `thread/read`
  * (when `includeTurns` is true) responses.
  * For all other responses and notifications returning a Thread,
  * the turns field will be an empty list.

@@ -17,9 +17,9 @@ describe("provider capabilities across wire versions", () => {
     expect(() => validator.assertResponse(method, { imageGeneration: false, webSearch: false })).not.toThrow();
   });
 
-  it("still requires both real booleans and validates namespaceTools when present", async () => {
+  it("requires both real booleans", async () => {
     const validator = await loadProtocolValidator();
-    for (const field of ["imageGeneration", "webSearch", "namespaceTools"]) {
+    for (const field of ["imageGeneration", "webSearch"]) {
       for (const invalid of [null, 0, "true"]) {
         expect(() => validator.assertResponse(method, { ...observed.result, [field]: invalid }))
           .toThrow(AppServerProtocolValidationError);

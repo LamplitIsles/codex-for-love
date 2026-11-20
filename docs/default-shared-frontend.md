@@ -49,7 +49,7 @@ runtime/MCP/public contracts bundled with CFL’s explicit
 Rolldown dependency, helper, licenses and
 `vendor/source.json` (actual App/CFL identity, pin and contracts/prepared-license
 hashes), but no browser resources. Runtime requires its declared Sharp and Koffi
-dependencies and supported native package; it does not require either source
+dependencies and the pinned native Forgejo release; it does not require either source
 checkout. At startup it prepares the selected App independently and checks the
 compiled contracts exactly, including the expected protocol marker. Old cached
 App entries without it fail startup and are not relabeled. The fake-engine package smoke extracts to a test-owned

@@ -48,7 +48,7 @@ function threadRecord(cwd, model) {
   const timestamp = nowSeconds();
   return {
     id: state.threadId,
-    cliVersion: '0.164.0',
+    cliVersion: '0.170.0',
     createdAt: timestamp,
     updatedAt: timestamp,
     recencyAt: null,
@@ -372,7 +372,7 @@ async function handle(request) {
   const p = request.params ?? {};
   switch (request.method) {
     case 'initialize': {
-      const response = { userAgent: `fixture/${process.env.FAKE_SERVER_VERSION ?? '0.164.0'}`, codexHome: root, platformFamily: 'unix', platformOs: 'linux' };
+      const response = { userAgent: `fixture/${process.env.FAKE_SERVER_VERSION ?? '0.170.0'}`, codexHome: root, platformFamily: 'unix', platformOs: 'linux' };
       if (process.env.FAKE_EXIT_AFTER_INITIALIZE === 'true') setTimeout(() => process.exit(42), 0);
       return response;
     }

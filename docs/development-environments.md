@@ -69,20 +69,10 @@ this bootstrap step: the generated contracts workspace must exist before frozen
 installation. No App checkout or Bun is required.
 
 Record the exact reviewed CFL main commit, App pin and prepared contract/license
-hashes. Use test-owned fixtures for automated verification of the source-built
-runtime, selected frontend and pinned Linux native artifact. Source deployment is
-a historical or fallback path for Shio; the current path uses a manually selected
-package. A fresh Mac smoke is not a blanket requirement for unchanged native packages.
-Mac-specific changes or a new Mac acceptance claim warrant Mac verification; an
-older version's smoke does not verify a new version.
-
-Acceptance of each changed native package runs on its matching host against the
-exact tarball in a fresh test-owned prefix before native publication. Use
-`CFL_NATIVE_TARBALL` with the installed-artifact smoke. For optional main-package
-publication, public-registry preflight requires both exact native versions to be
-public. Follow
-[the release skill](../skills/cfl-release/SKILL.md) for platform-specific acceptance
-details. No test uses installed service state or real login.
+hashes. Test with isolated fixtures and a test-owned home and workspace. The new
+package supports Linux x64 and selects its verified Forgejo Codex archive at
+startup; public npm releases and macOS native artifacts are not part of this
+path. No test uses installed service state or real login.
 
 ## Orc promotion of Shio
 
@@ -159,8 +149,7 @@ their exact bytes if the change requires touching them.
 For the first transition only, use the reviewed fixed-prefix unit in
 `elec-debian-setup`, preserving its existing configuration argument, pre-start
 gate, environment-file references and other service behavior. Later package
-updates do not require a unit change or per-version unit PR. The package launcher
-selects its pinned native package. Its command has this form:
+updates do not require a unit change or per-version unit PR. The package launcher selects its pinned native release. Its command has this form:
 
 ```text
 <node24> /home/neil/.local/share/codex-for-love/shio/node_modules/@lamplitisles/codex-for-love/bin/codex-for-love.mjs serve <existing-fixed-partner.toml>

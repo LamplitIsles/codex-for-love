@@ -292,6 +292,7 @@ function threadSnapshot(): Thread {
     sessionId: "session-goal",
     forkedFromId: null,
     parentThreadId: null,
+    attachedToThreadId: null,
     preview: "",
     ephemeral: false,
     projectId: null,
@@ -322,6 +323,7 @@ function turn(
 ): Turn {
   return {
     id,
+    rootTurnId: null,
     status,
     items: [],
     itemsView: "full",

@@ -61,6 +61,17 @@
         "null"
       ]
     },
+    "attachedToThreadId": {
+      "description": "Return only persistent threads attached to this thread, including empty threads. Mutually exclusive with parentThreadId and ancestorThreadId. Omitting this filter keeps attached threads hidden from ordinary listings.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "currentAccountOnly": {
+      "description": "Show local history visible to the current ChatGPT account. Defaults to false.",
+      "type": "boolean"
+    },
     "cursor": {
       "description": "Opaque pagination cursor returned by a previous call.",
       "type": [
@@ -78,6 +89,20 @@
         }
       ],
       "description": "Optional cwd filter or filters; when set, only threads whose session cwd exactly matches one of these paths are returned."
+    },
+    "excludedThreadIds": {
+      "description": "Thread IDs to exclude before applying the result limit. Up to 100 entries; invalid IDs or a larger list are rejected, never truncated. Send the same exclusions on each page. Omitted, null, or empty means no exclusions.",
+      "items": {
+        "type": "string"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "includeAttachedThreads": {
+      "description": "Include persistent threads attached to a parent when searching by title.",
+      "type": "boolean"
     },
     "limit": {
       "description": "Optional page size; defaults to a reasonable server-side value.",

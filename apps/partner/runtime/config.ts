@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { openMigratedVault } from './migrated-vault.ts';
 
 /** The app-server protocol contract tested by this application. */
-export const SUPPORTED_CODEX_VERSION = '0.164.0';
+export const SUPPORTED_CODEX_VERSION = '0.170.0';
 export const DEFAULT_CODEX_MODEL = 'gpt-6.1-sol';
 export const DEFAULT_CONTEXT_ROUND_LIMIT = 10;
 const ttsSchema = z.object({ provider: z.enum(['minimax', 'alibaba', 'bytedance', 'elevenlabs']), voice: z.string().min(1), speed: z.number().finite().min(0.5).max(2).optional() }).strict().superRefine((tts, context) => {
