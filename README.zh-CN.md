@@ -137,20 +137,22 @@ CFL 不会自动回复或添加表情。
 
 Android 端可以安装最新的 [Lamplit Mobile 版本](https://github.com/LamplitIsles/lamplit-mobile/releases/latest)，再填入手机能够访问的 CFL HTTP(S) 地址。
 
-### 可选 Post QQ / Matrix 接入
+### 可选 Post 接入
 
 通过一个 `[post]` 配置 `endpoint` 与 `agent_id`，用 stdin 凭据命令分别保存
 `post` API token 和不同的 `post_receiver` 接收密钥。平台凭据、接纳与唤醒规则由
 Post 管理；CFL 的 `/api/post/events` 验证 Bearer、版本与账号绑定，在收据、原始
-来源和待执行输入持久化后才 ACK。QQ 与 Matrix 进入现有同一个 Partner/native
+来源和待执行输入持久化后才 ACK。QQ、Matrix 与 Keet 进入现有同一个 Partner/native
 会话，不会自动向外回复。
 
 一个原生 `post` MCP 提供上下文读取与显式发送。图片使用现有附件管道，文件及
 音视频保留稳定资产引用；`asset-fetch` / `asset-upload` 命令通过私密 API 凭据
 传输有界字节。旧 Matrix 配置、环境覆盖、凭据和 webhook 已移除；历史 Matrix
-来源仍可只读显示，Keet 与 Companion 保持独立。
+来源仍可只读显示，独立的 Keet 入口与 Companion 保持可用。为 Post 绑定启用 Keet 前
+应先更新 CFL；旧版遇到包含 Keet 的账号列表时可能拒绝整个列表。不要同时通过 Post
+和独立 Keet 入口接入同一身份。
 
-参见[运维契约](docs/operator-guide.md#optional-post-qq--matrix-integration)及
+参见[运维契约](docs/operator-guide.md#optional-post-integration)及
 [切换与回滚步骤](docs/post-v1-cutover.md)。实现测试不代表真实平台验收或部署。
 
 ## 路线图

@@ -38,7 +38,11 @@ export function createCodexChatBackend(partner: Partner, authorize: () => Promis
       const source: ChatMessage['source'] = m.keet
         ? { kind: 'keet', channel: m.keet.kind, destination: m.keet.destination, senderLabel: m.keet.senderLabel }
         : m.matrix ? { kind: 'matrix', senderId: m.matrix.sender_id, senderDisplayName: m.matrix.sender_display_name, roomId: m.matrix.room_id }
-        : m.post ? m.post.source
+        : m.post ? m.post.source.platform === 'keet'
+          ? { kind: 'keet', channel: m.post.source.conversationType === 'direct' ? 'dm' : 'group',
+            senderLabel: keetDisplayLabel(m.post.source.senderDisplayName, '未知发送者'),
+            destination: keetDisplayLabel(m.post.source.conversationName, '未命名聊天') }
+          : { ...m.post.source, platform: m.post.source.platform }
         : m.alarm ? { kind: 'reminder', reminderId: m.id.split(':')[1]!, occurrenceId: m.id } : undefined;
       const owner = snapshot.results.find(result => result.sourceIds.includes(m.id));
       const slot = owner?.timeline.find(entry => entry.kind === 'user' && entry.sourceIds.includes(m.id));
@@ -258,6 +262,10 @@ export function createCodexChatBackend(partner: Partner, authorize: () => Promis
       return { scope, close() { closed = true; changed = undefined; off(); } };
     },
   };
+}
+
+function keetDisplayLabel(value: string | undefined, fallback: string): string {
+  return value?.replace(/[\r\n\u2028\u2029]/g, ' ').trim() || fallback;
 }
 export function createChatSocket(partner: Partner, authorize: (request: import('node:http').IncomingMessage) => Promise<boolean> = async () => true, conversationSearch?: ConversationSearch, authorizeCommit?: (request: import('node:http').IncomingMessage) => boolean) {
   const sockets = new WebSocketServer({ noServer: true, maxPayload: 2 * 1024 * 1024 });

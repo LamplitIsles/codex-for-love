@@ -280,5 +280,80 @@
       "code": "not_found",
       "message": "Resource unavailable"
     }
+  },
+  "keet_event": {
+    "schema_version": 1,
+    "type": "message",
+    "delivery_id": "delivery-keet-example",
+    "agent_id": "cfl",
+    "message": {
+      "id": "msg_example",
+      "account_id": "keet-main",
+      "platform": "keet",
+      "conversation": {
+        "id": "cnv_example",
+        "native_id": "keet-room",
+        "type": "group",
+        "name": "Example group"
+      },
+      "sender": {
+        "native_id": "keet-sender",
+        "name": "Owner"
+      },
+      "timestamp": 1792111200000,
+      "sequence": 1,
+      "native_message_id": "native-keet-message",
+      "content": [
+        {
+          "type": "text",
+          "text": "hello"
+        },
+        {
+          "type": "mention",
+          "native_user_id": "keet-member"
+        },
+        {
+          "type": "image",
+          "asset_id": "ast_example"
+        }
+      ],
+      "assets": [
+        {
+          "asset_id": "ast_example",
+          "status": "available",
+          "mime": "image/png",
+          "name": "pixel.png",
+          "size": 68,
+          "download_path": "/assets/ast_example"
+        }
+      ],
+      "mentions": {
+        "self": true,
+        "native_user_ids": [
+          "keet-member"
+        ]
+      },
+      "reply": null,
+      "direction": "inbound",
+      "mutation": null
+    },
+    "wake": {
+      "reason": "mentioned"
+    }
+  },
+  "keet_account": {
+    "account_id": "keet-main",
+    "platform": "keet",
+    "native_id": "keet-member",
+    "ready": true,
+    "capabilities": {
+      "members": "supported",
+      "history": "observed",
+      "text": "supported",
+      "image": "supported",
+      "file": "supported",
+      "audio": "attachment",
+      "video": "attachment"
+    }
   }
 }

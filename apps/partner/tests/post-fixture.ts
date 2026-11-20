@@ -6,9 +6,9 @@ import { readFile } from 'node:fs/promises';
 import { ToolInputs } from '../runtime/post-contract.ts';
 import type { EventV1 } from '../runtime/post-contract.ts';
 
-// Canonical examples @ lamplit-post f29f4793673f036b02c9fd34a98fd09dc1a0323d (unchanged from 96f771c).
+// Canonical examples @ lamplit-post d76a7b1c3af8fda25561fe69f537c826aa68673c.
 export const examples = JSON.parse(await readFile(new URL('./post-examples.json', import.meta.url), 'utf8'));
-export const event = (id: string, platform: 'qq' | 'matrix' = 'qq'): EventV1 => {
+export const event = (id: string, platform: EventV1['message']['platform'] = 'qq'): EventV1 => {
   const e = structuredClone(examples.event) as EventV1;
   e.delivery_id = `dlv_${id}`; e.message.id = `msg_${id}`;
   e.message.native_message_id = `native_${id}`; e.message.platform = platform;

@@ -439,13 +439,13 @@ request one emoji reaction to a known Group message or this DM turn's trigger.
 Its result reports text delivery separately from reaction success. See the
 [operator guide](docs/operator-guide.md#optional-keet-ingress).
 
-### Optional Post QQ / Matrix integration
+### Optional Post integration
 
 Configure one `[post]` endpoint and `agent_id`, then provision independent
 `post` (agent API) and `post_receiver` credentials with the existing stdin-only
 credential command. Post owns platform credentials, admission and wake policy.
 CFL validates authenticated versioned deliveries at `/api/post/events`, commits
-receipt/provenance/pending input before ACK, and feeds both platforms into the
+receipt/provenance/pending input before ACK, and feeds QQ, Matrix and Keet into the
 existing Partner/app-server thread. Images use existing native attachments;
 files and audio/video retain Post references. The Partner can choose to reply
 to an admitted conversation through Post MCP without a separate human instruction;
@@ -487,12 +487,13 @@ name is labeled as such rather than using the captured name as a target. Routing
 IDs remain in structured metadata. Existing history and pending recovery text
 are not rewritten.
 
-The shared chat projects retained Post deliveries as their own QQ/Matrix source,
+The shared chat projects retained Post deliveries with QQ/Matrix or Keet source,
 with group/direct attribution, original content, stored media and source time.
 Genuine captured conversation and sender names are display data; a direct peer
 may use the sender name only when their native identities match. Historical
-absent names remain unknown with ID fallback. Chat refresh and history read this
-retained provenance without remote metadata lookups or rewriting native history.
+absent Keet names show an unknown sender or unnamed chat without exposing native
+IDs. Chat refresh and history read retained provenance without remote metadata
+lookups or rewriting native history.
 
 The existing stderr journal records finite `post.receiver` HTTP status,
 `post.ingress` validation/account/receipt/retained stages, `post.execution`
@@ -508,9 +509,13 @@ The endpoint must be a bare loopback HTTP or HTTPS origin. A separate receiver
 Bearer is required even on loopback. Historical Matrix source display and Keet
 remain available; the old Matrix endpoint/config/credential/CLI are removed.
 
-See the [Post operator contract](docs/operator-guide.md#optional-post-qq--matrix-integration)
+Update CFL before enabling Keet for its Post binding: older CFL versions can
+reject the entire account list when it contains Keet. Avoid connecting the same
+identity through both Post and the separate Keet ingress.
+
+See the [Post operator contract](docs/operator-guide.md#optional-post-integration)
 and [reviewed cutover procedure](docs/post-v1-cutover.md). Preparation and tests
-do not deploy or establish actual QQ/Matrix interoperability.
+do not deploy or establish actual platform interoperability.
 
 ## Roadmap
 

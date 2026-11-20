@@ -1076,6 +1076,7 @@ test('canonical send selector accepts names and rejects mixed targets through au
     for (const target of [
       { conversation_name: 'Owned group' },
       { conversation_name: 'Owned peer', account_id: 'qq-main', platform: 'qq', conversation_type: 'direct' },
+      { conversation_name: 'Keet group', account_id: 'keet-main', platform: 'keet', conversation_type: 'group' },
     ]) {
       const result = await client.callTool({ name: 'send_message', arguments: { ...common, ...target } });
       assert(!result.isError, 'canonical valid selector accepted by real MCP schema');
@@ -1098,6 +1099,93 @@ test('canonical send selector accepts names and rejects mixed targets through au
       assert.equal(result.isError, true, 'invalid selector rejected by actual MCP fixture');
     }
   } finally { await client.close(); await post.close(); }
+});
+
+test('Post Keet discovery, durable wake and strict chat projection coexist with QQ and Matrix', async () => {
+  const s = await setup(), { f, post } = s; let h: Awaited<ReturnType<typeof host>> | undefined;
+  let chat: Awaited<ReturnType<typeof openChat>> | undefined, socket: WebSocket | undefined;
+  const group = structuredClone(examples.keet_event) as ReturnType<typeof event>;
+  group.message.conversation.name = ' Group\nName ';
+  group.message.sender.name = ' Sender\u2028Name ';
+  const direct = event('keet-direct', 'keet');
+  direct.message.conversation = { id: 'dm', native_id: 'private-dm-id', type: 'direct' };
+  direct.message.sender = { native_id: 'private-sender-id', name: ' \n ' };
+  const qq = event('mixed-qq'), matrix = event('mixed-matrix', 'matrix');
+  const all = [group, direct, qq, matrix];
+  try {
+    post.accounts = { items: [...accounts(['qq', 'matrix']).items, examples.keet_account] };
+    assert.deepEqual([...await discoverPost(post.endpoint, post.token)], [['qq-main', 'qq'], ['matrix-main', 'matrix'], ['keet-main', 'keet']]);
+    post.conversationsByAccount = { 'keet-main': { ...examples.tools.get_conversation.result,
+      account_id: 'keet-main', conversation_id: group.message.conversation.id,
+      native_id: group.message.conversation.native_id, name: 'Current Keet group' } };
+    let partner = await f.createPartner(); h = await host(partner, f.directory, post.receiver);
+    for (const invalid of [
+      { ...group, agent_id: 'other-agent' },
+      { ...group, message: { ...group.message, account_id: 'unbound-keet' } },
+      { ...group, message: { ...group.message, account_id: 'qq-main' } },
+    ]) assert.equal((await h.send(invalid)).status, 422);
+    for (const [index, e] of all.entries()) {
+      assert.equal((await h.send(e)).status, 202);
+      await eventually(async () => (await starts(f)).length === index + 1 && !(await partner.snapshot()).typing);
+    }
+    const calls = await starts(f);
+    assert.equal(new Set(calls.map(call => call.threadId)).size, 1);
+    const metadata = JSON.parse(contextValue(calls[0]!, 'codex-for-love.post-metadata'));
+    assert.equal(metadata.platform, 'keet');
+    assert.equal(metadata.account_id, group.message.account_id);
+    assert.deepEqual(metadata.conversation, { id: group.message.conversation.id, native_id: group.message.conversation.native_id, type: 'group' });
+    const authored = JSON.parse(contextValue(calls[0]!, 'codex-for-love.post-authored'));
+    assert.equal(authored.conversation_name, 'Current Keet group');
+    assert.deepEqual(authored.content, group.message.content);
+    assert.equal(calls[0]!.input.filter(part => part.type === 'localImage').length, 1);
+    const view = await createCodexChatBackend(partner).read();
+    const source = (e: ReturnType<typeof event>) => view.messages.find(m => m.id === postInputId(post.endpoint, e))!;
+    assert.deepEqual(source(group).source, { kind: 'keet', channel: 'group', senderLabel: 'Sender Name', destination: 'Group Name' });
+    assert.deepEqual(source(direct).source, { kind: 'keet', channel: 'dm', senderLabel: '未知发送者', destination: '未命名聊天' });
+    assert.equal(source(group).images?.[0]?.availability, 'available');
+    assert.equal(source(group).createdAt, group.message.timestamp);
+    assert.equal(source(qq).source?.kind, 'post'); assert.equal(source(matrix).source?.kind, 'post');
+    let publicView: ChatView | undefined;
+    socket = new WebSocket(h.origin.replace('http:', 'ws:') + '/api/chat/socket');
+    chat = await openChat(socket, value => { publicView = value; }, () => {});
+    await eventually(async () => !!publicView?.messages.find(m => m.id === source(group).id));
+    assert.deepEqual(publicView!.messages.find(m => m.id === source(group).id), source(group));
+    assert.deepEqual((await chat.history(JSON.stringify({ before: Number.MAX_SAFE_INTEGER }))).messages.find(m => m.id === source(direct).id), source(direct));
+    chat.close(); chat = undefined; socket = undefined;
+    assert.equal((await h.send(group)).status, 202);
+    assert.equal((await h.send({ ...group, delivery_id: 'duplicate-keet-delivery' })).status, 202);
+    assert.equal((await h.send({ ...group, message: { ...group.message, sender: { native_id: 'changed' } } })).status, 409);
+    assert.equal((await h.send({ ...group, delivery_id: 'conflicting-native', message: { ...group.message, id: 'conflicting-message' } })).status, 409);
+    await h.close(); h = undefined;
+    const db = new DatabaseSync(partnerPaths(f.workspace).database);
+    const row = db.prepare('SELECT event FROM post_sources_v1 WHERE message_id=?').get(postInputId(post.endpoint, group)) as { event: string };
+    assert.deepEqual(JSON.parse(row.event), group); db.close();
+    partner = await f.createPartner(); h = await host(partner, f.directory, post.receiver);
+    assert.equal((await h.send(group)).status, 202);
+    assert.deepEqual((await createCodexChatBackend(partner).read()).messages.find(m => m.id === source(group).id), source(group));
+    assert.equal((await starts(f)).length, all.length);
+    assert.equal(post.requests.filter(r => r.tool === 'send_message').length, 0);
+  } finally { chat?.close(); socket?.close(); await h?.close(); await s.close(); }
+});
+
+test('retained Keet wake resumes after restart before native dispatch', async () => {
+  const s = await setup(), { f, post } = s; let h: Awaited<ReturnType<typeof host>> | undefined;
+  const e = event('keet-pending', 'keet'), id = postInputId(post.endpoint, e);
+  try {
+    post.accounts = { items: [examples.keet_account] };
+    post.conversationMode = 'hold';
+    let partner = await f.createPartner(); h = await host(partner, f.directory, post.receiver);
+    assert.equal((await h.send(e)).status, 202);
+    await eventually(async () => post.conversationOpen === 1);
+    assert.equal((await starts(f)).length, 0);
+    await h.close(); h = undefined;
+    post.conversationMode = 'normal';
+    partner = await f.createPartner(); h = await host(partner, f.directory, post.receiver);
+    await eventually(async () => await f.consumed(id) && !(await partner.snapshot()).typing);
+    assert.equal((await starts(f)).filter(call => call.clientUserMessageId === id).length, 1);
+    assert.equal((await h.send(e)).status, 202);
+    assert.equal((await starts(f)).length, 1);
+  } finally { post.releaseConversation(); await h?.close(); await s.close(); }
 });
 
 

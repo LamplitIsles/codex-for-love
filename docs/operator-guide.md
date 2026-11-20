@@ -718,11 +718,10 @@ and publication are optional. For host-local source promotion and code/assets
 rollback, follow [development environments](development-environments.md). Keep
 state/config/native cache ownership with the existing instance.
 
-## Optional Post QQ / Matrix integration
+## Optional Post integration
 
 Post contract v1 is pinned to lamplit-post
-`f29f4793673f036b02c9fd34a98fd09dc1a0323d` (FlickNote #162/#163;
-Post PR #16 was open and unmerged at review).
+`d76a7b1c3af8fda25561fe69f537c826aa68673c` (FlickNote #6121/#6122).
 Configure a single origin and agent binding:
 
 ```toml
@@ -732,8 +731,8 @@ agent_id = "cfl"
 ```
 
 Use loopback HTTP, or HTTPS with real server authentication. No credentials,
-paths, query or fragment belong in the endpoint. Post holds the upstream QQ and
-Matrix credentials. CFL holds two different private secrets:
+paths, query or fragment belong in the endpoint. Post holds the upstream platform
+identities and credentials. CFL holds two different private secrets:
 
 ```sh
 # Supply each secret from its separate private provisioning source on stdin.
@@ -845,7 +844,10 @@ After an uncertain send, reconcile with the same `request_id` and content. A new
 request ID is not a safe retry. Inspect per-part `sent|failed|unknown` receipts
 and `stored`; `stored:false` does not mean the platform send failed.
 
-QQ and Matrix use the same existing Partner thread as web, Keet and reminders.
+Post QQ, Matrix and Keet use the same existing Partner thread as web, the separate
+Keet ingress and reminders. Update CFL before enabling Keet for its Post binding:
+an older CFL can reject the entire account list when it contains Keet. Do not
+connect the same identity through both Post and the separate Keet ingress.
 Generic App text/images carry concise truthful Post platform attribution; full
 source, reply and route facts remain immutable backend/native metadata. QQ is
 never labeled Matrix. Historical Matrix source rendering remains read-only.

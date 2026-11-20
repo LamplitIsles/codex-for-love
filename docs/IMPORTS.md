@@ -418,10 +418,7 @@ integration work. Source-built packaging records its own resource hashes.
 
 `apps/partner/runtime/post-contract.ts` copies the executable finite schema from
 `lamplit-post/contracts/v1/index.ts` at immutable commit
-`f29f4793673f036b02c9fd34a98fd09dc1a0323d` (Post
-[PR #16](https://forgejo.n5.guion.io/LamplitIsles/lamplit-post/pulls/16),
-open and unmerged at review; FlickNote #162/#163). Its schema and examples are
-byte-identical to the previously attributed `96f771c08aa7f217dbfb195617f7fd1021071ef3`.
+`d76a7b1c3af8fda25561fe69f537c826aa68673c` (FlickNote #6121/#6122).
 `apps/partner/tests/post-examples.json` copies the same revision's
 `contracts/v1/examples.json`. License: AGPL-3.0, preserved in
 `licenses/lamplit-post-AGPL-3.0.txt`. CFL's Node fake service and receiver tests
@@ -438,8 +435,8 @@ Content. Optional captured `Message.conversation.name` is retained as original
 JSON and projected without a local display cache, SQL evolution or UI-time lookup.
 CFL resolves a source's current name through bounded authenticated directory
 pages; it adds no member resolver, send ledger or prompt policy. Canonical schema
-SHA256 `7d4ab5a4fd41718128c10e30ca589a55165d966fef0822bee6917fd7f1073f1b`;
-examples SHA256 `82f56f42e56ee85d6f23da283445245eecac0780eee529bced29cdf0fb1215e9`.
+SHA256 `c94182bf2af2e54cfdbfa66f7e8940944b0804eb7c2ac3b5e5c75205a79ba026`;
+examples SHA256 `ee1729661c49b84f4196b95a0cd232aa994d9119c69c6b1729a1e6d0ffc4d2e1`.
 The public delivery contract specifies FIFO per binding and account; delivery
 between accounts can arrive out of storage sequence order. Another consumer's
 ordering assumptions remain unverified and require separate deployment review.

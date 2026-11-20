@@ -4,7 +4,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { PostEventV1, ToolOutputs, type EventV1, type ContentV1 } from './post-contract.ts';
 import { postEndpoint } from './config.ts';
 
-export type PostAccounts = Map<string, 'qq' | 'matrix'>;
+export type PostAccounts = Map<string, EventV1['message']['platform']>;
 export function receiverAuthorized(header: string | undefined, secret: string): boolean {
   const actual = Buffer.from(header ?? ''), expected = Buffer.from(`Bearer ${secret}`);
   return actual.length === expected.length && timingSafeEqual(actual, expected);

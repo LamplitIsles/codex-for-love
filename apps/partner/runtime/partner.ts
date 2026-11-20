@@ -5,7 +5,7 @@ import { openMigratedVault } from './migrated-vault.ts';
 import { barkAttempt, createBark } from './bark.ts';
 import { ModelSelection, ModelPreferenceError, WRITABLE_MODELS, REASONING_EFFORTS, type ReasoningPreference, modelUnavailable, readModelPreference, saveModelPreference } from './model-preference.ts';
 import { startManagedAppServer } from './managed-app-server.ts';
-import { postInput, postConversationName, discoverPost, receiverAuthorized, validatePost } from './post.ts';
+import { postInput, postConversationName, discoverPost, receiverAuthorized, validatePost, type PostAccounts } from './post.ts';
 import { postImage } from './post-assets.ts';
 import type { EventV1 } from './post-contract.ts';
 import { postEndpoint } from './config.ts';
@@ -557,7 +557,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
   if ((config.post || credentials.post || credentials.post_receiver) && !postEnabled) throw new Error('Post requires endpoint, agent identity and distinct private API/receiver credentials');
   if (postEnabled && credentials.post === credentials.post_receiver) throw new Error('Post API and receiver credentials must differ');
   const postOrigin = postEnabled ? postEndpoint(config.post!.endpoint) : '';
-  let postAccounts = new Map<string, 'qq' | 'matrix'>();
+  let postAccounts: PostAccounts = new Map();
   const postAbort = new AbortController();
   let postRefresh: Promise<void> | undefined;
   let postRetryTimer: ReturnType<typeof setTimeout> | undefined;

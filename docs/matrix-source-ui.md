@@ -2,7 +2,7 @@
 
 This records historical evidence. Active Matrix-specific ingress and acceptance
 runners were retired by Post spec #4067. Existing persisted source display remains
-read-only; new QQ/Matrix deliveries follow [Post integration](operator-guide.md#optional-post-qq--matrix-integration).
+read-only; new QQ/Matrix deliveries follow [Post integration](operator-guide.md#optional-post-integration).
 
 # Matrix source display and native acceptance — spec #3562
 
