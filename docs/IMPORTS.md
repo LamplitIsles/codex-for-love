@@ -272,7 +272,12 @@ retain attribution for the public contracts and do not include browser resources
 The default Framework7/Svelte frontend and `@lamplit/contracts` public exports
 are built together from Apache-2.0 `LamplitIsles/lamplit-app`, initially
 `26ab708799f8ef4d99d974e1ab60c4d14a38267a`. `lamplit-app.sha` is the authoritative
-current pin. For the A2UI interface, merged App PR #54 uses commit
+current pin. The model settings update is merged App PR #65 at
+`00b93ea8a2b657203bcea2e06379c43e1fce3a45`. Its published contracts archive
+SHA-256 is `f243fae7f3ffd1b5ecb3a696076506fd351524a63aefacf84a6e53d8974c3c87`;
+the matching frontend archive SHA-256 is
+`026a10b1c42fe77315f801d6e1fffc675e68845b89b1efab392b4900424d13da`.
+For the A2UI interface, merged App PR #54 uses commit
 `c93881ad054ba188446eec950f5a8abfd74560e5`, whose tree
 `271cbedc9ba7623dc73ac9d350b79a673413a467` matches reviewed head
 `398d549c5981b4564122ef9145fa6b2e9ea199f2`. The independently verified

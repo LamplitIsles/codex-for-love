@@ -184,23 +184,25 @@ after CFL's startup check, so the dedicated directory must not be concurrently
 written by other services. The listener's readiness log is not peer authentication
 against replacement by another process under the same user.
 
-Model selection in Settings saves immediately when a radio option is chosen:
-`gpt-6.1-sol`, `gpt-5.6-sol`, or `gpt-6.1-terra`. With no saved workspace
-preference, the default is `gpt-6.1-sol` with Fast on. Both values live in
-`.lamplit/model-preference.json`; model and Fast are no longer Partner TOML
-options. Every future native turn and startup resume uses the saved preference;
-the conversation keeps the same native thread and history. Switching is blocked
-while inputs, external work, recovery, or compaction are pending. Malformed saved
-preferences stop startup visibly; restore a known-good backup while Partner is
-stopped. See the [model and Fast API contract](docs/operator-guide.md#model-preference-api).
+Model selection in Settings saves immediately. The choices are curated from
+models advertised by Codex, including `gpt-6.2-sol` when available. The default
+remains `gpt-6.1-sol` with Fast on and Codex's configured reasoning effort.
+Settings offers each model's supported reasoning strengths through Max; selecting
+Codex default clears the explicit preference. Changing models retains a supported
+strength and otherwise clears it. The preference lives in
+`.lamplit/model-preference.json` and applies to subsequent turns on the same
+native thread. Switching is blocked while inputs, external work, recovery, or
+compaction are pending. Malformed saved preferences stop startup visibly; restore
+a known-good backup while Partner is stopped. See the
+[model preference API](docs/operator-guide.md#model-preference-api).
 
-Fast is controlled in Settings and defaults **on**. Saving either control
-atomically saves both model and Fast for future turns, without a restart or new
-thread. Fast requests native `priority`; off explicitly requests `default`.
+Fast is controlled in Settings and defaults **on**. Settings save model, thinking
+strength and Fast together for future turns on the same thread. Fast requests
+native `priority`; off explicitly requests `default`.
 Partner keeps the native Fast capability enabled and applies a start-only tier
-override on every future human, Post, Keet and alarm turn; active turns and
-reasoning are unchanged. Startup checks the tier returned by native start/resume
-and fails if it differs. Provider/model support and account entitlement still
+override on every future human, Post, Keet and alarm turn; active turns are
+unchanged. Startup checks the tier returned by native start/resume and fails if
+it differs. Provider/model support and account entitlement still
 govern actual priority service; a confirmed preference is not proof of delivery
 or a latency guarantee. After an idle model switch, native may omit unsupported
 priority without rejecting the turn; no effective-tier acknowledgement is exposed

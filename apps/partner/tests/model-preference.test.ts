@@ -19,7 +19,7 @@ const commit = () => true;
 const selection = (model = sol, expectedModel = sol, sessionId = 'thread-fake', fast = true, expectedFast = true) => ({ sessionId, expectedModel, expectedFast, model, fast });
 const code = (value: string) => (error: unknown) => (error as { code?: string }).code === value;
 
-test('strict authenticated same-origin API returns confirmed snapshots without catalog/native mutation', async () => {
+test('strict authenticated same-origin API returns confirmed snapshots and native catalog without turn mutation', async () => {
   const f = await fixture(), partner = await f.createPartner();
   let authorized = true, origin = '';
   const auth = { close() {}, authorize: (req: import('node:http').IncomingMessage) => authorized && req.headers.authorization === 'synthetic-owner', sameOrigin: (req: import('node:http').IncomingMessage) => req.headers.origin === origin && req.headers['sec-fetch-site'] !== 'cross-site', get origin() { return origin; } } as unknown as AuthStore;
@@ -34,7 +34,11 @@ test('strict authenticated same-origin API returns confirmed snapshots without c
     assert.equal((await request('POST', selection(), { origin: '' })).status, 403);
     assert.equal((await request('POST', selection(), { 'sec-fetch-site': 'cross-site' })).status, 403);
     const initial = await request(); assert.equal(initial.headers.get('cache-control'), 'no-store');
-    assert.deepEqual(await initial.json(), { sessionId: 'thread-fake', currentModel: sol, fast: true, busy: false });
+    const snapshot = await initial.json() as Awaited<ReturnType<typeof partner.models>>;
+    assert.equal(snapshot.currentModel, sol); assert.equal(snapshot.reasoningEffort, null);
+    assert.deepEqual(snapshot.availableModels.map(model => model.id), ['gpt-6.2-sol', sol, 'gpt-5.6-sol', terra]);
+    assert.equal(snapshot.availableModels[0]!.name, 'GPT-6.2-Sol');
+    assert.deepEqual(snapshot.availableModels[0]!.reasoningEfforts, ['low', 'medium', 'high', 'xhigh', 'max']);
     assert.equal((await request('DELETE')).status, 405);
     for (const patch of [{ extra: true }, { fast: 'true' }, { expectedFast: null }, { fast: undefined }, { expectedFast: undefined }, { model: '' }, { expectedModel: ' x ' }, { sessionId: 'x'.repeat(301) }, { model: 'x\ny' }, { model: 'x'.repeat(201) }, { model: null }]) {
       const response = await request('POST', { ...selection(), ...patch });
@@ -49,7 +53,7 @@ test('strict authenticated same-origin API returns confirmed snapshots without c
     for (const model of [sol, 'gpt-5.6-sol', terra]) {
       const before = await partner.models();
       const response = await request('POST', selection(model, before.currentModel));
-      assert.equal(response.status, 200); assert.deepEqual(await response.json(), { sessionId: 'thread-fake', currentModel: model, fast: true, busy: false });
+      assert.equal(response.status, 200); assert.deepEqual(await response.json(), { ...before, currentModel: model });
     }
     assert.equal((await request('POST', selection(terra, terra))).status, 200);
     for (const fast of [false, true]) {
@@ -59,7 +63,8 @@ test('strict authenticated same-origin API returns confirmed snapshots without c
       assert.deepEqual(await response.json(), { ...before, fast });
     }
     authorized = false; assert.equal((await request()).status, 401);
-    assert.equal((await f.requests()).some(r => r.method === 'model/list' || r.method === 'turn/start'), false);
+    assert.equal((await f.requests()).some(r => r.method === 'turn/start'), false);
+    assert.ok((await f.requests()).some(r => r.method === 'model/list' && (r.params as { cursor?: string }).cursor === '2'));
   } finally { await app.close(); await f.close(); }
 });
 
@@ -148,7 +153,8 @@ test('default preference is sol/Fast enabled; ignored config and malformed state
     }
     const partner = await f.createPartner();
     await eventually(async () => !(await partner.models()).busy);
-    assert.deepEqual(await partner.models(), { sessionId: 'thread-fake', currentModel: sol, fast: true, busy: false });
+    const defaults = await partner.models();
+    assert.equal(defaults.currentModel, sol); assert.equal(defaults.fast, true); assert.equal(defaults.reasoningEffort, null);
     const preference = join(f.workspace, '.lamplit', 'model-preference.json');
     await mkdir(preference);
     await assert.rejects(partner.selectModel(selection(terra, sol, 'thread-fake', false), allowed, commit), code('model_unavailable'));
@@ -168,7 +174,7 @@ test('staged atomic preference revalidates immediately before rename', async () 
   try {
     await writeFile(path, JSON.stringify({ model: sol, fast: true }));
     let changed = false;
-    await assert.rejects(saveModelPreference(path, { model: terra, fast: false }, () => { throw new Error('revoked at commit'); }, () => { changed = true; }), /revoked/);
+    await assert.rejects(saveModelPreference(path, { model: terra, fast: false, reasoningEffort: null }, () => { throw new Error('revoked at commit'); }, () => { changed = true; }), /revoked/);
     assert.equal(changed, false); assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), { model: sol, fast: true });
   } finally { await f.close(); }
 });
@@ -313,5 +319,69 @@ test('legacy TOML model/Fast cannot affect default or saved preference at startu
     }
     const threads = (await f.requests()).filter(request => request.method === 'thread/start' || request.method === 'thread/resume');
     assert.deepEqual(threads.map(request => [(request.params as Record<string, unknown>).model, (request.params as Record<string, unknown>).serviceTier]), [[sol, 'priority'], [terra, 'default'], [sol, 'priority'], [terra, 'default']]);
+  } finally { await f.close(); }
+});
+
+test('reasoning selection persists and clearing restores configured or model default on the same thread', async () => {
+  for (const baseline of [undefined, 'medium'] as const) {
+    const f = await fixture();
+    if (baseline) f.appServer.env.FAKE_BASELINE_EFFORT = baseline;
+    let partner = await f.createPartner();
+    const change = async (model: string, effort: 'max' | 'high' | null) => {
+      const before = await partner.models();
+      return partner.selectModel({ ...selection(model, before.currentModel, before.sessionId, before.fast, before.fast), expectedReasoningEffort: before.reasoningEffort, reasoningEffort: effort }, allowed, commit);
+    };
+    const turn = async () => {
+      const id = crypto.randomUUID(); await partner.submit(id, 'reasoning fixture');
+      await eventually(async () => (await partner.snapshot()).results.some(r => r.sourceIds.includes(id) && r.answers.length > 0));
+      await eventually(async () => !(await partner.models()).busy);
+    };
+    try {
+      assert.equal((await f.requests()).some(r => r.method === 'model/list'), false);
+      await change('gpt-6.2-sol', 'max'); await turn();
+      await partner.close(); partner = await f.createPartner();
+      assert.equal((await partner.models()).reasoningEffort, 'max'); await turn();
+      await change('gpt-6.2-sol', null); await turn();
+      const starts = (await f.requests()).filter(r => r.method === 'turn/start');
+      assert.deepEqual(starts.map(r => (r.params as { effort?: string }).effort), ['max', 'max', baseline ?? 'low']);
+      assert.ok(starts.every(r => (r.params as { threadId: string }).threadId === 'thread-fake'));
+      assert.deepEqual((await f.nativeState()).turnEfforts, ['max', 'max', baseline ?? 'low']);
+      await partner.close(); partner = await f.createPartner();
+      assert.equal((await partner.models()).reasoningEffort, null); await turn();
+      assert.equal((await f.nativeState()).turnEfforts.at(-1), baseline ?? 'low');
+    } finally { await f.close(); }
+  }
+});
+
+test('effort validation, stale writes, legacy records and model changes retain only supported effort', async () => {
+  const f = await fixture();
+  await mkdir(join(f.workspace, '.lamplit'), { recursive: true });
+  await writeFile(join(f.workspace, '.lamplit/model-preference.json'), JSON.stringify({ model: sol, fast: true }));
+  const partner = await f.createPartner();
+  try {
+    const before = await partner.models(); assert.equal(before.reasoningEffort, null);
+    const input = { ...selection(), expectedReasoningEffort: null, reasoningEffort: 'high' };
+    await partner.selectModel(input, allowed, commit);
+    await assert.rejects(partner.selectModel(input, allowed, commit), code('stale_model'));
+    await assert.rejects(partner.selectModel({ ...input, expectedReasoningEffort: 'high', reasoningEffort: 'ultra' }, allowed, commit), code('invalid_request'));
+    await assert.rejects(partner.selectModel({ ...input, expectedReasoningEffort: 'high', reasoningEffort: 'max', model: terra }, allowed, commit), code('invalid_effort'));
+    await assert.rejects(partner.selectModel({ ...selection(), expectedReasoningEffort: 'high' }, allowed, commit), code('invalid_request'));
+    await partner.selectModel(selection('gpt-5.6-sol', sol), allowed, commit);
+    assert.equal((await partner.models()).reasoningEffort, 'high');
+    await partner.selectModel(selection(terra, 'gpt-5.6-sol'), allowed, commit);
+    assert.equal((await partner.models()).reasoningEffort, null);
+  } finally { await f.close(); }
+});
+
+test('unadvertised models and catalog failure affect Settings without blocking chat startup', async () => {
+  const f = await fixture(); f.appServer.env.FAKE_MODEL_IDS = sol;
+  const partner = await f.createPartner();
+  try {
+    assert.deepEqual((await partner.models()).availableModels.map(model => model.id), [sol]);
+    await assert.rejects(partner.selectModel(selection('gpt-6.2-sol'), allowed, commit), code('invalid_model'));
+    await writeFile(join(f.directory, 'control.json'), JSON.stringify({ modelListError: true }));
+    await assert.rejects(partner.models(), code('model_unavailable'));
+    await partner.submit(crypto.randomUUID(), 'chat without a catalog');
+    assert.equal((await f.requests()).filter(r => r.method === 'turn/start').length, 1);
   } finally { await f.close(); }
 });

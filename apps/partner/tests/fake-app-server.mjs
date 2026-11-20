@@ -377,6 +377,17 @@ async function handle(request) {
       return response;
     }
     case 'initialized': return undefined;
+    case 'model/list': {
+      if (control().modelListError) rpcError(-32603, 'fixture catalog unavailable');
+      const ids = ['gpt-6.2-sol', 'gpt-6.1-sol', 'gpt-5.6-sol', 'gpt-6.1-terra'];
+      const names = ['GPT-6.2-Sol', 'GPT-6.1-Sol', 'GPT-5.6-Sol', 'GPT-6.1 Terra'];
+      const models = ids.map((id, index) => ({ id, model: id, upgrade: null, upgradeInfo: null, availabilityNux: null, displayName: names[index], description: '', hidden: false,
+        supportedReasoningEfforts: (index === 3 ? ['low', 'medium'] : ['low', 'medium', 'high', 'xhigh', 'max', 'ultra']).map(reasoningEffort => ({ reasoningEffort, description: '' })),
+        defaultReasoningEffort: index === 0 ? 'low' : 'medium', inputModalities: ['text'], supportsPersonality: false, multiAgentVersion: null,
+        additionalSpeedTiers: [], serviceTiers: [], defaultServiceTier: null, availableAccessPrograms: null, isDefault: index === 1 })).filter(model => !process.env.FAKE_MODEL_IDS || process.env.FAKE_MODEL_IDS.split(',').includes(model.id));
+      const offset = Number(p.cursor ?? 0);
+      return { data: models.slice(offset, offset + 2), nextCursor: offset + 2 < models.length ? String(offset + 2) : null };
+    }
     case 'modelProvider/capabilities/read': return { namespaceTools: true, imageGeneration: process.env.FAKE_IMAGE_CAPABILITY !== 'false', webSearch: true };
     case 'config/mcpServer/reload': return {};
     case 'mcpServerStatus/list': {
@@ -400,10 +411,12 @@ async function handle(request) {
     }] };
     case 'config/batchWrite': state.trusted = true; save(); return { filePath: process.env.FAKE_CONFIG_PATH, status: 'ok', version: 'fixture-1', overriddenMetadata: null };
     case 'thread/start': {
+      state.effectiveEffort = process.env.FAKE_BASELINE_EFFORT ?? null;
       if (process.env.FAKE_STREAM_FIXTURE !== 'true') state.threadId = 'thread-fake';
-      save(); return { thread: threadRecord(p.cwd, p.model), model: p.model, modelProvider: 'fixture', serviceTier: selectTier(p), cwd: p.cwd, runtimeWorkspaceRoots: [], instructionSources: [], approvalPolicy: 'never', approvalsReviewer: 'user', sandbox: { type: 'dangerFullAccess' }, activePermissionProfile: null, reasoningEffort: null, multiAgentMode: 'explicitRequestOnly' };
+      save(); return { thread: threadRecord(p.cwd, p.model), model: p.model, modelProvider: 'fixture', serviceTier: selectTier(p), cwd: p.cwd, runtimeWorkspaceRoots: [], instructionSources: [], approvalPolicy: 'never', approvalsReviewer: 'user', sandbox: { type: 'dangerFullAccess' }, activePermissionProfile: null, reasoningEffort: process.env.FAKE_BASELINE_EFFORT ?? null, multiAgentMode: 'explicitRequestOnly' };
     }
     case 'thread/resume': {
+      state.effectiveEffort = process.env.FAKE_BASELINE_EFFORT ?? null;
       if (process.env.FAKE_RESUME_ACTIVE === 'true' && state.active) {
         const active = state.turns.find(turn => turn.id === state.active);
         if (active) void runTurn(active);
@@ -418,7 +431,7 @@ async function handle(request) {
         runImportedStartupHook();
         save();
       }
-      return { thread: threadRecord(p.cwd, p.model), model: p.model, modelProvider: 'fixture', serviceTier: selectTier(p), cwd: p.cwd, runtimeWorkspaceRoots: [], instructionSources: [], approvalPolicy: 'never', approvalsReviewer: 'user', sandbox: { type: 'dangerFullAccess' }, activePermissionProfile: null, reasoningEffort: null, multiAgentMode: 'explicitRequestOnly' };
+      return { thread: threadRecord(p.cwd, p.model), model: p.model, modelProvider: 'fixture', serviceTier: selectTier(p), cwd: p.cwd, runtimeWorkspaceRoots: [], instructionSources: [], approvalPolicy: 'never', approvalsReviewer: 'user', sandbox: { type: 'dangerFullAccess' }, activePermissionProfile: null, reasoningEffort: process.env.FAKE_BASELINE_EFFORT ?? null, multiAgentMode: 'explicitRequestOnly' };
     }
     case 'thread/read': {
       const hidden = control().hiddenHistoryClientIds ?? [];
@@ -452,6 +465,8 @@ async function handle(request) {
       if (state.active) rpcError(-32600, 'cannot start a turn while another turn is active');
       if (p.serviceTierForTurn === 'priority' && state.fastModeEnabled === false) rpcError(-32600, 'fixture FastMode gate disabled');
       state.turnTiers = [...(state.turnTiers ?? []), { threadId: p.threadId, serviceTier: p.serviceTierForTurn ?? p.serviceTier ?? state.serviceTier ?? 'default' }];
+      state.effectiveEffort = p.effort ?? state.effectiveEffort ?? process.env.FAKE_BASELINE_EFFORT ?? (p.model === 'gpt-6.2-sol' ? 'low' : 'medium');
+      state.turnEfforts = [...(state.turnEfforts ?? []), state.effectiveEffort];
       const turn = startTurn(p.input, p.clientUserMessageId);
       return { turn: process.env.FAKE_SUMMARY_START === 'true' ? turnView(turn, 'summary') : turn };
     }

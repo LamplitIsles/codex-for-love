@@ -3,7 +3,7 @@ import { createTtsSettings, loadTtsSettings } from './tts-settings.ts';
 import { createBackgroundSettings } from './background-settings.ts';
 import { openMigratedVault } from './migrated-vault.ts';
 import { barkAttempt, createBark } from './bark.ts';
-import { ModelSelection, ModelPreferenceError, WRITABLE_MODELS, modelUnavailable, readModelPreference, saveModelPreference } from './model-preference.ts';
+import { ModelSelection, ModelPreferenceError, WRITABLE_MODELS, REASONING_EFFORTS, type ReasoningPreference, modelUnavailable, readModelPreference, saveModelPreference } from './model-preference.ts';
 import { startManagedAppServer } from './managed-app-server.ts';
 import { postInput, postConversationName, discoverPost, receiverAuthorized, validatePost } from './post.ts';
 import { postImage } from './post-assets.ts';
@@ -573,6 +573,9 @@ export async function createPartner(config: Config, credentials: Credentials, de
   const initialPreference = await readModelPreference(preferencePath);
   let currentModel = initialPreference.model;
   let currentFast = initialPreference.fast;
+  let currentReasoningEffort = initialPreference.reasoningEffort;
+  let baselineEffort: v2.ThreadStartResponse['reasoningEffort'] = null;
+  let restoredEffort: v2.ThreadStartResponse['reasoningEffort'] = null;
   const profileMediaType = (path: string) => ({ '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif' })[extname(path).toLowerCase()];
   const loadProfileImage = async (path: string | undefined, label: string, maxBytes: number) => {
     if (!path) return undefined;
@@ -1249,6 +1252,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
         threadId,
         model: currentModel,
         serviceTierForTurn: currentFast ? 'priority' : 'default',
+        ...(currentReasoningEffort ?? restoredEffort ? { effort: currentReasoningEffort ?? restoredEffort } : {}),
         input: native.values,
         clientUserMessageId: intent.transportId,
         ...(intent.source !== 'none'
@@ -2029,6 +2033,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
     } else {
       response = await startThread();
     }
+    baselineEffort = response.reasoningEffort;
     historyMode = response.thread.historyMode;
     if ((response.serviceTier ?? 'default') !== serviceTier) {
       throw new Error(`Codex did not apply saved Fast=${currentFast}: requested ${serviceTier}, received ${response.serviceTier ?? 'default'}. Check native model/account tier availability and restart Partner.`);
@@ -2155,6 +2160,29 @@ export async function createPartner(config: Config, credentials: Credentials, de
     return false;
   }
   function modelReady() { if (closing || storageError || appServer?.state !== 'connected' || !threadId) throw modelUnavailable(); }
+  type CatalogItem = { id: string; name: string; reasoningEfforts: NonNullable<ReasoningPreference>[]; defaultEffort: v2.ThreadStartResponse['reasoningEffort'] };
+  async function modelCatalog(): Promise<CatalogItem[]> {
+    try {
+      const entries: v2.ModelListResponse['data'] = [];
+      const seen = new Set<string>();
+      let cursor: string | undefined;
+      do {
+        const page = await appServer!.call('model/list', cursor ? { cursor } : {});
+        entries.push(...page.data);
+        cursor = page.nextCursor ?? undefined;
+        if (cursor && seen.has(cursor)) throw new Error('Repeated model cursor');
+        if (cursor) seen.add(cursor);
+      } while (cursor);
+      return WRITABLE_MODELS.flatMap(id => {
+        const model = entries.find(entry => entry.model === id);
+        return model ? [{ id, name: model.displayName, reasoningEfforts: REASONING_EFFORTS.filter(effort => model.supportedReasoningEfforts.some(option => option.reasoningEffort === effort)), defaultEffort: model.defaultReasoningEffort }] : [];
+      });
+    } catch { throw modelUnavailable(); }
+  }
+  function modelSnapshot(catalog: CatalogItem[], busy: boolean) {
+    return { sessionId: threadId, currentModel, fast: currentFast, busy, reasoningEffort: currentReasoningEffort, availableModels: catalog.map(({ id, name, reasoningEfforts }) => ({ id, name, reasoningEfforts })) };
+  }
+
   function serializeInput<T>(action: () => Promise<T>): Promise<T> {
     const result = inputAdmission.then(action);
     inputAdmission = result.then(() => undefined, () => undefined);
@@ -2458,9 +2486,9 @@ export async function createPartner(config: Config, credentials: Credentials, de
     },
     async models() {
       modelReady();
-      const pending = await hasPendingNativeInputs();
+      const [pending, catalog] = await Promise.all([hasPendingNativeInputs(), modelCatalog()]);
       modelReady();
-      return { sessionId: threadId, currentModel, fast: currentFast, busy: modelBusy() || pending };
+      return modelSnapshot(catalog, modelBusy() || pending);
     },
     selectModel(value: unknown, authorize: () => Promise<boolean>, authorizeCommit: () => boolean) {
       const parsed = ModelSelection.safeParse(value);
@@ -2471,11 +2499,10 @@ export async function createPartner(config: Config, credentials: Credentials, de
       const guard = () => {
         if (!authorizeCommit()) throw new ModelPreferenceError('unauthorized', 401, 'Sign in to continue.');
         modelReady();
-        if (input.sessionId !== threadId || input.expectedModel !== currentModel || input.expectedFast !== currentFast) throw new ModelPreferenceError('stale_model', 409, 'Refresh the model preference before choosing again.');
+        if (input.sessionId !== threadId || input.expectedModel !== currentModel || input.expectedFast !== currentFast || (input.expectedReasoningEffort !== undefined && input.expectedReasoningEffort !== currentReasoningEffort)) throw new ModelPreferenceError('stale_model', 409, 'Refresh the model preference before choosing again.');
         if (modelBusy() || externalIngressRevision !== ingressRevision) throw new ModelPreferenceError('model_busy', 409, 'Wait for the conversation to finish.');
       };
       try { guard(); } catch (error) { return Promise.reject(error); }
-      // Acquire the durable-input lane before native admission, matching input execution order.
       return serializeInput(() => {
         const task = admission.then(async () => {
           if (!await authorize()) throw new ModelPreferenceError('unauthorized', 401, 'Sign in to continue.');
@@ -2483,11 +2510,22 @@ export async function createPartner(config: Config, credentials: Credentials, de
           await eventChain; guard();
           const pending = await hasPendingNativeInputs(); guard();
           if (pending) throw new ModelPreferenceError('model_busy', 409, 'Wait for pending conversation input.');
-          if (input.model !== currentModel || input.fast !== currentFast) {
-            try { await saveModelPreference(preferencePath, { model: input.model, fast: input.fast }, guard, () => { currentModel = input.model; currentFast = input.fast; }); }
+          const catalog = await modelCatalog(); guard();
+          const selected = catalog.find(model => model.id === input.model);
+          if (!selected) throw new ModelPreferenceError('invalid_model', 400, 'Choose a supported model.');
+          const requested = input.reasoningEffort === undefined ? currentReasoningEffort : input.reasoningEffort;
+          const effort = requested && !selected.reasoningEfforts.includes(requested) && input.reasoningEffort === undefined ? null : requested;
+          if (effort && !selected.reasoningEfforts.includes(effort)) throw new ModelPreferenceError('invalid_effort', 400, 'Choose a supported reasoning effort.');
+          if (input.model !== currentModel || input.fast !== currentFast || effort !== currentReasoningEffort) {
+            try { await saveModelPreference(preferencePath, { model: input.model, fast: input.fast, reasoningEffort: effort }, guard, () => {
+              // Native keeps turn/start effort in this thread; omitted/null cannot clear it.
+              const needsRestore = currentReasoningEffort !== null || restoredEffort !== null;
+              currentModel = input.model; currentFast = input.fast; currentReasoningEffort = effort;
+              restoredEffort = effort === null && needsRestore ? baselineEffort ?? selected.defaultEffort : null;
+            }); }
             catch (error) { if (error instanceof ModelPreferenceError) throw error; throw modelUnavailable(); }
           }
-          return { sessionId: threadId, currentModel, fast: currentFast, busy: modelBusy() };
+          return modelSnapshot(catalog, modelBusy());
         });
         admission = task.then(() => undefined, () => undefined);
         return task;
