@@ -883,8 +883,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
     const sourceId = sourceIds.at(-1);
     if (!sourceId) return;
     const previous = await store.outcome(sourceId);
-    if (previous?.status === 'replaced') return;
-    if (previous?.status !== 'attachment-error' || previous.error !== error) await store.markOutcome(sourceId, 'attachment-error', error);
+    if (!previous || previous.error !== error) await store.markAttachmentError(sourceId, error);
   }
 
   async function projectGeneratedImage(operationId: string, sourceIds: readonly string[], item: OfficialItem, created: number): Promise<string | undefined> {
@@ -1190,8 +1189,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
   async function unresolvedMessages(): Promise<Array<{ id: string; input: string }>> {
     const rows = await store.pendingMessages();
     if (!rows.length) return [];
-    const outcomes = await store.outcomes(rows.map((row) => row.id));
-    return rows.filter((row) => !observedInputIds.has(row.id) && outcomes.get(row.id)?.status !== 'replaced');
+    return rows.filter((row) => !observedInputIds.has(row.id));
   }
 
   async function markUnresolved(intent: InputIntent): Promise<void> {
@@ -2709,9 +2707,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
           || pendingSteers.some((intent) => intent.ids.includes(meta.id))
           || rejectedSteers.some((intent) => intent.ids.includes(meta.id));
         const queued = rejectedSteers.some((intent) => intent.ids.includes(meta.id));
-        const delivery = outcome?.status === 'replaced'
-          ? 'replaced'
-          : unresolvedInputIds.has(meta.id) ? 'unresolved'
+        const delivery = unresolvedInputIds.has(meta.id) ? 'unresolved'
             : queued ? 'queued'
             : awaiting || isActiveTurn(turn) ? 'pending'
               : observedInputIds.has(meta.id) ? 'acknowledged'
@@ -2719,7 +2715,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
         // A retained legacy Human pending row is not conversation history or a
         // recovery offer. Keep it on disk but do not expose its body in views.
         if (!user && !keetContexts.has(meta.id) && !matrixSources.has(meta.id) && !postSources.has(meta.id) && !meta.id.startsWith('alarm:')) continue;
-        const input = delivery === 'replaced' ? '' : inputRows.get(meta.id)?.input ?? (await inputForSource(meta.id, user, 0)).input;
+        const input = inputRows.get(meta.id)?.input ?? (await inputForSource(meta.id, user, 0)).input;
         messages.push({
           id: meta.id,
           turnId: turn?.id ?? null,
@@ -2732,9 +2728,9 @@ export async function createPartner(config: Config, credentials: Credentials, de
           sequence: meta.sequence,
           revision: meta.revision,
           delivery,
-          inputError: delivery === 'replaced' || outcome?.status !== 'attachment-error' ? null : outcome.error,
-          inputFiles: delivery === 'replaced' ? [] : (fileMeta.get(meta.id) ?? []).map(file => file.id),
-          inputImages: delivery === 'replaced' ? [] : inputMeta.filter((image) => image.operation_id === meta.id).map(({ id, name }) => ({ id, name, url: `/api/images/${id}` })),
+          inputError: outcome?.error ?? null,
+          inputFiles: (fileMeta.get(meta.id) ?? []).map(file => file.id),
+          inputImages: inputMeta.filter((image) => image.operation_id === meta.id).map(({ id, name }) => ({ id, name, url: `/api/images/${id}` })),
         });
       }
       const timelines = new Map(await Promise.all(pageTurns.map(async result => {

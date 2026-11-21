@@ -25,8 +25,7 @@ export type StoredInputSegment = {
   text_length: number;
 };
 /** Facts owned by the Companion rather than official turn execution. */
-export type LocalOutcomeStatus = 'replaced' | 'attachment-error';
-export type LocalOutcome = { status: LocalOutcomeStatus; error: string | null };
+export type LocalOutcome = { status: 'attachment-error'; error: string | null };
 export type MessagePageOptions = { before?: number; after?: number };
 export type StoredImage = Omit<MaterializedInputImage, 'data'>;
 export type StoredGeneratedImage = StoredImage;
@@ -168,7 +167,7 @@ export class Store {
         );
         CREATE TABLE IF NOT EXISTS message_outcomes (
           message_id TEXT PRIMARY KEY REFERENCES message_meta(id) ON DELETE CASCADE,
-          status TEXT NOT NULL CHECK(status IN ('replaced','attachment-error')),
+          status TEXT NOT NULL CHECK(status = 'attachment-error'),
           error TEXT
         );
         CREATE TABLE IF NOT EXISTS compact_boundaries (
@@ -234,6 +233,7 @@ export class Store {
       this.db.exec('CREATE UNIQUE INDEX IF NOT EXISTS file_upload_operations_dir_key ON file_upload_operations(dir_key)');
       this.migrateFileSizeLimit();
       this.migrateTimelineSlots();
+      this.migrateLegacyDelivery();
       this.db.exec(`
         INSERT OR IGNORE INTO message_revisions(message_id)
           SELECT id FROM message_meta ORDER BY sequence;
@@ -329,6 +329,57 @@ export class Store {
         ALTER TABLE chat_timeline_slots_ui_v2 RENAME TO chat_timeline_slots;
       `);
       for (const { sql } of dependent) this.db.exec(sql);
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  private migrateLegacyDelivery(): void {
+    const schema = this.db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='message_outcomes'").get() as { sql: string };
+    const legacyOutcomes = schema.sql.includes("'replaced'");
+    const legacyDrafts = this.db.prepare(`
+      SELECT 1 FROM sqlite_master WHERE type='table'
+      AND name IN ('failed_submissions', 'retry_attempts', 'deleted_failures') LIMIT 1
+    `).get();
+    if (!legacyOutcomes && !legacyDrafts) return;
+
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      if (legacyOutcomes) {
+        // Retire the old local input as well as its marker. A source with
+        // independent native, inbound, or delivery evidence remains valid.
+        const retired = this.db.prepare(`
+          DELETE FROM message_meta WHERE id IN (
+            SELECT message_id FROM message_outcomes o WHERE o.status='replaced'
+              AND NOT EXISTS (SELECT 1 FROM input_segments WHERE message_id=o.message_id)
+              AND NOT EXISTS (SELECT 1 FROM post_sources_v1 WHERE message_id=o.message_id)
+              AND NOT EXISTS (SELECT 1 FROM post_receipts_v1 WHERE message_id=o.message_id)
+              AND NOT EXISTS (SELECT 1 FROM matrix_sources WHERE message_id=o.message_id)
+              AND NOT EXISTS (SELECT 1 FROM keet_sources WHERE message_id=o.message_id)
+              AND NOT EXISTS (SELECT 1 FROM delivery_attempts WHERE operation_id=o.message_id)
+          ) RETURNING id
+        `).all() as Array<{ id: string }>;
+        const deleteRejection = this.db.prepare('DELETE FROM rejected_inputs WHERE message_id=?');
+        for (const { id } of retired) deleteRejection.run(id);
+        this.db.exec(`
+          CREATE TABLE message_outcomes_attachment_only (
+            message_id TEXT PRIMARY KEY REFERENCES message_meta(id) ON DELETE CASCADE,
+            status TEXT NOT NULL CHECK(status = 'attachment-error'),
+            error TEXT
+          );
+          INSERT INTO message_outcomes_attachment_only SELECT message_id,status,error FROM message_outcomes
+            WHERE status='attachment-error';
+          DROP TABLE message_outcomes;
+          ALTER TABLE message_outcomes_attachment_only RENAME TO message_outcomes;
+        `);
+      }
+      this.db.exec(`
+        DROP TABLE IF EXISTS failed_submissions;
+        DROP TABLE IF EXISTS retry_attempts;
+        DROP TABLE IF EXISTS deleted_failures;
+      `);
       this.db.exec('COMMIT');
     } catch (error) {
       this.db.exec('ROLLBACK');
@@ -901,7 +952,7 @@ export class Store {
     });
   }
 
-  /** Check that no observed or replaced input contradicts a definite rejection. */
+  /** Check that no pending, observed, or attachment-error input contradicts a definite rejection. */
   async confirmUnsubmittedInput(id: string): Promise<boolean> {
     return this.transaction(() => {
       return !!this.db.prepare(`SELECT 1 FROM message_meta WHERE id=?
@@ -924,15 +975,14 @@ export class Store {
     return this.transaction(() => this.db.prepare('SELECT message_id,turn_id,item_id,segment_index,text_offset,text_length FROM input_segments WHERE message_id=?').get(id) as StoredInputSegment | undefined);
   }
 
-  async markOutcome(id: string, status: LocalOutcomeStatus, error: string | null = null): Promise<void> {
+  async markAttachmentError(id: string, error: string | null = null): Promise<void> {
     await this.transaction(() => {
-      const previous = this.db.prepare('SELECT status,error FROM message_outcomes WHERE message_id=?').get(id) as { status: string; error: string | null } | undefined;
+      const previous = this.db.prepare('SELECT error FROM message_outcomes WHERE message_id=?').get(id) as { error: string | null } | undefined;
       this.db.prepare(`
-        INSERT INTO message_outcomes(message_id,status,error) VALUES(?,?,?)
-        ON CONFLICT(message_id) DO UPDATE SET status=excluded.status,error=excluded.error
-      `).run(id, status, error);
-      const retired = status === 'replaced' ? this.db.prepare('DELETE FROM pending_inputs WHERE message_id=?').run(id).changes : 0;
-      if (!previous || previous.status !== status || previous.error !== error || retired) this.addRevision(id);
+        INSERT INTO message_outcomes(message_id,status,error) VALUES(?,'attachment-error',?)
+        ON CONFLICT(message_id) DO UPDATE SET error=excluded.error
+      `).run(id, error);
+      if (!previous || previous.error !== error) this.addRevision(id);
     });
   }
 

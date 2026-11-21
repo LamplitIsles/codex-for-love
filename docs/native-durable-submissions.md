@@ -36,7 +36,11 @@ Codex's raw history and hooks can see the paths and names. Missing historical
 files are shown as missing attachments; they do not change the recorded text.
 
 The previous server-side failed-draft, finalize, retry and deletion socket flows
-are retired. Existing database records are not migrated or deleted by this change.
+are retired. Opening an older CFL store removes their three obsolete tables and
+the old replacement markers in one SQLite transaction. Superseded local inputs
+without native input, inbound message or current delivery evidence are discarded.
+Attachment errors, uploaded files and current submission identity and attempts
+are preserved.
 Historical App acceptance artifacts are attributed in [IMPORTS](IMPORTS.md); they
 do not verify the current contract. Use test-owned Partner workspaces and fake
 app-servers for automated tests. The separate real-native protocol probe uses a

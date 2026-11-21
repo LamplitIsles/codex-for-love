@@ -209,7 +209,7 @@ test('unrecognized directory key schema is not silently accepted', async () => {
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
-test('legacy recovery tables are not created and existing rows survive unchanged', async () => {
+test('opening a legacy store retires superseded drafts and preserves current delivery data', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'cfl-legacy-recovery-schema-'));
   const legacyTables = ['failed_submissions', 'deleted_failures', 'retry_attempts'];
   const present = (db: DatabaseSync) => (db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name IN (${legacyTables.map(() => '?').join(',')})`).all(...legacyTables) as Array<{ name: string }>).map(row => row.name).sort();
@@ -224,11 +224,33 @@ test('legacy recovery tables are not created and existing rows survive unchanged
     } finally { created.close(); }
 
     const legacy = join(directory, 'legacy.sqlite');
+    await new Store(legacy).close();
     const payload = JSON.stringify({ operationId: 'legacy-op', text: '旧失败草稿 😀\r\nFiles (paths relative to workspace):\r\n[]', files: [{ attachmentId: 'a'.repeat(64), name: '旧.txt', mediaType: 'text/plain', size: 3, availability: 'available' }] });
     const old = new DatabaseSync(legacy);
-    old.exec(`CREATE TABLE failed_submissions (operation_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, fingerprint TEXT NOT NULL, payload TEXT NOT NULL, error TEXT NOT NULL, replaced_by TEXT);
+    old.exec(`
+      CREATE TABLE failed_submissions (operation_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, fingerprint TEXT NOT NULL, payload TEXT NOT NULL, error TEXT NOT NULL, replaced_by TEXT);
       CREATE TABLE deleted_failures (operation_id TEXT PRIMARY KEY);
-      CREATE TABLE retry_attempts (attempt_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, source_id TEXT NOT NULL, payload TEXT);`);
+      CREATE TABLE retry_attempts (attempt_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, source_id TEXT NOT NULL, payload TEXT);
+      DROP TABLE message_outcomes;
+      CREATE TABLE message_outcomes (
+        message_id TEXT PRIMARY KEY REFERENCES message_meta(id) ON DELETE CASCADE,
+        status TEXT NOT NULL CHECK(status IN ('replaced','attachment-error')),
+        error TEXT
+      );
+      INSERT INTO message_meta(id,created) VALUES
+        ('superseded',1),('observed',2),('post-input',3),('native-attempt',4),('attachment',5);
+      INSERT INTO message_revisions(message_id) VALUES ('superseded'),('observed'),('post-input'),('native-attempt'),('attachment');
+      INSERT INTO pending_inputs VALUES ('post-input','awaiting native receipt');
+      INSERT INTO rejected_inputs VALUES ('superseded','rejected'),('attachment','unrelated rejection');
+      INSERT INTO input_segments VALUES ('observed','native-turn','user-item',0,0,12);
+      INSERT INTO post_sources_v1(message_id,service,canonical_key,native_key,event) VALUES ('post-input','test-post','message','native','{}');
+      INSERT INTO post_receipts_v1 VALUES ('test-post','agent','delivery','{}','post-input');
+      INSERT INTO shared_submissions VALUES ('native-attempt','session','test-fingerprint');
+      INSERT INTO delivery_attempts VALUES ('native-attempt',3,'unknown');
+      INSERT INTO message_outcomes VALUES
+        ('superseded','replaced',NULL),('observed','replaced',NULL),('post-input','replaced',NULL),
+        ('native-attempt','replaced',NULL),('attachment','attachment-error','artifact unavailable');
+    `);
     old.prepare('INSERT INTO failed_submissions VALUES(?,?,?,?,?,?)').run('legacy-op', 'session', 'fingerprint', payload, 'definite failure', null);
     old.prepare('INSERT INTO deleted_failures VALUES(?)').run('legacy-discard');
     old.prepare('INSERT INTO retry_attempts VALUES(?,?,?,?)').run('legacy-attempt', 'session', 'legacy-op', null);
@@ -236,6 +258,12 @@ test('legacy recovery tables are not created and existing rows survive unchanged
 
     const reopened = new Store(legacy);
     try {
+      assert.equal(await reopened.messageMeta('superseded'), undefined);
+      assert.equal(await reopened.rejected('superseded'), undefined);
+      assert.equal(await reopened.rejected('attachment'), 'unrelated rejection');
+      assert.equal((await reopened.inputSegment('observed'))?.turn_id, 'native-turn');
+      assert.deepEqual(await reopened.deliveryAttempt('native-attempt', 'session'), { attempt: 3, state: 'unknown' });
+      assert.deepEqual((await reopened.pendingMessages()).map(message => [message.id, message.input]), [['post-input', 'awaiting native receipt']]);
       const messageId = crypto.randomUUID();
       assert.equal((await reopened.ensureMessage(messageId, Date.now(), 'a fresh message')).id, messageId);
       const operationId = crypto.randomUUID(), key = crypto.randomUUID().replaceAll('-', ''), digest = 'b'.repeat(64), attachmentId = 'c'.repeat(64);
@@ -247,14 +275,18 @@ test('legacy recovery tables are not created and existing rows survive unchanged
       assert.deepEqual(await reopened.completeFileReservation(manifest, 'owner', staged), staged);
     } finally { await reopened.close(); }
 
+    await new Store(legacy).close();
     const after = new DatabaseSync(legacy);
     try {
-      assert.deepEqual(present(after), [...legacyTables].sort());
-      assert.deepEqual({ ...after.prepare('SELECT * FROM failed_submissions').get() }, { operation_id: 'legacy-op', session_id: 'session', fingerprint: 'fingerprint', payload, error: 'definite failure', replaced_by: null });
-      assert.deepEqual({ ...after.prepare('SELECT * FROM retry_attempts').get() }, { attempt_id: 'legacy-attempt', session_id: 'session', source_id: 'legacy-op', payload: null });
-      assert.deepEqual({ ...after.prepare('SELECT * FROM deleted_failures').get() }, { operation_id: 'legacy-discard' });
-      assert.equal(after.prepare('SELECT count(*) AS count FROM message_meta').get()?.count, 1);
+      assert.deepEqual(present(after), []);
+      assert.deepEqual(after.prepare('SELECT message_id,status,error FROM message_outcomes').all().map(row => ({ ...row })), [
+        { message_id: 'attachment', status: 'attachment-error', error: 'artifact unavailable' },
+      ]);
+      assert.throws(() => after.prepare("INSERT INTO message_outcomes VALUES ('observed','replaced',NULL)").run(), /CHECK constraint failed/);
+      assert.equal(after.prepare('SELECT message_id FROM post_receipts_v1 WHERE delivery=?').get('delivery')?.message_id, 'post-input');
+      assert.equal(after.prepare('SELECT count(*) AS count FROM message_meta').get()?.count, 5);
       assert.equal(after.prepare('SELECT count(*) AS count FROM staged_files').get()?.count, 1);
+      assert.deepEqual(after.prepare('PRAGMA foreign_key_check').all(), []);
     } finally { after.close(); }
   } finally { await rm(directory, { recursive: true, force: true }); }
 });

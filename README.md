@@ -601,10 +601,11 @@ attempt definitely fails, an explicit retry uses the same operation ID and a new
 attempt number. Unknown delivery is reconciled without automatic replay. See
 [submission semantics](docs/native-durable-submissions.md).
 
-Existing `failed_submissions`, `retry_attempts` and `deleted_failures` tables and
-rows may remain in the database and contain earlier message text. New databases
-do not create them, and server-side recovery no longer reads or replays them.
-This change does not migrate or delete existing rows or uploaded files.
+On startup, CFL removes the retired `failed_submissions`, `retry_attempts` and
+`deleted_failures` tables, including any old draft text they contain. It also
+removes obsolete replacement markers and their superseded local inputs. The
+upgrade preserves Codex history, current delivery records, inbound sources,
+attachment errors and uploaded files.
 
 The official app-server remains the sole execution/history owner. Completed
 message IDs are presentation metadata; no reply text is duplicated in a new

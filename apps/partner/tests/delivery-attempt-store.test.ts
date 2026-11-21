@@ -2,6 +2,29 @@ import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 import { Store } from '../runtime/store.ts';
 
+test('attachment outcomes preserve pending input, nullable errors, revisions and rejection gating', async () => {
+  const store = new Store(':memory:');
+  try {
+    await store.admit('message', 'retained input');
+    const initial = await store.messagePosition(['message']);
+    await store.markAttachmentError('message');
+    const first = await store.messagePosition(['message']);
+    assert.ok(first.revision > initial.revision);
+    assert.deepEqual({ ...await store.outcome('message') }, { status: 'attachment-error', error: null });
+    assert.equal((await store.inputPayload('message'))?.input, 'retained input');
+    await store.markAttachmentError('message');
+    assert.equal((await store.messagePosition(['message'])).revision, first.revision);
+    await store.markAttachmentError('message', 'unavailable');
+    assert.ok((await store.messagePosition(['message'])).revision > first.revision);
+    await store.markObserved('message');
+    assert.equal(await store.confirmUnsubmittedInput('message'), false);
+    assert.deepEqual({ ...await store.outcome('message') }, { status: 'attachment-error', error: 'unavailable' });
+    await store.admit('without-outcome', 'input');
+    await store.markObserved('without-outcome');
+    assert.equal(await store.confirmUnsubmittedInput('without-outcome'), true);
+  } finally { await store.close(); }
+});
+
 test('delivery attempts persist their identity without storing a recoverable draft', async () => {
   const store = new Store(':memory:');
   const input = { operationId: 'message', text: 'private draft' };

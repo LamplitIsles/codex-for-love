@@ -273,15 +273,14 @@ test('ambiguous durable human input blocks model/Fast through restart until nati
   } finally { await f.close(); }
 });
 
-test('conclusively rejected, replaced and observed inputs do not block model preferences as pending admissions', async () => {
+test('conclusively rejected and observed inputs do not block model preferences as pending admissions', async () => {
   const f = await fixture();
   await mkdir(join(f.workspace, '.lamplit'), { recursive: true });
   const store = new Store(partnerPaths(f.workspace).database);
   try {
-    const rejected = crypto.randomUUID(), replaced = crypto.randomUUID(), observed = crypto.randomUUID();
-    for (const id of [rejected, replaced, observed]) await store.admit(id, 'test-owned retained input');
+    const rejected = crypto.randomUUID(), observed = crypto.randomUUID();
+    for (const id of [rejected, observed]) await store.admit(id, 'test-owned retained input');
     await store.markRejected([rejected], 'conclusive native rejection');
-    await store.markOutcome(replaced, 'replaced');
     await store.markObserved(observed);
   } finally { await store.close(); }
   const partner = await f.createPartner();

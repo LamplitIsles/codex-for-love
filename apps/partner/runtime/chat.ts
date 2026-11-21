@@ -25,7 +25,7 @@ export function createCodexChatBackend(partner: Partner, authorize: () => Promis
     const visible = new Map(await Promise.all(snapshot.messages.map(async m => [m.id, await partner.chatVisible(m.id)] as const)));
     const ordered: Array<{ order: number; position?: number; message: ChatMessage; fileIds?: string[] }> = [];
     for (const m of snapshot.messages) {
-      if (m.delivery === 'replaced' || !visible.get(m.id)) continue;
+      if (!visible.get(m.id)) continue;
       const images = (await Promise.all(m.inputImages.map(image => partner.sharedImageRef(image.id)))).filter((ref): ref is ImageRef => !!ref);
       const post = m.post;
       // Post image checkpoints and input_images share content order. Suppress a
