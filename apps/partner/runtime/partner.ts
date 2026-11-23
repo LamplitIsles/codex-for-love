@@ -10,6 +10,7 @@ import { postImage } from './post-assets.ts';
 import type { EventV1 } from './post-contract.ts';
 import { postEndpoint } from './config.ts';
 import { readWorkspaceImage } from './workspace-images.ts';
+import type { ThumbnailSource } from './image-thumbnails.ts';
 import { openWorkspaceMedia, type WorkspaceMediaKind } from './workspace-media.ts';
 import { StickerCatalog } from './sticker-catalog.ts';
 import { readStickerZip } from './sticker-import.ts';
@@ -2669,6 +2670,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
         return { handle, size: file.size };
       }) ?? null;
     },
+    currentSessionId() { return threadId; },
     fileReadAllowed(sessionId: string, authorize: () => boolean) { return Boolean(authorize() && !closing && !storageError && sessionId === threadId); },
     async sharedFileRef(id: string): Promise<FileRef | undefined> {
       const file = await store.file(id, fileOwner, threadId);
@@ -2709,6 +2711,17 @@ export async function createPartner(config: Config, credentials: Credentials, de
         if (sticker && createHash('sha256').update(bytes).digest('hex') !== sticker.version) return null;
         return { bytes, mediaType: metadata.media_type };
       } catch { return null; }
+    },
+    async thumbnailSource(kind: 'chat' | 'album', id: string): Promise<ThumbnailSource | undefined> {
+      if (kind === 'album') {
+        const image = catalogue.get(id);
+        return image ? { path: image.path, noFollow: false } : undefined;
+      }
+      const staged = await store.stagedImageRef(id, threadId);
+      const image = staged?.image ?? await store.imageMetadata(id);
+      if (!image || !['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(image.media_type)) return undefined;
+      const sticker = staged?.ref.sticker ?? stickerImageRefs.get(id);
+      return { path: image.path, noFollow: true, ...(sticker ? { stickerVersion: sticker.version } : {}) };
     },
     async sharedImageRef(id: string): Promise<ImageRef | undefined> {
       const image = await store.imageMetadata(id) ?? (await store.stagedImageRef(id, threadId))?.image;

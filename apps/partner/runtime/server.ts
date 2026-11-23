@@ -21,6 +21,7 @@ import { AuthFailure, ownerId, type AuthStore } from './auth.ts';
 import { receiverAuthorized } from './post.ts';
 import { FileOperationNotFound, FileOperationRetired } from './store.ts';
 import { validateManifest } from './file-operations.ts';
+import { createImageThumbnails, readThumbnailSource, thumbnailIdentity } from './image-thumbnails.ts';
 
 const keetEventBodyLimit = 128 * 1024;
 
@@ -66,6 +67,7 @@ export function createWebServer(partner: Partner, assets: string, options: { aut
   const activeSockets = new Map<import('ws').WebSocket, IncomingMessage>();
   let activeFileDownloads = 0;
   let activeWorkspaceMedia = 0;
+  const thumbnails = createImageThumbnails();
   function holdFileDownload(response: ServerResponse): () => void {
     activeFileDownloads++;
     let handlerDone = false, responseDone = response.writableFinished || response.destroyed, released = false;
@@ -391,6 +393,37 @@ export function createWebServer(partner: Partner, assets: string, options: { aut
         if (!stillAuthorized(request)) return unauthorized();
         response.writeHead(result!.status, Object.fromEntries(result!.headers));
         response.end(bytes); return;
+      }
+      if (path.startsWith('/api/image-thumbnails/')) {
+        if (request.method !== 'GET') return json(response, { error: 'Method not allowed' }, 405);
+        const parts = path.slice('/api/image-thumbnails/'.length).split('/');
+        const [kind, id] = parts;
+        if (parts.length !== 2 || (kind !== 'chat' && kind !== 'album') || !id || !(kind === 'chat' ? /^[A-Za-z0-9_-]{1,100}$/u : /^[a-f0-9]{64}$/u).test(id)) return json(response, { error: 'Image not found' }, 404);
+        const sessionId = partner.currentSessionId();
+        const abort = new AbortController();
+        const closed = () => abort.abort();
+        response.once('close', closed);
+        const admitted = await thumbnails.acquire(abort.signal);
+        response.off('close', closed);
+        if (!admitted) { if (!response.destroyed) return json(response, { error: 'Image processing busy' }, 503); return; }
+        try {
+          if (response.destroyed) return;
+          if (!stillAuthorized(request)) return unauthorized();
+          if (!partner.fileReadAllowed(sessionId, () => stillAuthorized(request))) return json(response, { error: 'Session unavailable' }, 403);
+          const source = await partner.thumbnailSource(kind, id);
+          if (!stillAuthorized(request)) return unauthorized();
+          if (!partner.fileReadAllowed(sessionId, () => stillAuthorized(request))) return json(response, { error: 'Session unavailable' }, 403);
+          const fingerprint = source ? await thumbnailIdentity(source) : undefined;
+          const image = source && fingerprint ? await thumbnails.render(kind, fingerprint, () => readThumbnailSource(source, fingerprint)) : undefined;
+          // Resolve the original again and check its identity even on cache hits.
+          const current = image ? await partner.thumbnailSource(kind, id) : undefined;
+          const currentFingerprint = current ? await thumbnailIdentity(current) : undefined;
+          if (!stillAuthorized(request)) return unauthorized();
+          if (!partner.fileReadAllowed(sessionId, () => stillAuthorized(request))) return json(response, { error: 'Session unavailable' }, 403);
+          if (!image || !fingerprint || currentFingerprint !== fingerprint) return json(response, { error: 'Image not found' }, 404);
+          response.writeHead(200, { 'content-type': 'image/webp', 'content-length': image.length, 'cache-control': 'private, no-store' });
+          response.end(image); return;
+        } finally { thumbnails.release(); }
       }
       if (path === '/api/stickers' || path.startsWith('/api/stickers/')) {
         const origin = options.auth.origin;

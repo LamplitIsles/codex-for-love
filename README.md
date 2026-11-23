@@ -690,10 +690,14 @@ and cursor-based `read_relationship_history` (up to 20 records plus predecessor)
 as well as the existing bounded `list_photos` and `list_alarms`.
 
 Album metadata contains opaque IDs and same-origin `/api/conversation-images/`
-URLs, with no filesystem paths. Preview and original use the existing image byte
-route; missing files remain visible as unavailable. The catalogue is reconciled
+URLs, with no filesystem paths. Missing files remain visible as unavailable. The catalogue is reconciled
 against official conversation membership; viewing an arbitrary local file with a
-native tool does not register it. There is no thumbnail pipeline or new media store.
+native tool does not register it. Authenticated `GET /api/image-thumbnails/chat/{attachmentId}`
+returns a static WebP, contained within 512 pixels; `GET /api/image-thumbnails/album/{id}`
+returns a centered square WebP up to 384 pixels. Both honor image orientation and
+avoid enlargement. Unavailable or unsafe sources return 404, and temporary processing
+overload returns 503. Original image routes remain available for full-size viewing.
+Thumbnails are disposable, bounded in-memory derivatives; no new media store is created.
 
 The authenticated `GET /api/conversation-media?sessionId=<current>&kind=voice|file`
 lists visible conversation media newest first, 30 items per page. Its JSON result is
