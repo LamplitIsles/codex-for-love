@@ -69,6 +69,7 @@ import { PetActivityProjection } from './pet.ts';
 import { localPetClip } from './pet-assets.ts';
 import { completeAlarmOccurrence, dueAlarms, listAlarms } from './alarms.ts';
 import { conversationImageId, pageConversationImages, readConversationImages, withAvailability, writeConversationImages, type ConversationImage, type ConversationImageOrigin } from './conversation-images.ts';
+import { createMediaPublisher, mediaKey, readMediaPage, voiceMessageId, type MediaEntry, type MediaKind } from './conversation-media.ts';
 
 type OfficialItem = Record<string, unknown>;
 type OfficialTurn = {
@@ -677,6 +678,68 @@ export async function createPartner(config: Config, credentials: Credentials, de
   let externalIngressRevision = 0;
   let pendingExternalAdmissions = 0;
   let eventChain: Promise<void> = Promise.resolve();
+  const mediaEntries = new Map<string, MediaEntry[]>();
+  const mediaCursorKey = mediaKey();
+  let mediaReady = false;
+  let mediaFaulted = false;
+  let mediaWork: Promise<void> = Promise.resolve();
+  let mediaCleanup: Promise<void> = Promise.resolve();
+  let mediaPublisher: Awaited<ReturnType<typeof createMediaPublisher>> | undefined;
+  async function disableMedia(error?: unknown): Promise<void> {
+    mediaReady = false; mediaFaulted = true;
+    const publisher = mediaPublisher; mediaPublisher = undefined;
+    if (error) processError('media.projection_failed', error);
+    if (publisher) {
+      const pending = mediaWork;
+      const revoked = publisher.revoke().catch(closeError => processError('media.cleanup_failed', closeError));
+      const drained = Promise.all([revoked, pending.catch(() => undefined)]).then(() => publisher.close()).catch(closeError => processError('media.cleanup_failed', closeError));
+      mediaCleanup = Promise.all([mediaCleanup, drained]).then(() => undefined);
+      await revoked;
+    }
+  }
+  async function chatVisible(id: string): Promise<boolean> {
+    const attempt = await store.deliveryAttempt(id, threadId);
+    return !attempt || attempt.state === 'accepted';
+  }
+  function updateMediaTurn(turnId: string, publish = true): Promise<void> {
+    const work = mediaWork.then(async () => {
+      if (mediaFaulted) return;
+      const result = turnResults.get(turnId), turn = turns.get(turnId);
+      const previous = mediaEntries.get(turnId) ?? [];
+      let entries: MediaEntry[] = [];
+      if (!result || !turn) { mediaEntries.delete(turnId); }
+      else {
+        const posts = await store.postSources(result.sourceIds);
+        const matrices = await store.matrixSources(result.sourceIds);
+        for (const id of result.sourceIds) {
+          const meta = messagesById.get(id);
+          if (!meta || !sourceLocation(turn, id) || !await chatVisible(id)) continue;
+          const createdAt = matrices.get(id)?.timestamp ?? posts.get(id)?.timestamp ?? meta.created;
+          for (const file of await store.inputFiles(id, fileOwner, threadId)) entries.push({ kind: 'file', messageId: id, createdAt,
+            file: { attachmentId: file.id, name: file.name, size: file.size, mediaType: file.media_type, path: file.path } });
+        }
+        const slots = await store.timelineSlots(threadId, turnId);
+        const ids = new Set(slots.filter(slot => slot.kind === 'voice').map(slot => slot.itemId));
+        for (const item of turn.items ?? []) if (timelineKind(item) === 'voice' && item.status === 'completed' && typeof item.id === 'string') ids.add(item.id);
+        const createdAt = messagesById.get(result.sourceIds[0] ?? '')?.created ?? result.completedAt ?? 0;
+        for (const itemId of ids) {
+          const voice = result.voiceDispatches.find(value => value.itemId === itemId);
+          if (voice) entries.push({ kind: 'voice', messageId: voiceMessageId(resultOperationId(turnId), itemId, voice.id), createdAt, voice: { id: voice.id } });
+        }
+        entries.sort((a, b) => {
+          const key = (entry: MediaEntry) => JSON.stringify([entry.kind, entry.messageId, entry.kind === 'file' ? entry.file.attachmentId : '']);
+          const left = key(a), right = key(b);
+          return left < right ? -1 : left > right ? 1 : 0;
+        });
+        mediaEntries.set(turnId, entries);
+      }
+      if (publish && mediaReady && !closing && !storageError && JSON.stringify(previous) !== JSON.stringify(entries)) {
+        await mediaPublisher!.publish(threadId, mediaCursorKey, [...mediaEntries.values()].flat());
+      }
+    });
+    mediaWork = work.catch(error => disableMedia(error));
+    return mediaWork;
+  }
   let admission: Promise<void> = Promise.resolve();
   let inputAdmission: Promise<void> = Promise.resolve();
   let closePromise: Promise<void> | undefined;
@@ -783,6 +846,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
     if (!threadId || !appServer) return [];
     const result: OfficialTurn[] = [];
     let cursor: string | undefined;
+    const seen = new Set<string>();
     for (;;) {
       try {
         const page = await appServer.call('thread/turns/list', {
@@ -794,8 +858,10 @@ export async function createPartner(config: Config, credentials: Credentials, de
         });
         const data = page.data;
         result.push(...data.map(turnFrom).filter((turn): turn is OfficialTurn => Boolean(turn)));
-        const next = typeof page.nextCursor === 'string' && page.nextCursor ? page.nextCursor : undefined;
-        if (!next || !data.length) break;
+        const next = page.nextCursor;
+        if (next === null) break;
+        if (!next || !data.length || seen.has(next)) throw new Error('Incomplete or cyclic turn history pagination');
+        seen.add(next);
         cursor = next;
       } catch (error) {
         if (result.length === 0 && noHistoryYet(error)) return [];
@@ -809,6 +875,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
     if (!threadId || !appServer) return [];
     const result: OfficialItem[] = [];
     let cursor: string | undefined;
+    const seen = new Set<string>();
     for (;;) {
       const page = await appServer.call('thread/items/list', {
         threadId,
@@ -822,8 +889,10 @@ export async function createPartner(config: Config, credentials: Credentials, de
         const item = record('item' in entry ? entry.item : entry);
         if (typeof item.type === 'string') result.push(item);
       }
-      const next = typeof page.nextCursor === 'string' && page.nextCursor ? page.nextCursor : undefined;
-      if (!next || !data.length) break;
+      const next = page.nextCursor;
+      if (next === null) break;
+      if (!next || !data.length || seen.has(next)) throw new Error('Incomplete or cyclic turn item pagination');
+      seen.add(next);
       cursor = next;
     }
     return result;
@@ -902,7 +971,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
         await catalogueImage('agent', existing, created);
         return existing.id;
       } catch {
-        storageError = true;
+        storageError = true; await disableMedia();
         await markAttachmentError(sourceIds, imageFailure('unavailable'));
         processError('image.persistence_failed', new Error(imageFailure('unavailable')), { operationId, itemId });
         return undefined;
@@ -911,7 +980,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
     try {
       const generated = await materializeGeneratedImage(paths.workspaceRoot, operationId, item);
       if (!generated) {
-        storageError = true;
+        storageError = true; await disableMedia();
         await markAttachmentError(sourceIds, imageFailure('unavailable'));
         processError('image.persistence_failed', new Error(imageFailure('unavailable')), { operationId, itemId: item.id });
         return undefined;
@@ -920,7 +989,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
       await catalogueImage('agent', generated, created);
       return generated.id;
     } catch (error) {
-      storageError = true;
+      storageError = true; await disableMedia();
       await markAttachmentError(sourceIds, imageFailure('unavailable'));
       processError('image.persistence_failed', error, { operationId, itemId: item.id, failureCode: 'store_write_failed' });
       return undefined;
@@ -943,7 +1012,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
       await store.saveGeneratedImage(image, item.id); stickerImageRefs.set(imageId, { id: value.id, version: value.version });
       await catalogueImage('agent', image, created); return imageId;
     } catch (error) {
-      storageError = true; await markAttachmentError(sourceIds, 'Sticker image unavailable');
+      storageError = true; await disableMedia(); await markAttachmentError(sourceIds, 'Sticker image unavailable');
       processError('sticker.persistence_failed', error, { operationId, itemId: item.id }); return undefined;
     }
   }
@@ -1156,6 +1225,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
     const position = await store.messagePosition(sourceIds);
     const result: TurnResult = { ...resultBody, ...position };
     turnResults.set(turn.id, result);
+    await updateMediaTurn(turn.id);
   }
 
   /** Full history is hydrated once at startup/resume; events update one turn thereafter. */
@@ -1918,10 +1988,11 @@ export async function createPartner(config: Config, credentials: Credentials, de
           })().finally(() => { nativeDeliveryChecks.delete(id); nativeDeliveryCheckPending.delete(id); });
         }
       }
-    }).catch((error) => {
+    }).catch(async (error) => {
       if (closing) return;
       const failure = projectionFailure(error);
       if (failure.durable) storageError = true;
+      await disableMedia();
       processError('event.failed', error, { method: notification.method, failureCode: failure.code, recoverable: !failure.durable });
       notify();
     });
@@ -1929,6 +2000,10 @@ export async function createPartner(config: Config, credentials: Credentials, de
 
   const contextFile = bootstrapPath(paths.workspaceRoot);
   try {
+    // The MCP starts before hydration, so acquire a new generation only after
+    // entering startup's cleanup scope and publish only once history is ready.
+    try { mediaPublisher = await createMediaPublisher(paths.conversationMedia); }
+    catch (error) { await disableMedia(error); }
     const markerPath = join(paths.managedRoot, 'thread.json');
     let marker: { threadId?: string; model?: string } | undefined;
     try { marker = JSON.parse(await readFile(markerPath, 'utf8')) as { threadId?: string; model?: string }; }
@@ -2056,6 +2131,18 @@ export async function createPartner(config: Config, credentials: Credentials, de
       await writeFile(markerPath, JSON.stringify({ threadId, model: currentModel }), { mode: 0o600 });
     }
     await hydrateHistory();
+    await eventChain;
+    for (const turnId of turnResults.keys()) {
+      if (mediaFaulted) break;
+      await updateMediaTurn(turnId, false);
+    }
+    mediaWork = mediaWork.catch(() => undefined).then(async () => {
+      const publisher = mediaPublisher;
+      if (storageError || closing || mediaFaulted || !publisher) return;
+      await publisher.publish(threadId, mediaCursorKey, [...mediaEntries.values()].flat());
+      if (!closing && !mediaFaulted && mediaPublisher === publisher) mediaReady = true;
+    }).catch(error => disableMedia(error));
+    await mediaWork;
     startupPending = false;
     await refreshBootstrap();
     drainExternal();
@@ -2064,10 +2151,12 @@ export async function createPartner(config: Config, credentials: Credentials, de
     if (postEnabled) void refreshPost(true).catch(() => undefined);
   } catch (error) {
     closing = true;
+    await disableMedia();
     for (const unsubscribe of unsubscribeAppServer.splice(0)) unsubscribe();
     for (const controller of turnControllers.values()) controller.abort();
     await appServer?.close().catch(() => undefined);
     await managedServer?.stop().catch(() => undefined);
+    await mediaCleanup;
     await store.close().catch(() => undefined);
     stickers.close();
     throw error;
@@ -2136,6 +2225,8 @@ export async function createPartner(config: Config, credentials: Credentials, de
       await mutationGuard(threadId, authorize);
       const next = await store.transitionDeliveryAttempt(operationId, threadId, attempt, 'accepted', commitGuard(threadId, authorizeCommit));
       if (!next) return null;
+      const ownerTurn = operationTurn(operationId);
+      if (ownerTurn && mediaReady) await updateMediaTurn(ownerTurn.id);
       const receipt = deliveryReceipt(operationId, next.attempt, 'accepted');
       notifyDelivery(receipt);
       if (!closing) notify();
@@ -2408,6 +2499,13 @@ export async function createPartner(config: Config, credentials: Credentials, de
     readDiary(name: string) { return readDiary(paths.workspaceRoot, name); },
     async diaryEntry(name: string) { const entry = await readDiary(paths.workspaceRoot, name); return entry.status === 'found' ? entry.text : entry.status === 'missing' ? undefined : 'too-large' as const; },
     async audio(id: string) { try { return await readFile(join(paths.audio, `${id}.mp3`)); } catch { return undefined; } },
+    async conversationMedia(sessionId: string, kind: MediaKind, cursor?: string) {
+      await eventChain; await mediaWork;
+      if (!mediaReady || closing || storageError || sessionId !== threadId) throw new Error('Wrong or unavailable session');
+      const page = await readMediaPage(paths.conversationMedia, join(paths.managedRoot, 'thread.json'), sessionId, kind, cursor);
+      if (!mediaReady || closing || storageError || sessionId !== threadId) throw new Error('Wrong or unavailable session');
+      return page;
+    },
     ttsSettings,
     bark,
     workspaceImage(path: string | null) { return readWorkspaceImage(paths.workspaceRoot, path); },
@@ -2870,8 +2968,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
       };
     },
     async chatVisible(id: string) {
-      const attempt = await store.deliveryAttempt(id, threadId);
-      return !attempt || attempt.state === 'accepted';
+      return chatVisible(id);
     },
     async chatStop(id: string) {
       if (!activeTurnId || activeTurnId !== id) return { stopped: false };
@@ -2963,6 +3060,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
     close() {
       if (closePromise) return closePromise;
       closing = true;
+      const mediaClose = disableMedia();
       barkAbort.abort();
       streaming = undefined; completedReply = undefined; completedStreamItems.clear();
       postAbort.abort();
@@ -2975,6 +3073,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
       const serverClose = appServer?.close() ?? Promise.resolve();
       closePromise = (async () => {
         let closeError: unknown;
+        await mediaClose;
         try { await serverClose; }
         catch (error) { closeError = error; }
         try { await managedServer?.stop(); }
@@ -2984,6 +3083,8 @@ export async function createPartner(config: Config, credentials: Credentials, de
         await inputAdmission;
         await admission;
         await eventChain;
+        await mediaWork.catch(() => undefined);
+        await mediaCleanup;
         await Promise.allSettled([...barkTasks]);
         listeners.clear();
         chatListeners.clear();

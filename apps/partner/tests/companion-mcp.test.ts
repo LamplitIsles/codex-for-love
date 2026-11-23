@@ -27,7 +27,7 @@ test('Companion MCP serves bounded journal tools over stdio', async () => {
   await client.connect(new StdioClientTransport({ command: process.execPath, args: [script, workspace], stderr: 'ignore' }));
   try {
     const tools = await client.listTools();
-    assert.deepEqual(tools.tools.map((tool) => tool.name).sort(), ['create_alarm', 'delete_alarm', 'edit_alarm', 'favorite_sticker', 'inspect_sticker', 'list_alarms', 'list_diary', 'list_pack_stickers', 'list_photos', 'list_sticker_favorites', 'list_sticker_packs', 'read_conversation_record', 'read_diary', 'read_relationship_history', 'roll_dice', 'search_conversation', 'search_stickers', 'send_sticker', 'send_ui', 'send_voice', 'set_signature', 'update_relationship', 'update_sticker_metadata']);
+    assert.deepEqual(tools.tools.map((tool) => tool.name).sort(), ['create_alarm', 'delete_alarm', 'edit_alarm', 'favorite_sticker', 'inspect_sticker', 'list_alarms', 'list_conversation_media', 'list_diary', 'list_pack_stickers', 'list_photos', 'list_sticker_favorites', 'list_sticker_packs', 'read_conversation_record', 'read_diary', 'read_relationship_history', 'roll_dice', 'search_conversation', 'search_stickers', 'send_sticker', 'send_ui', 'send_voice', 'set_signature', 'update_relationship', 'update_sticker_metadata']);
     assert.match(tools.tools.find(tool => tool.name === 'send_ui')?.description ?? '', /local tabs, media playback and modal opening/u);
     const uiTool = tools.tools.find(tool => tool.name === 'send_ui');
     const uiSchema = JSON.stringify(uiTool?.inputSchema);

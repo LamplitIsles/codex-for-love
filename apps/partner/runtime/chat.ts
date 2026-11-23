@@ -5,6 +5,7 @@ import type { Partner } from './partner.ts';
 import type { ConversationSearch } from './conversation-search.ts';
 import { WebSocketServer } from 'ws';
 import { createHash } from 'node:crypto';
+import { voiceMessageId } from './conversation-media.ts';
 
 export function createCodexChatBackend(partner: Partner, authorize: () => Promise<boolean> = async () => true, conversationSearch?: ConversationSearch, authorizeCommit?: () => boolean): ChatBackend {
   const cursors = panelCursors();
@@ -68,7 +69,7 @@ export function createCodexChatBackend(partner: Partner, authorize: () => Promis
             const message: ChatMessage & { ui: unknown } = { id: `ui:${createHash('sha256').update(JSON.stringify([r.turnId, slot.itemId])).digest('hex')}`, role: 'agent', text: '', ui: slot.ui, createdAt, operationId: null, turnId: r.turnId };
             ordered.push({ order, position: slot.position, message });
           } else if (slot.kind === 'voice' && slot.voiceId) {
-            ordered.push({ order, position: slot.position, message: { id: `voice:${createHash('sha256').update(JSON.stringify([r.id, slot.itemId, slot.voiceId])).digest('hex')}`, role: 'agent', text: '', voice: { id: slot.voiceId }, createdAt, operationId: null, turnId: r.turnId } });
+            ordered.push({ order, position: slot.position, message: { id: voiceMessageId(r.id, slot.itemId, slot.voiceId), role: 'agent', text: '', voice: { id: slot.voiceId }, createdAt, operationId: null, turnId: r.turnId } });
           }
         }
         if (['failed', 'interrupted', 'cancelled'].includes(r.chatStatus)) ordered.push({ order, position: Number.POSITIVE_INFINITY, message: { id: `${r.id}:status`, role: 'notice', text: r.chatStatus === 'failed' ? '回复失败' : '已停止回复', createdAt, operationId: null, turnId: r.turnId } });

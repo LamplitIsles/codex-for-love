@@ -694,6 +694,26 @@ URLs, with no filesystem paths. Preview and original use the existing image byte
 route; missing files remain visible as unavailable. The catalogue is reconciled
 against official conversation membership; viewing an arbitrary local file with a
 native tool does not register it. There is no thumbnail pipeline or new media store.
+
+The authenticated `GET /api/conversation-media?sessionId=<current>&kind=voice|file`
+lists visible conversation media newest first, 30 items per page. Its JSON result is
+`{items,nextCursor}`; pass a non-null cursor back with the same session and kind.
+Invalid, stale, or differently scoped cursors produce an error; restart at the first
+page. Each item has `messageId` and `createdAt` (epoch milliseconds), plus either
+`voice: {id}` or `file: {attachmentId,name,size,mediaType,availability}`. Voice
+items use `/api/audio/<id>.mp3`; files use `/api/chat/files/<attachmentId>`.
+Uploaded audio such as MP3 is a file, while voice contains standalone sent voice
+messages. Missing originals remain listed; availability is a lightweight check,
+and downloads still verify integrity. Staged and unaccepted inputs and workspace
+files are excluded. Responses are private and not cacheable.
+
+Companion MCP's `list_conversation_media` takes `kind` and an optional `cursor`
+and returns the same bounded membership and fields. Both readers use a derived
+session-scoped view rebuilt from native history at startup; an unavailable or
+incomplete view returns an error rather than an empty page. Cursors expire on
+restart. This view contains metadata only and does not register files inspected
+with native tools as conversation media. A private generation-specific lock
+keeps a stopped or failed publisher's snapshot unavailable to both readers.
 HTTP API reads reject foreign origins and cross-site browser requests. Browser sessions and native access tokens are checked on HTTP requests, WebSocket admission and chat calls; recovery and logout terminate revoked connections.
 
 Reminder schedules retain native once/daily/weekly meanings, UTC epoch-ms

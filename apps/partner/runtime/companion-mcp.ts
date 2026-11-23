@@ -12,6 +12,8 @@ import { partnerPaths } from './storage-paths.ts';
 import { synthesizeSpeech } from './speech.ts';
 import { elevenLabsSpeech } from './elevenlabs-voice.ts';
 import { pageConversationImages, readConversationImages, withAvailability } from './conversation-images.ts';
+import { readMediaPage } from './conversation-media.ts';
+import { join } from 'node:path';
 import { StickerCatalog, stickerMetadataSchema } from './sticker-catalog.ts';
 import { inspectStickerImage } from './sticker-image.ts';
 import { stickerToolDescriptions } from './sticker-tool-descriptions.ts';
@@ -56,6 +58,13 @@ server.registerTool('read_diary', { description: 'Read one dated memory diary en
 server.registerTool('list_photos', { description: 'List our shared photo library: human-sent, Agent-generated, and restored historical conversation images, newest first in bounded pages. Returned local paths may be inspected deliberately with native tools.', inputSchema: { limit: z.number().int().min(1).max(50).optional(), cursor: z.string().regex(/^[A-Za-z0-9_-]{54}$/u).optional() } }, async ({ limit, cursor }) => {
   const page = pageConversationImages(await withAvailability(await readConversationImages(conversationImages)), limit ?? 5, cursor);
   return { content: [{ type: 'text', text: JSON.stringify({ images: page.images.map(({ id, filename, path, created, origin, available }) => ({ id, filename, path, directory: dirname(path), created, origin, available })), ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}) }) }] };
+});
+server.registerTool('list_conversation_media', { description: 'List visible standalone voice messages or shared chat files in this conversation, newest first, 30 per page.', inputSchema: { kind: z.enum(['voice', 'file']), cursor: z.string().min(1).max(4096).optional() } }, async ({ kind, cursor }) => {
+  try {
+    const paths = partnerPaths(workspace);
+    const page = await readMediaPage(paths.conversationMedia, join(paths.managedRoot, 'thread.json'), undefined, kind, cursor);
+    return { content: [{ type: 'text' as const, text: JSON.stringify(page) }] };
+  } catch { return { content: [{ type: 'text' as const, text: 'Conversation media is unavailable or the cursor is invalid' }], isError: true }; }
 });
 server.registerTool('search_conversation', { description: 'Find text in our conversation records. Returns bounded highlighted excerpts; read a selected record for its full text and nearby context.', inputSchema: { query: z.string().trim().min(1).max(500), limit: z.number().int().min(1).max(20).optional() } }, async ({ query, limit }) => {
   try { return { content: [{ type: 'text' as const, text: JSON.stringify(await conversationSearch.search(query, limit ?? 5)) }] }; }

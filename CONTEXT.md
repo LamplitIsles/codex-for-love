@@ -83,6 +83,10 @@ _Avoid_: retained attachment, image snapshot, library image
 **Chat Image Library（聊天图片库）**:
 The shared, finite conversation-owned catalogue of Human-sent, Agent-generated, and restored Historical media images. Humans browse it in the drawer and Partners discover the same membership through bounded Companion MCP pages. Explicit native inspection never adds an item, and Historical media remains out of active context unless deliberately inspected.
 
+**Conversation Media Directory（聊天媒体目录）**:
+A categorized view of the Chat Image Library, sent Voice messages, and sent Chat file attachments in one conversation. An audio file sent as a file attachment belongs to Files; calls and files merely inspected in the workspace are outside the directory.
+_Avoid_: workspace file browser, saved-media collection
+
 **Sticker（表情）**:
 An image used as an expressive message by the Human or Partner. A Sticker may come from a Sticker pack, a conversation image, or an individual upload.
 _Avoid_: emoji reaction, Chat Image Library entry

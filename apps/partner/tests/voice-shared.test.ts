@@ -117,7 +117,8 @@ test('fake engine publishes voice over the shared socket and recovers it after r
   try {
     client = await connect();
     await partner.submit(crypto.randomUUID(), 'send voice');
-    await eventually(async () => (view?.messages.filter(message => message.voice).length ?? 0) === 30 && !!view?.before, 20_000);
+    await eventually(async () => (view?.messages.filter(message => message.voice).length ?? 0) === 30 && !!view?.before
+      && (await client!.history(view.before)).messages.filter(message => message.voice).length === 5, 20_000);
     let history = await client.history(view!.before!);
     assert.equal(history.messages.filter(message => message.voice).length, 5);
     const identity = new Map([...history.messages, ...view!.messages].flatMap(message => message.voice ? [[message.voice.id, message.id] as const] : []));

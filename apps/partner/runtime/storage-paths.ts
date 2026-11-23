@@ -10,6 +10,7 @@ export type PartnerPaths = Readonly<{
   attachments: string;
   audio: string;
   conversationImages: string;
+  conversationMedia: string;
 }>;
 
 /** Resolve the one managed subtree without changing the ordinary workspace. */
@@ -25,5 +26,6 @@ export function partnerPaths(workspace: string): PartnerPaths {
     attachments: join(managedRoot, 'attachments'),
     audio: join(managedRoot, 'audio'),
     conversationImages: join(managedRoot, 'conversation-images.json'),
+    conversationMedia: join(managedRoot, 'conversation-media.json'),
   };
 }

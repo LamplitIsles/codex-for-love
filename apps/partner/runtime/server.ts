@@ -45,8 +45,8 @@ function requestBody(request: IncomingMessage): ReadableStream<Uint8Array> {
     cancel() { cancelled = true; request.resume(); },
   });
 }
-function json(response: ServerResponse, value: unknown, status = 200) {
-  response.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+function json(response: ServerResponse, value: unknown, status = 200, cacheControl = 'no-store') {
+  response.writeHead(status, { 'content-type': 'application/json', 'cache-control': cacheControl });
   response.end(JSON.stringify(value));
 }
 export function createWebServer(partner: Partner, assets: string, options: { auth: AuthStore; keetReceiver?: string; heartbeatMs?: number; conversationSearch?: ConversationSearch }) {
@@ -97,7 +97,7 @@ export function createWebServer(partner: Partner, assets: string, options: { aut
     response.setHeader('x-frame-options', 'DENY');
     let human = false;
     const unauthorized = () => json(response, { error: { code: 'unauthorized', message: 'Sign in to continue.' } }, 401);
-    const humanJson = (value: unknown, status = 200) => stillAuthorized(request) ? json(response, value, status) : unauthorized();
+    const humanJson = (value: unknown, status = 200, cacheControl = 'no-store') => stillAuthorized(request) ? json(response, value, status, cacheControl) : unauthorized();
     try {
       const path = new URL(request.url ?? '/', 'http://localhost').pathname;
       if (path === '/api/post/events' && request.method === 'POST') response.once('close', () => processLog('post.receiver', { status: response.writableFinished ? response.statusCode : 0 }));
@@ -503,6 +503,12 @@ export function createWebServer(partner: Partner, assets: string, options: { aut
         const params = Object.fromEntries(new URL(request.url!, 'http://localhost').searchParams);
         const options = z.object({ limit: z.coerce.number().int().min(1).max(50).optional(), cursor: z.string().min(1).max(500).optional() }).strict().parse(params);
         return humanJson(await partner.conversationImages(options));
+      }
+      if (path === '/api/conversation-media' && request.method === 'GET') {
+        const query = new URL(request.url!, 'http://localhost').searchParams;
+        if ([...query.keys()].some(key => query.getAll(key).length !== 1)) throw new Error('Duplicate parameter');
+        const input = z.object({ sessionId: z.string().min(1).max(512), kind: z.enum(['voice', 'file']), cursor: z.string().min(1).max(4096).optional() }).strict().parse(Object.fromEntries(query));
+        return humanJson(await partner.conversationMedia(input.sessionId, input.kind, input.cursor), 200, 'private, no-store');
       }
       if (path.startsWith('/api/conversation-images/') && request.method === 'GET') {
         const id = z.string().regex(/^[a-f0-9]{64}$/u).parse(path.slice('/api/conversation-images/'.length));

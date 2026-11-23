@@ -133,6 +133,13 @@ function page(values, params) {
   return { data, nextCursor, backwardsCursor };
 }
 
+function brokenHydrationPage(values, params, fault) {
+  if (!values.length) throw new Error('Hydration fault fixture requires history');
+  if (!params.cursor) return { data: values.slice(0, 1), nextCursor: '1', backwardsCursor: '0' };
+  if (fault.endsWith('empty')) return { data: [], nextCursor: '2', backwardsCursor: null };
+  return { data: values.slice(0, 1), nextCursor: params.cursor === '1' ? '2' : '1', backwardsCursor: '0' };
+}
+
 function turnView(turn, itemsView) {
   const view = itemsView === 'notLoaded' || itemsView === 'summary' || itemsView === 'full' ? itemsView : 'summary';
   if (view === 'notLoaded') {
@@ -444,7 +451,9 @@ async function handle(request) {
         error.code = process.env.FAKE_HISTORY_ERROR_CODE ? Number(process.env.FAKE_HISTORY_ERROR_CODE) : -32603;
         throw error;
       }
-      const turns = state.turns.map((turn) => turnView(turn, p.itemsView));
+      const fault = control().historyHydrationFault;
+      const turns = state.turns.map((turn) => turnView(turn, fault?.startsWith('items-') ? 'summary' : p.itemsView));
+      if (fault?.startsWith('turns-')) return brokenHydrationPage(turns, p, fault);
       return page(turns, p);
     }
     case 'thread/items/list': {
@@ -455,6 +464,8 @@ async function handle(request) {
       const hidden = control().hiddenHistoryClientIds ?? [];
       const overrides = control().historyContentOverrides ?? {};
       const items = turns.flatMap((turn) => turn.items.filter(item => !hidden.includes(item.clientId)).map((item) => ({ turnId: turn.id, item: Object.hasOwn(overrides, item.clientId) ? { ...item, content: overrides[item.clientId] } : item })));
+      const fault = control().historyHydrationFault;
+      if (p.turnId && fault?.startsWith('items-')) return brokenHydrationPage(items, p, fault);
       return page(items, p);
     }
     case 'turn/start': {
