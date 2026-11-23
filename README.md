@@ -271,6 +271,12 @@ backend rules. The App supports playback of existing voice messages but does not
 provide voice recording or speech-to-text input; CFL no longer provides its
 former voice-input endpoints.
 
+The authenticated `GET /api/audio/<id>.mp3` serves generated voice audio with
+`Cache-Control: no-store` and `Accept-Ranges: bytes`. A full response is `200`
+with `Content-Length`; a single bounded, open-ended or suffix byte range returns
+`206` with `Content-Range` and `Content-Length`. Invalid, multiple or
+unsatisfiable ranges return `416` with `Content-Range: bytes */<size>`.
+
 The Companion header’s settings button changes language and appearance immediately without changing the conversation. These choices are browser-local preferences, not settings stored in the Partner configuration or workspace.
 
 Browser site settings own notification permission; the shared App requests it on the first trusted desktop click when permission is undecided. This requires HTTPS, `http://localhost`, or a `http://*.localhost` address; a plain HTTP LAN address cannot use browser notifications. When permission is granted, an open page that is hidden or unfocused announces each newly observed complete Partner message once, including multiple messages in one turn. Initial history, older-history reads and repeated message IDs stay silent. Notifications contain the Partner name and a localized generic notice, never reply content. Closing or suspending the page, losing its connection, browser permission or system Focus settings can prevent delivery. Physical system notification display remains user acceptance.

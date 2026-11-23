@@ -2,17 +2,18 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { WORKSPACE_MEDIA_CHUNK_BYTES, type openWorkspaceMedia } from './workspace-media.ts';
 
 type OpenMedia = NonNullable<Awaited<ReturnType<typeof openWorkspaceMedia>>>;
-function rangeOf(header: string, size: number): { start: number; end: number } | undefined {
-  const match = /^bytes=(\d*)-(\d*)$/u.exec(header);
+export function rangeOf(header: string, size: number): { start: number; end: number } | undefined {
+  if (size === 0) return;
+  const match = /^bytes=(\d*)-(\d*)$/iu.exec(header);
   if (!match || (!match[1] && !match[2])) return;
   if (!match[1]) {
-    const suffix = Number(match[2]);
-    if (!Number.isSafeInteger(suffix) || suffix <= 0) return;
-    return { start: Math.max(0, size - suffix), end: size - 1 };
+    const suffix = BigInt(match[2]!);
+    if (suffix === 0n) return;
+    return { start: suffix >= BigInt(size) ? 0 : size - Number(suffix), end: size - 1 };
   }
-  const start = Number(match[1]), end = match[2] ? Number(match[2]) : size - 1;
-  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start >= size || end < start) return;
-  return { start, end: Math.min(end, size - 1) };
+  const start = BigInt(match[1]), end = match[2] ? BigInt(match[2]) : BigInt(size - 1);
+  if (start >= BigInt(size) || end < start) return;
+  return { start: Number(start), end: end >= BigInt(size) ? size - 1 : Number(end) };
 }
 function waitDrain(response: ServerResponse): Promise<void> {
   return new Promise((resolve, reject) => {

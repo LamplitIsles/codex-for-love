@@ -58,6 +58,58 @@ test('independent service credentials do not authorize human requests', async ()
   } finally { await app.close(); await rm(root, { recursive: true, force: true }); }
 });
 
+test('audio HTTP ranges preserve bytes, no-store and authorization', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'cfl-audio-http-'));
+  const auth = new AuthStore(root, origin), id = 'a'.repeat(64);
+  const bytes = Buffer.from('0123456789abcdef');
+  let data: Buffer | undefined = bytes;
+  let holdRead = false, releaseRead: (() => void) | undefined, notifyRead: (() => void) | undefined;
+  const readStarted = new Promise<void>(resolve => { notifyRead = resolve; });
+  const readGate = new Promise<void>(resolve => { releaseRead = resolve; });
+  const partner = { close: async () => {}, audio: async (requestedId: string) => {
+    assert.equal(requestedId, id);
+    if (holdRead) { notifyRead!(); await readGate; }
+    return data;
+  } } as unknown as Partner;
+  const app = createWebServer(partner, root, { auth });
+  app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening');
+  const base = `http://127.0.0.1:${(app.server.address() as { port: number }).port}`, url = `${base}/api/audio/${id}.mp3`;
+  try {
+    assert.equal((await fetch(url, { headers: { range: 'bytes=0-1' } })).status, 401);
+    const cookie = await enroll(base, auth);
+    const get = (range?: string) => fetch(url, { headers: { cookie, ...(range === undefined ? {} : { range }) } });
+    const full = await get();
+    assert.equal(full.status, 200); assert.equal(full.headers.get('content-type'), 'audio/mpeg');
+    assert.equal(full.headers.get('cache-control'), 'no-store'); assert.equal(full.headers.get('accept-ranges'), 'bytes');
+    assert.equal(full.headers.get('content-length'), String(bytes.length)); assert.equal(full.headers.get('content-range'), null);
+    assert.deepEqual(Buffer.from(await full.arrayBuffer()), bytes);
+    for (const [header, start, end] of [['bytes=0-1', 0, 1], ['Bytes=0-1', 0, 1], ['bytes=5-', 5, 15], ['bytes=-4', 12, 15], ['bytes=10-100', 10, 15], ['bytes=-99', 0, 15], ['bytes=10-99999999999999999999', 10, 15], ['bytes=-99999999999999999999', 0, 15]] as const) {
+      const response = await get(header);
+      assert.equal(response.status, 206, header); assert.equal(response.headers.get('content-range'), `bytes ${start}-${end}/${bytes.length}`);
+      assert.equal(response.headers.get('content-length'), String(end - start + 1));
+      assert.equal(response.headers.get('accept-ranges'), 'bytes'); assert.equal(response.headers.get('cache-control'), 'no-store');
+      assert.deepEqual(Buffer.from(await response.arrayBuffer()), bytes.subarray(start, end + 1));
+    }
+    for (const header of ['bytes=16-', 'bytes=3-2', 'bytes=-0', 'bytes=-', 'bytes=0-1,3-4', 'items=0-1', 'bytes=9007199254740992-']) {
+      const response = await get(header);
+      assert.equal(response.status, 416, header); assert.equal(response.headers.get('content-range'), `bytes */${bytes.length}`);
+      assert.equal(response.headers.get('cache-control'), 'no-store'); assert.equal((await response.arrayBuffer()).byteLength, 0);
+    }
+    data = Buffer.alloc(0);
+    const empty = await get(); assert.equal(empty.status, 200); assert.equal(empty.headers.get('content-length'), '0');
+    assert.equal((await empty.arrayBuffer()).byteLength, 0);
+    for (const header of ['bytes=0-', 'bytes=-1']) {
+      const response = await get(header); assert.equal(response.status, 416); assert.equal(response.headers.get('content-range'), 'bytes */0');
+      await response.arrayBuffer();
+    }
+    data = undefined; assert.equal((await get()).status, 404);
+    data = bytes; holdRead = true;
+    const pending = get('bytes=0-1'); await readStarted;
+    assert.equal((await fetch(base + '/api/auth/sign-out', { method: 'POST', headers: { origin, cookie, 'content-type': 'application/json' }, body: '{}' })).status, 200);
+    releaseRead!(); assert.equal((await pending).status, 401);
+  } finally { releaseRead?.(); await app.close(); await rm(root, { recursive: true, force: true }); }
+});
+
 test('successful recovery closes existing authenticated chat and event connections', async () => {
   const { fixture } = await import('./fixture.ts');
   const f = await fixture();

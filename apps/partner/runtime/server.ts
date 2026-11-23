@@ -6,7 +6,7 @@ import { ModelPreferenceError } from './model-preference.ts';
 import { APPEARANCE_PATH, WORKSPACE_IMAGE_PATH } from '@lamplit/contracts';
 import { imageHttp, stickerHttp } from '@lamplit/contracts/server';
 import { createChatSocket } from './chat.ts';
-import { sendWorkspaceMedia } from './workspace-media-http.ts';
+import { rangeOf, sendWorkspaceMedia } from './workspace-media-http.ts';
 import { InvalidImageInput } from './images.ts';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { extname } from 'node:path';
@@ -516,7 +516,16 @@ export function createWebServer(partner: Partner, assets: string, options: { aut
         const audio = await partner.audio(id.slice(0, -4));
         if (!stillAuthorized(request)) return unauthorized();
         if (!audio) return json(response, { error: 'Audio not found' }, 404);
-        response.writeHead(200, { 'content-type': 'audio/mpeg', 'cache-control': 'no-store' }); response.end(audio); return;
+        const headers = { 'content-type': 'audio/mpeg', 'cache-control': 'no-store', 'accept-ranges': 'bytes' };
+        const requested = request.headers.range;
+        const range = requested === undefined ? undefined : rangeOf(requested, audio.length);
+        if (requested !== undefined && !range) {
+          response.writeHead(416, { ...headers, 'content-range': `bytes */${audio.length}` }); response.end(); return;
+        }
+        const data = range ? audio.subarray(range.start, range.end + 1) : audio;
+        response.writeHead(range ? 206 : 200, { ...headers, 'content-length': data.length,
+          ...(range ? { 'content-range': `bytes ${range.start}-${range.end}/${audio.length}` } : {}) });
+        response.end(data); return;
       }
       if (path.startsWith('/api/avatars/') && request.method === 'GET') {
         const kind = z.enum(['companion', 'user']).parse(path.slice('/api/avatars/'.length));

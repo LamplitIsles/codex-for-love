@@ -109,7 +109,7 @@ test('single ranges, weak conditions and descriptor-version preconditions are ex
     const initial = await fetch(f.url(name));
     const version = initial.headers.get('x-cfl-media-version')!, etag = initial.headers.get('etag')!;
     assert.match(version, /^[a-f0-9]{64}$/u); await initial.arrayBuffer();
-    for (const [header, start, end] of [['bytes=0-9', 0, 9], ['bytes=100-', 100, bytes.length - 1], ['bytes=-13', bytes.length - 13, bytes.length - 1], ['bytes=10-99999', 10, bytes.length - 1]] as const) {
+    for (const [header, start, end] of [['bytes=0-9', 0, 9], ['BYTES=0-9', 0, 9], ['bytes=100-', 100, bytes.length - 1], ['bytes=-13', bytes.length - 13, bytes.length - 1], ['bytes=10-99999', 10, bytes.length - 1]] as const) {
       const response = await fetch(f.url(name), { headers: { range: header, 'if-cfl-media-version': version } });
       assert.equal(response.status, 206); assert.equal(response.headers.get('content-range'), `bytes ${start}-${end}/${bytes.length}`);
       assert.equal(response.headers.get('content-length'), String(end - start + 1)); assert.equal(response.headers.get('x-cfl-media-version'), version);
