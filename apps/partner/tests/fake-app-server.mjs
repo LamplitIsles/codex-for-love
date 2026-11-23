@@ -479,6 +479,7 @@ async function handle(request) {
       state.effectiveEffort = p.effort ?? state.effectiveEffort ?? process.env.FAKE_BASELINE_EFFORT ?? (p.model === 'gpt-6.2-sol' ? 'low' : 'medium');
       state.turnEfforts = [...(state.turnEfforts ?? []), state.effectiveEffort];
       const turn = startTurn(p.input, p.clientUserMessageId);
+      while (control().holdStartResponse) await new Promise(resolve => setTimeout(resolve, 15));
       return { turn: process.env.FAKE_SUMMARY_START === 'true' ? turnView(turn, 'summary') : turn };
     }
     case 'turn/steer': return steerTurn(p);

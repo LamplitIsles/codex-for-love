@@ -76,6 +76,11 @@ export async function fixture(directoryRoot?: string) {
       await rename(next, controlPath);
     },
     holdProvider(value: boolean) { return writeFile(controlPath, JSON.stringify({ hold: value }), { mode: 0o600 }); },
+    async holdStartAndProvider(holdStartResponse: boolean, hold: boolean) {
+      const next = `${controlPath}.${crypto.randomUUID()}`;
+      await writeFile(next, JSON.stringify({ holdStartResponse, hold }), { mode: 0o600 });
+      await rename(next, controlPath);
+    },
     rejectStart(value: boolean) { return writeFile(controlPath, JSON.stringify({ rejectStart: value }), { mode: 0o600 }); },
     async holdCompaction(value: boolean, holdStart = false) {
       const next = `${controlPath}.${crypto.randomUUID()}`;

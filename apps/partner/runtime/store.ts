@@ -1000,16 +1000,34 @@ export class Store {
     });
   }
 
+  private readMessagePosition(ids: readonly string[]): { sequence: number; revision: number } {
+    if (!ids.length) return { sequence: 0, revision: 0 };
+    const row = this.db.prepare(`
+      SELECT COALESCE(MAX(m.sequence),0) AS sequence, COALESCE(MAX(r.revision),0) AS revision
+      FROM message_meta m JOIN message_revisions r ON r.message_id=m.id
+      WHERE m.id IN (${ids.map(() => '?').join(',')})
+    `).get(...ids) as { sequence: number; revision: number };
+    return { sequence: Number(row.sequence), revision: Number(row.revision) };
+  }
+
   async messagePosition(ids: readonly string[]): Promise<{ sequence: number; revision: number }> {
-    return this.transaction(() => {
-      if (!ids.length) return { sequence: 0, revision: 0 };
-      const row = this.db.prepare(`
-        SELECT COALESCE(MAX(m.sequence),0) AS sequence, COALESCE(MAX(r.revision),0) AS revision
-        FROM message_meta m JOIN message_revisions r ON r.message_id=m.id
-        WHERE m.id IN (${ids.map(() => '?').join(',')})
-      `).get(...ids) as { sequence: number; revision: number };
-      return { sequence: Number(row.sequence), revision: Number(row.revision) };
-    });
+    return this.transaction(() => this.readMessagePosition(ids));
+  }
+
+  async commitPresentationRevision(ids: readonly string[], canCommit: () => boolean, shouldTouchRevision: () => boolean): Promise<{ sequence: number; revision: number } | undefined> {
+    const stale = Symbol('stale presentation');
+    try {
+      return await this.transaction(() => {
+        if (!canCommit()) throw stale;
+        if (shouldTouchRevision()) for (const id of ids) {
+          if (this.db.prepare('SELECT 1 FROM message_meta WHERE id=?').get(id)) this.addRevision(id);
+        }
+        return this.readMessagePosition(ids);
+      }, () => { if (!canCommit()) throw stale; });
+    } catch (error) {
+      if (error === stale) return undefined;
+      throw error;
+    }
   }
 
   async touchMessage(id: string): Promise<void> {

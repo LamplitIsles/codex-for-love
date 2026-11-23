@@ -216,6 +216,10 @@ function isActiveTurn(turn: OfficialTurn | undefined): boolean {
   return turnStatus(turn) === 'inProgress' || turnStatus(turn) === 'in_progress' || turnStatus(turn) === 'active';
 }
 
+function isTerminalTurn(turn: OfficialTurn | undefined): boolean {
+  return ['completed', 'failed', 'interrupted', 'cancelled'].includes(turnStatus(turn));
+}
+
 function recordedTurnTime(value: unknown): number | undefined {
   const number = numberOrNull(value);
   if (number === null) return undefined;
@@ -633,6 +637,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
   const unresolvedInputIds = new Set<string>();
   const failedPostStarts = new Set<string>(); // Retry only after fresh native history on restart.
   const presentationFingerprints = new Map<string, string>();
+  const publishedTerminalTurns = new Set<string>();
   const turnControllers = new Map<string, AbortController>();
   let appServer: CodexAppServerClient | undefined;
   let managedServer: Awaited<ReturnType<typeof startManagedAppServer>> | undefined;
@@ -804,13 +809,13 @@ export async function createPartner(config: Config, credentials: Credentials, de
     if (!parsed) return undefined;
     const previous = turns.get(parsed.id);
     // A delayed start/read response cannot reopen an observed terminal attempt.
-    if (previous && ['completed', 'failed', 'interrupted', 'cancelled'].includes(turnStatus(previous)) && isActiveTurn(parsed)) return previous;
+    if (previous && isTerminalTurn(previous) && isActiveTurn(parsed)) return previous;
     const turn: OfficialTurn = { ...previous, ...parsed };
     // An in-progress RPC snapshot can arrive after a newer item notification.
     // Keep items already observed for this turn when that snapshot is shorter.
     if (previous?.items && (parsed.items === undefined || (parsed.status === 'inProgress' && parsed.items.length < previous.items.length))) turn.items = previous.items;
     turns.set(turn.id, turn);
-    if (['completed', 'failed', 'interrupted', 'cancelled'].includes(turnStatus(turn))) {
+    if (isTerminalTurn(turn)) {
       if (streaming?.turnId === turn.id) streaming = undefined;
       if (completedReply?.turnId === turn.id) completedReply = undefined;
       completedStreamItems.delete(turn.id);
@@ -1217,13 +1222,15 @@ export async function createPartner(config: Config, credentials: Credentials, de
         : { completedAt }),
     };
     const fingerprint = JSON.stringify(resultBody);
-    const previous = presentationFingerprints.get(turn.id);
+    // Native lifecycle, not the derived image-error status, decides whether an
+    // active candidate can still publish for this same turn.
+    const canCommit = () => !isActiveTurn(turn) || (!isTerminalTurn(turns.get(turn.id))
+      && !publishedTerminalTurns.has(turn.id));
+    const position = await store.commitPresentationRevision(sourceIds, canCommit, () => touchRevision && presentationFingerprints.get(turn.id) !== fingerprint);
+    if (!position || !canCommit()) return;
+    const result: TurnResult = { ...resultBody, ...position, revision: Math.max(position.revision, turnResults.get(turn.id)?.revision ?? 0) };
     presentationFingerprints.set(turn.id, fingerprint);
-    if (touchRevision && (previous === undefined || previous !== fingerprint)) {
-      for (const sourceId of sourceIds) await store.touchMessage(sourceId);
-    }
-    const position = await store.messagePosition(sourceIds);
-    const result: TurnResult = { ...resultBody, ...position };
+    if (isTerminalTurn(turn)) publishedTerminalTurns.add(turn.id);
     turnResults.set(turn.id, result);
     await updateMediaTurn(turn.id);
   }
@@ -1236,6 +1243,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
     turnInputs.clear();
     turnResults.clear();
     presentationFingerprints.clear();
+    publishedTerminalTurns.clear();
     try {
       for (const turn of nextTurns) {
         registerTurn(turn);

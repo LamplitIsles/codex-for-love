@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test, mock } from 'node:test';
 import { randomUUID } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -363,6 +363,74 @@ test('configured context round limit bounds the post-compact conversational tail
     assert.doesNotMatch(bootstrap.compact, /first retained round/);
     assert.equal((bootstrap.compact.match(/^Round /gm) ?? []).length, 1);
   } finally { await partner.close(); await f.close(); }
+});
+
+for (const boundary of ['before revision', 'after revision'] as const) test(`a delayed start projection cannot overwrite a completed native turn (${boundary})`, async () => {
+  const f = await fixture(); await f.holdStartAndProvider(true, true);
+  let partner = await f.createPartner();
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  let arrived!: () => void;
+  const ready = new Promise<void>(resolve => { arrived = resolve; });
+  let held = false;
+  const original = Store.prototype.markObserved;
+  let submission: Promise<void> | undefined;
+  try {
+    const id = randomUUID();
+    submission = partner.submit(id, 'generate image with missing image artifact');
+    await eventually(async () => (await partner.snapshot()).results.some(result => result.sourceIds.includes(id) && result.status === 'inProgress'));
+    if (boundary === 'before revision') {
+      mock.method(Store.prototype, 'markObserved', async function (this: Store, ...args: Parameters<Store['markObserved']>) {
+        await original.apply(this, args);
+        if (!held && args[0] === id) { held = true; arrived(); await gate; }
+      });
+    } else {
+      const position = Store.prototype.commitPresentationRevision;
+      mock.method(Store.prototype, 'commitPresentationRevision', async function (this: Store, ...args: Parameters<Store['commitPresentationRevision']>) {
+        const result = await position.apply(this, args);
+        if (!held && args[0].includes(id)) { held = true; arrived(); await gate; }
+        return result;
+      });
+    }
+    await f.holdStartAndProvider(false, true);
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([ready, new Promise<never>((_, reject) => { timeout = setTimeout(() => reject(new Error('start projection did not reach gate')), 10000); })]);
+    } finally { clearTimeout(timeout); }
+    await f.holdStartAndProvider(false, false);
+    await eventually(async () => {
+      const view = await partner.snapshot();
+      return view.messages[0]?.inputError === 'Native image artifact unavailable' && view.results[0]?.status === 'completed';
+    });
+    const completed = await partner.snapshot();
+    assert.deepEqual(completed.results[0]?.answers, ['已完成创作。']);
+    release();
+    await submission;
+    const after = await partner.snapshot();
+    assert.deepEqual(after.results[0], completed.results[0]);
+    assert.equal(after.messages[0]?.inputError, 'Native image artifact unavailable');
+    assert.equal(after.storageError, true);
+    await partner.close();
+    const store = new Store(partnerPaths(f.workspace).database);
+    try {
+      const outcome = await store.outcome(id);
+      assert.equal(outcome?.status, 'attachment-error');
+      assert.equal(outcome?.error, 'Native image artifact unavailable');
+      const before = await store.messagePosition([id]);
+      let checks = 0;
+      assert.equal(await store.commitPresentationRevision([id], () => ++checks === 1, () => true), undefined);
+      assert.equal(checks, 2);
+      assert.deepEqual(await store.messagePosition([id]), before);
+    } finally { await store.close(); }
+    partner = await f.createPartner();
+    assert.equal((await partner.snapshot()).messages[0]?.inputError, 'Native image artifact unavailable');
+  } finally {
+    release();
+    await f.holdStartAndProvider(false, false);
+    await submission?.catch(() => undefined);
+    mock.restoreAll();
+    await partner.close(); await f.close();
+  }
 });
 
 test('missing native image artifacts remain a durable local input error', async () => {
