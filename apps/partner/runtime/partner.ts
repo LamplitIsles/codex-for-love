@@ -2039,7 +2039,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
     const socketPath = config.codex.socket_path ?? join(paths.workspaceRoot, '.lamplit/run/codex.sock');
     managedServer = await startManagedAppServer(socketPath, selectedCodexPath, paths.workspaceRoot, environment, injected);
     appServer = new CodexAppServerClient({
-      transport: { type: 'unix', socketPath },
+      transport: { type: 'unix', socketPath, maxPayloadBytes: 256 * 1024 * 1024 },
       capabilities: { ...injected.capabilities, experimentalApi: true, requestAttestation: false },
       clientInfo: { ...injected.clientInfo, name: 'codex-for-love', title: 'Codex for Love', version: '0.1.0' },
       onUnhandledError: reportAppServerError,

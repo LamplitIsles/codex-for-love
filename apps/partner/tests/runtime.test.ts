@@ -65,6 +65,30 @@ test('official app-server owns the thread, native turns and history across an or
   } finally { await partner.close(); await f.close(); }
 });
 
+test('resumes the original thread with a large full native history page', async () => {
+  const f = await fixture(); let partner = await f.createPartner();
+  try {
+    const id = randomUUID(); await partner.submit(id, 'test-owned source');
+    await eventually(async () => (await partner.snapshot()).results.some(result => result.sourceIds.includes(id) && result.status === 'completed'));
+    const original = await partner.snapshot();
+    const answers = original.results.find(result => result.sourceIds.includes(id))!.answers;
+    assert.ok(answers.length > 0);
+    await partner.close();
+    f.appServer.env.FAKE_FULL_HISTORY_OUTPUT_BYTES = String(65 * 1024 * 1024);
+    partner = await f.createPartner();
+    const restored = await partner.snapshot();
+    assert.equal(restored.sessionId, original.sessionId);
+    assert.equal(restored.messages.find(message => message.id === id)?.input, 'test-owned source');
+    assert.deepEqual(restored.results.find(result => result.sourceIds.includes(id))?.answers, answers);
+    const requests = await f.requests();
+    const resume = requests.findIndex(request => request.method === 'thread/resume');
+    assert.ok(resume >= 0);
+    assert.equal((requests[resume]!.params as { threadId: string }).threadId, original.sessionId);
+    assert.ok(requests.slice(resume + 1).some(request => request.method === 'thread/turns/list' && (request.params as { itemsView?: string; cursor?: string }).itemsView === 'full' && !(request.params as { cursor?: string }).cursor));
+    assert.equal(requests.filter(request => request.method === 'thread/start').length, 1);
+  } finally { await partner.close(); await f.close(); }
+});
+
 test('a transient event snapshot cannot re-admit a known message or block the next send', async () => {
   const f = await fixture();
   f.appServer.env!.FAKE_TRANSIENT_MESSAGE_CONFLICT = 'true';

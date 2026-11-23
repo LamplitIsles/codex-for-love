@@ -454,7 +454,13 @@ async function handle(request) {
       const fault = control().historyHydrationFault;
       const turns = state.turns.map((turn) => turnView(turn, fault?.startsWith('items-') ? 'summary' : p.itemsView));
       if (fault?.startsWith('turns-')) return brokenHydrationPage(turns, p, fault);
-      return page(turns, p);
+      const result = page(turns, p);
+      const bytes = Number(process.env.FAKE_FULL_HISTORY_OUTPUT_BYTES ?? 0);
+      if (bytes && !p.cursor && p.itemsView === 'full' && result.data.length) {
+        const turn = result.data[0];
+        turn.items.push({ type: 'functionCallOutput', id: 'fixture-large-output', name: 'fixture', namespace: null, output: 'x'.repeat(bytes) });
+      }
+      return result;
     }
     case 'thread/items/list': {
       if (control().historyItemsError || control().command?.historyItemsError) rpcError(-32603, 'fixture history read failure');
