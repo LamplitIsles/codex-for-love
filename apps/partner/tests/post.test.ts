@@ -1125,10 +1125,13 @@ test('Post Keet discovery, durable wake and strict chat projection coexist with 
       { ...group, message: { ...group.message, account_id: 'qq-main' } },
     ]) assert.equal((await h.send(invalid)).status, 422);
     for (const [index, e] of all.entries()) {
+      const id = postInputId(post.endpoint, e);
       assert.equal((await h.send(e)).status, 202);
-      await eventually(async () => (await starts(f)).length === index + 1 && !(await partner.snapshot()).typing);
+      await eventually(async () => (await partner.snapshot()).results.some(result => result.status === 'completed' && result.sourceIds.includes(id)));
+      assert.equal((await starts(f)).length, index + 1);
     }
     const calls = await starts(f);
+    assert.deepEqual(calls.map(call => call.clientUserMessageId), all.map(e => postInputId(post.endpoint, e)));
     assert.equal(new Set(calls.map(call => call.threadId)).size, 1);
     const metadata = JSON.parse(contextValue(calls[0]!, 'codex-for-love.post-metadata'));
     assert.equal(metadata.platform, 'keet');
@@ -1139,7 +1142,11 @@ test('Post Keet discovery, durable wake and strict chat projection coexist with 
     assert.deepEqual(authored.content, group.message.content);
     assert.equal(calls[0]!.input.filter(part => part.type === 'localImage').length, 1);
     const view = await createCodexChatBackend(partner).read();
-    const source = (e: ReturnType<typeof event>) => view.messages.find(m => m.id === postInputId(post.endpoint, e))!;
+    const source = (e: ReturnType<typeof event>) => {
+      const message = view.messages.find(m => m.id === postInputId(post.endpoint, e));
+      assert.ok(message, `missing shared chat message for ${e.message.platform}`);
+      return message;
+    };
     assert.deepEqual(source(group).source, { kind: 'keet', channel: 'group', senderLabel: 'Sender Name', destination: 'Group Name' });
     assert.deepEqual(source(direct).source, { kind: 'keet', channel: 'dm', senderLabel: '未知发送者', destination: '未命名聊天' });
     assert.equal(source(group).images?.[0]?.availability, 'available');
