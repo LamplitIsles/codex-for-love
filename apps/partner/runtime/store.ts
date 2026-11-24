@@ -40,7 +40,7 @@ export class FileOperationRetired extends Error {
 export class FileOperationNotFound extends Error {
   constructor() { super('File operation not found'); }
 }
-export type StagedImages = { images: StoredImage[]; refs: ImageRef[]; variants: Array<({ preview: string; model: string } | { previewPath: string; modelPath: string }) & { stickerTags?: string[] }> };
+export type StagedImages = { images: StoredImage[]; refs: ImageRef[]; variants: Array<({ preview?: never; model?: never } | { preview: string; model: string } | { previewPath: string; modelPath: string }) & { stickerTags?: string[] }> };
 export type KeetDestination = { groupName: string; kind: 'group' | 'broadcast' | 'dm' };
 export type KeetGroupRecord = { senderLabel: string; text: string; replyTo?: { deviceId: string; seq: number } };
 export type KeetReactionContext = { targetMessageId: { deviceId: string; seq: number }; targetText: string; emoji: string; externalCount: number };
@@ -621,7 +621,7 @@ export class Store {
       return undefined;
     });
   }
-  async stagedMedia(id: string, sessionId: string): Promise<{ image: StoredImage; ref: ImageRef; preview: string; model: string; stickerTags?: string[] } | undefined> {
+  async stagedMedia(id: string, sessionId: string): Promise<{ image: StoredImage; ref: ImageRef; preview?: string; model?: string; stickerTags?: string[] } | undefined> {
     const entry = await this.transaction(() => {
       const rows = this.db.prepare('SELECT payload FROM staged_images WHERE session_id=?').all(sessionId) as Array<{ payload: string }>;
       for (const row of rows) {
@@ -633,7 +633,7 @@ export class Store {
     });
     if (!entry) return undefined;
     const variant = entry.variant;
-    if ('preview' in variant) return { image: entry.image, ref: entry.ref, ...variant };
+    if (!('previewPath' in variant)) return { image: entry.image, ref: entry.ref, ...variant };
     const readVariant = async (path: string, max: number) => {
       const file = await open(path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK);
       try { const stat = await file.stat(); if (!stat.isFile() || stat.size <= 0 || stat.size > max) throw new Error('Sticker variant unavailable'); const bytes = await file.readFile(); const match = /\.([a-f0-9]{64})\.(?:preview|model)\.jpg$/u.exec(path); if (bytes.length !== stat.size || !match || createHash('sha256').update(bytes).digest('hex') !== match[1]) throw new Error('Sticker variant changed'); return bytes.toString('base64'); }

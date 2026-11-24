@@ -1,4 +1,4 @@
-import { capabilities, mediaUrl, PAGE_SIZE, type ImageRef, type FileRef, type ChatMessage, type ChatView } from '@lamplit/contracts';
+import { capabilities, mediaUrl, albumImageThumbnailUrl, PAGE_SIZE, type ImageRef, type FileRef, type ChatMessage, type ChatView } from '@lamplit/contracts';
 import { createChatHost, type ChatBackend, type ChatChange } from '@lamplit/contracts/server';
 import { panelCursors } from './panel-cursor.ts';
 import type { Partner } from './partner.ts';
@@ -242,7 +242,7 @@ export function createCodexChatBackend(partner: Partner, authorize: () => Promis
       const cursor = cursors.decode('album', input.sessionId, input.cursor);
       const page = await partner.sharedAlbum({ limit: 30, cursor });
       return { images: page.images.map(image => ({ id: image.id, filename: image.filename, createdAt: image.created, origin: image.origin,
-        available: image.available, previewUrl: image.available ? mediaUrl(image.id) : null, originalUrl: image.available ? mediaUrl(image.id) : null })),
+        available: image.available, previewUrl: image.available ? albumImageThumbnailUrl(image.catalogueId) : null, originalUrl: image.available ? (image.id === image.catalogueId ? `/api/conversation-images/${image.catalogueId}` : mediaUrl(image.id)) : null })),
         nextCursor: page.nextCursor ? cursors.encode('album', input.sessionId, page.nextCursor) : null };
     },
     async reminders() {

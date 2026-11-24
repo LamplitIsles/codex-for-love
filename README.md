@@ -690,7 +690,9 @@ and cursor-based `read_relationship_history` (up to 20 records plus predecessor)
 as well as the existing bounded `list_photos` and `list_alarms`.
 
 Album metadata contains opaque IDs and same-origin `/api/conversation-images/`
-URLs, with no filesystem paths. Missing files remain visible as unavailable. The catalogue is reconciled
+URLs, with no filesystem paths. An optional `attachmentId` links a catalogue row
+to the same available managed chat attachment when its identity is verified.
+Missing files remain visible as unavailable. The catalogue is reconciled
 against official conversation membership; viewing an arbitrary local file with a
 native tool does not register it. Authenticated `GET /api/image-thumbnails/chat/{attachmentId}`
 returns a static WebP, contained within 512 pixels; `GET /api/image-thumbnails/album/{id}`

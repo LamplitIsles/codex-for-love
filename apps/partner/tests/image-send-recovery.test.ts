@@ -50,6 +50,8 @@ test('bounded authenticated HTTP staging is immutable, operation-owned and separ
     assert.equal((await partner.conversationImages()).images.length, 0);
     assert.equal((await f.requests()).filter(r => r.method === 'turn/start').length, 0);
     assert.deepEqual((await (await post(input)).json()), result);
+    const pair = input.images[0]!;
+    assert.deepEqual(await (await post({ ...input, images: [{ model: 'model' in pair ? pair.model : '', preview: 'preview' in pair ? pair.preview : '', id: pair.id, order: pair.order, name: pair.name, mediaType: pair.mediaType, original: pair.original }] })).json(), result);
     assert.deepEqual((await (await post({ images: input.images, operationId: input.operationId, sessionId: input.sessionId })).json()), result);
     assert.equal((await post({ ...input, images: [{ ...input.images[0], model: Buffer.from([255, 216, 255, 1]).toString('base64') }] })).status, 400);
     const media = `/api/chat/media/${id}/original`;

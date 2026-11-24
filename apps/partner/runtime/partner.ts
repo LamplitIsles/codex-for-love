@@ -10,7 +10,7 @@ import { postImage } from './post-assets.ts';
 import type { EventV1 } from './post-contract.ts';
 import { postEndpoint } from './config.ts';
 import { readWorkspaceImage } from './workspace-images.ts';
-import type { ThumbnailSource } from './image-thumbnails.ts';
+import { thumbnailIdentity, readThumbnailSource, type ThumbnailSource } from './image-thumbnails.ts';
 import { openWorkspaceMedia, type WorkspaceMediaKind } from './workspace-media.ts';
 import { StickerCatalog } from './sticker-catalog.ts';
 import { readStickerZip } from './sticker-import.ts';
@@ -404,6 +404,7 @@ async function nativeInput(input: string, images: readonly StoredImage[], store:
     if (!ref?.sticker) { values.push({ type: 'localImage', path: image.path }); continue; }
     const staged = await store.stagedMedia(image.id, sessionId);
     if (!staged) throw new Error('Sticker model frame unavailable');
+    if (!staged.model) throw new Error('Sticker model frame unavailable');
     const data = Buffer.from(staged.model, 'base64');
     if (!data.length || data.length > 320_000 || data[0] !== 255 || data[1] !== 216 || data[2] !== 255) throw new Error('Sticker model frame unavailable');
     const path = join(attachments, `${image.id}.model.jpg`);
@@ -2682,7 +2683,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
       const task = admission.then(async () => {
         if (closing || storageError || !await authorize()) throw new Error('Images unavailable');
         const raw = validateUpload(value, { ...imageLimits, mediaTypes: [...imageLimits.mediaTypes] });
-        const input: ImageUpload = { sessionId: raw.sessionId, operationId: raw.operationId, images: raw.images.map(({ id, order, name, mediaType, original, preview, model }) => ({ id, order, name, mediaType, original, preview, model })) };
+        const input: ImageUpload = { sessionId: raw.sessionId, operationId: raw.operationId, images: raw.images.map(image => ({ id: image.id, order: image.order, name: image.name, mediaType: image.mediaType, original: image.original, ...('preview' in image ? { preview: image.preview, model: image.model } : {}) })) };
         if (input.sessionId !== threadId) throw new Error('Wrong image session');
         const values = input.images.map(image => imageInputSchema.parse({ type: 'image', mediaType: image.mediaType, name: image.name, data: image.original }));
         if (values.some(image => /[\\/\x00-\x1f]/u.test(image.name ?? ''))) throw new Error('Invalid image name');
@@ -2690,7 +2691,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
         const refs: ImageRef[] = materialized.map(image => ({ attachmentId: image.id, name: image.name, mediaType: image.media_type, availability: 'available' }));
         const fingerprint = createHash('sha256').update(JSON.stringify(input)).digest('hex');
         if (!await authorize()) throw new Error('Image authorization changed');
-        await store.stageImages(input.operationId, threadId, fingerprint, { images: materialized.map(({ id, operation_id, name, media_type, path }) => ({ id, operation_id, name, media_type, path })), refs, variants: input.images.map(({ preview, model }) => ({ preview, model })) }, commitGuard(input.sessionId, authorizeCommit));
+        await store.stageImages(input.operationId, threadId, fingerprint, { images: materialized.map(({ id, operation_id, name, media_type, path }) => ({ id, operation_id, name, media_type, path })), refs, variants: input.images.map(image => 'preview' in image ? { preview: image.preview, model: image.model } : {}) }, commitGuard(input.sessionId, authorizeCommit));
         return { sessionId: threadId, operationId: input.operationId, images: refs.map((ref, order) => ({ id: input.images[order]!.id, order, ref })) };
       });
       admission = task.then(() => undefined, () => undefined);
@@ -2699,7 +2700,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
     async sharedMedia(id: string, variant: 'original' | 'preview' | 'model') {
       if (variant !== 'original') {
         const staged = await store.stagedMedia(id, threadId).catch(() => undefined);
-        return staged ? { bytes: Buffer.from(staged[variant], 'base64'), mediaType: 'image/jpeg' } : null;
+        return staged?.[variant] ? { bytes: Buffer.from(staged[variant], 'base64'), mediaType: 'image/jpeg' } : null;
       }
       const staged = await store.stagedImageRef(id, threadId);
       const metadata = staged?.image ?? await store.imageMetadata(id);
@@ -2747,12 +2748,34 @@ export async function createPartner(config: Config, credentials: Credentials, de
     async conversationImages(options: { limit?: number; cursor?: string } = {}) {
       await eventChain;
       const page = pageConversationImages(await withAvailability([...catalogue.values()]), options.limit ?? 5, options.cursor);
-      return { images: page.images.map(({ id, filename, mediaType, created, origin, available }) => ({ id, filename, mediaType, created, origin, available, url: `/api/conversation-images/${id}` })), ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}) };
+      const images = [];
+      for (const { id, filename, path, mediaType, created, origin, available } of page.images) {
+        const linked = available ? await store.imageAtPath(path) : undefined;
+        let attachmentId: string | undefined;
+        if (linked && /^[a-f0-9]{64}$/u.test(linked.id) && linked.media_type === mediaType &&
+            id === conversationImageId(origin, `${linked.operation_id}:${linked.id}`)) {
+          // Only stage records prove the original operation, position and byte identity.
+          const stage = await store.stagedImages(linked.operation_id, threadId);
+          const index = stage?.images.findIndex(image => image.id === linked.id) ?? -1;
+          const image = stage?.images[index], ref = stage?.refs[index];
+          if (image && ref && image.operation_id === linked.operation_id && image.path === path && image.name === linked.name && image.media_type === mediaType && ref.attachmentId === linked.id && ref.name === linked.name && ref.mediaType === mediaType) {
+            const file = await lstat(path).catch(() => undefined);
+            if (file?.isFile() && file.size > 0 && file.size <= imageLimits.maxImageBytes) {
+              const source = { path, noFollow: true, ...(ref.sticker ? { stickerVersion: ref.sticker.version } : {}) };
+              const identity = await thumbnailIdentity(source);
+              const bytes = identity ? await readThumbnailSource(source, identity) : undefined;
+              if (bytes && createHash('sha256').update(JSON.stringify([linked.operation_id, index, mediaType, linked.name])).update(bytes).digest('hex') === linked.id && await thumbnailIdentity(source) === identity) attachmentId = linked.id;
+            }
+          }
+        }
+        images.push({ id, filename, mediaType, created, origin, available, url: `/api/conversation-images/${id}`, ...(attachmentId ? { attachmentId } : {}) });
+      }
+      return { images, ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}) };
     },
     async sharedAlbum(options: { limit?: number; cursor?: string } = {}) {
       await eventChain;
       const page = pageConversationImages(await withAvailability([...catalogue.values()]), options.limit ?? 30, options.cursor);
-      return { images: await Promise.all(page.images.map(async image => ({ ...image, id: (await store.imageAtPath(image.path))?.id ?? image.id }))), nextCursor: page.nextCursor };
+      return { images: await Promise.all(page.images.map(async image => ({ ...image, catalogueId: image.id, id: (await store.imageAtPath(image.path))?.id ?? image.id }))), nextCursor: page.nextCursor };
     },
     async conversationImage(id: string) {
       const image = catalogue.get(id); if (!image) return undefined;

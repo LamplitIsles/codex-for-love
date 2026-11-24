@@ -52,6 +52,7 @@ test('completed Companion sticker call projects one GIF image and retains it aft
     const image = view.messages.find(message => message.role === 'agent' && message.images?.length)?.images?.[0]!;
     assert.deepEqual(image.sticker, { id: old.id, version: old.version });
     assert.equal(image.mediaType, 'image/gif');
+    assert.equal('animated' in image, false);
     assert.deepEqual((await partner.sharedMedia(image.attachmentId, 'original'))?.bytes, gif);
     assert.equal((await sharp(gif, { animated: true }).metadata()).pages, 2);
     const next = { ...manifest, stickers: [{ ...manifest.stickers[0]!, file: 'one.png' }] };
@@ -60,6 +61,7 @@ test('completed Companion sticker call projects one GIF image and retains it aft
     view = await createCodexChatBackend(partner).read();
     const restored = view.messages.find(message => message.role === 'agent' && message.images?.length)?.images?.[0]!;
     assert.deepEqual(restored.sticker, image.sticker);
+    assert.equal('animated' in restored, false);
     assert.deepEqual((await partner.sharedMedia(restored.attachmentId, 'original'))?.bytes, gif);
   } finally { catalog.close(); await f.close(); }
 });
@@ -121,7 +123,7 @@ test('authenticated Human ID staging submits a static native model frame and res
     assert.deepEqual(Buffer.from(await media.arrayBuffer()), gif);
     await eventually(async () => (await partner.lookupNativeDelivery(operationId))?.state === 'submitted');
     const view = await createCodexChatBackend(partner).read();
-    assert.deepEqual(view.messages.find(message => message.operationId === operationId)?.images?.[0]?.sticker, stage.sticker);
+    assert.deepEqual(view.messages.find(message => message.operationId === operationId)?.images?.[0], staged.image);
     await eventually(async () => (await partner.conversationImages()).images.length === 1);
     const favoriteBackend = partner.stickerBackend(async () => true, () => true);
     await assert.rejects(favoriteBackend.favoriteImage({ sessionId, imageId: 'a'.repeat(64), name: 'bad', tags: [] }, async () => true));
@@ -144,7 +146,7 @@ test('authenticated Human ID staging submits a static native model frame and res
     } finally { database.close(); }
     partner = await f.createPartner();
     const restored = await createCodexChatBackend(partner).read();
-    assert.deepEqual(restored.messages.find(message => message.operationId === operationId)?.images?.[0]?.sticker, stage.sticker);
+    assert.deepEqual(restored.messages.find(message => message.operationId === operationId)?.images?.[0], staged.image);
     assert.deepEqual((await partner.sharedMedia(staged.image.attachmentId, 'original'))?.bytes, gif);
   } finally { await app.close().catch(() => undefined); catalog.close(); await f.close(); }
 });
@@ -200,7 +202,9 @@ test('corrupted historical sticker original is reported missing instead of servi
     const sessionId = (await partner.snapshot()).sessionId, operationId = crypto.randomUUID();
     const staged = await partner.stickerBackend(async () => true, () => true).stage({ sessionId, operationId, sticker: { id: sticker.id, version: sticker.version } }, async () => true);
     await partner.submitNativeDelivery({ operationId, text: '', images: [staged.image] }); await eventually(async () => await f.consumed(operationId));
+    await eventually(async () => (await partner.conversationImages()).images.some(image => image.attachmentId === staged.image.attachmentId));
     await writeFile(imagePath(f.workspace, { id: staged.image.attachmentId, media_type: 'image/png' }), Buffer.concat([png, Buffer.from('changed')]));
+    assert.equal((await partner.conversationImages()).images.find(image => image.filename === staged.image.name)?.attachmentId, undefined);
     assert.equal((await partner.sharedImageRef(staged.image.attachmentId))?.availability, 'missing');
     assert.equal(await partner.sharedMedia(staged.image.attachmentId, 'original'), null);
   } finally { catalog.close(); await f.close(); }
