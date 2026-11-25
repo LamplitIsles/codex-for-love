@@ -1221,10 +1221,13 @@ test('retained Post provenance reaches source UI with original body media and ti
       e.message.sender.name = index === 0 ? '😀'.repeat(300) : index === 1 ? 'Owned direct peer' : index === 2 ? ' \n ' : 'Unrelated sender';
       e.message.content = [{ type: 'text', text: `Original body ${index}\nsecond line` }, { type: 'image', asset_id: 'ast_example' }];
       events.push(e);
+      const id = postInputId(post.endpoint, e);
       assert.equal((await h.send(e)).status, 202);
-      await eventually(async () => (await starts(f)).length === index + 1 && !(await partner.snapshot()).typing);
+      await eventually(async () => (await partner.snapshot()).results.some(result => result.status === 'completed' && result.sourceIds.includes(id)));
+      assert.equal((await starts(f)).length, index + 1);
       const view = await createCodexChatBackend(partner).read();
-      const message = view.messages.find(m => m.id === postInputId(post.endpoint, e))!;
+      const message = view.messages.find(m => m.id === id);
+      assert.ok(message, `missing shared chat message for ${id}`);
       assert.equal(message.source?.kind, 'post', 'real retained Post source is projected instead of an ordinary bubble');
       assert.deepEqual(message.source, { kind: 'post', platform, conversationType: e.message.conversation.type,
         conversationId: e.message.conversation.id, senderId: e.message.sender.native_id,
@@ -1236,6 +1239,7 @@ test('retained Post provenance reaches source UI with original body media and ti
       assert.equal(message.images![0]!.availability, 'available');
       expectedMessages.push(message);
     }
+    assert.deepEqual((await starts(f)).map(call => call.clientUserMessageId), events.map(e => postInputId(post.endpoint, e)));
     const reads = post.requests.filter(r => r.tool === 'list_conversations').length;
     const backend = createCodexChatBackend(partner);
     await backend.read();
