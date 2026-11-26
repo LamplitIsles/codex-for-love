@@ -9,6 +9,7 @@ import { test } from 'node:test';
 import { registryDecision, snapshotManifest, snapshotVersion, verifySnapshotArtifact } from './snapshot-publish.mjs';
 
 const old = 'a'.repeat(40); const current = 'b'.repeat(40);
+const expectedRegistry = 'https://code.sfang.space/api/packages/LamplitIsles/npm/';
 const version = snapshotVersion('0.1.0-beta.0', current);
 const oldVersion = snapshotVersion('0.1.0-beta.0', old);
 const ancestor = (a, b) => a === old && b === current || a === b;
@@ -131,6 +132,7 @@ test('snapshot publication authenticates against package metadata and fails clos
     execFileSync('git', ['-C', repo, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-q', '--allow-empty', '-m', 'next fixture'], { env });
     const sha = execFileSync('git', ['-C', repo, 'rev-parse', 'HEAD'], { env, encoding: 'utf8' }).trim();
     const manifest = snapshotManifest({ name: '@lamplitisles/codex-for-love', version: '0.1.0-beta.0' }, sha);
+    assert.equal(manifest.publishConfig.registry, expectedRegistry);
     await writeFile(join(repo, 'packages/codex-for-love/package.json'), JSON.stringify(manifest));
     await writeFile(join(root, 'package/package.json'), JSON.stringify(manifest));
     await writeFile(join(root, 'package/vendor/source.json'), JSON.stringify({ cfl: { sha } }));
@@ -143,14 +145,16 @@ globalThis.fetch = async (url, options) => {
   if (process.env.FIXTURE_STATUS === 'network') throw new Error('synthetic network failure');
   return new Response(process.env.FIXTURE_BODY || null, { status: Number(process.env.FIXTURE_STATUS) });
 };\n`);
-    await writeFile(join(bin, 'npm'), '#!/bin/sh\nprintf called > "$FIXTURE_PUBLISH"\nexit "${FIXTURE_NPM_EXIT:-0}"\n'); await chmod(join(bin, 'npm'), 0o700);
+    await writeFile(join(bin, 'npm'), '#!/bin/sh\nprintf "%s\\n" "$@" > "$FIXTURE_PUBLISH"\nexit "${FIXTURE_NPM_EXIT:-0}"\n'); await chmod(join(bin, 'npm'), 0o700);
     const script = fileURLToPath(new URL('./snapshot-publish.mjs', import.meta.url));
     const run = async (status, body, token = 'synthetic-token', npmExit = '0') => {
       await rm(requestLog, { force: true }); await rm(publishLog, { force: true });
       const result = spawnSync(process.execPath, ['--import', mock, script, 'publish', artifact], { cwd: repo, env: { ...env, CI_COMMIT_SHA: sha, FORGEJO_PACKAGES_TOKEN: token, FIXTURE_STATUS: status, FIXTURE_BODY: body ?? '', FIXTURE_NPM_EXIT: npmExit }, encoding: 'utf8' });
       const readOptional = async path => readFile(path, 'utf8').catch(error => { if (error.code === 'ENOENT') return null; throw error; });
-      const request = await readOptional(requestLog); const published = await readOptional(publishLog);
-      if (request) assert.deepEqual(JSON.parse(request), { url: 'https://forgejo.n5.guion.io/api/packages/LamplitIsles/npm/%40lamplitisles%2Fcodex-for-love', authorization: `Bearer ${token}`, redirect: 'error' });
+      const request = await readOptional(requestLog); const publishArgs = await readOptional(publishLog);
+      const published = publishArgs === null ? null : publishArgs.trimEnd().split('\n');
+      if (request) assert.deepEqual(JSON.parse(request), { url: `${expectedRegistry}%40lamplitisles%2Fcodex-for-love`, authorization: `Bearer ${token}`, redirect: 'error' });
+      if (published) assert.deepEqual(published, ['publish', artifact, '--registry', expectedRegistry, '--tag', 'latest']);
       return { ...result, request, published };
     };
     for (const token of ['', '   ', 'bad token', 'bad\ttoken', 'bad\r\ntoken', 'bad\u0085token', 'badé', 'bad\x01token']) {
@@ -161,7 +165,7 @@ globalThis.fetch = async (url, options) => {
       const result = await run(status, null, token);
       assert.notEqual(result.status, 0, status); assert.ok(result.request, status); assert.equal(result.published, null, status);
     }
-    const absent = await run('404'); assert.equal(absent.status, 0, absent.stderr); assert.equal(absent.published, 'called');
+    const absent = await run('404'); assert.equal(absent.status, 0, absent.stderr); assert.ok(absent.published);
     for (const metadata of [null, {}, [], { 'dist-tags': { latest: version } }, { versions: {}, 'dist-tags': { latest: version } }, { versions: [] }, { versions: 'bad' }, { versions: { example: {} } }, { versions: { example: {} }, 'dist-tags': null }, { versions: { example: {} }, 'dist-tags': [] }, { versions: { example: {} }, 'dist-tags': {} }, { versions: { example: {} }, 'dist-tags': { latest: null } }, { versions: { example: {} }, 'dist-tags': { latest: 'bad' } }]) {
       const result = await run('200', JSON.stringify(metadata));
       assert.notEqual(result.status, 0); assert.equal(result.published, null);
@@ -172,7 +176,7 @@ globalThis.fetch = async (url, options) => {
       assert.notEqual(result.status, 0); assert.equal(result.published, null);
     }
     const previous = JSON.stringify({ 'dist-tags': { latest: parentVersion }, versions: { [parentVersion]: {} } });
-    const existing = await run('200', previous); assert.equal(existing.status, 0, existing.stderr); assert.equal(existing.published, 'called');
+    const existing = await run('200', previous); assert.equal(existing.status, 0, existing.stderr); assert.ok(existing.published);
     const nonAncestor = await run('200', JSON.stringify({ 'dist-tags': { latest: oldVersion }, versions: { [oldVersion]: {} } })); assert.notEqual(nonAncestor.status, 0); assert.equal(nonAncestor.published, null);
     const matching = JSON.stringify({ 'dist-tags': { latest: manifest.version }, versions: { [manifest.version]: { dist: { integrity } } } });
     const retry = await run('200', matching); assert.equal(retry.status, 0, retry.stderr); assert.equal(retry.published, null);

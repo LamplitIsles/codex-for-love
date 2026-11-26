@@ -1,6 +1,11 @@
+import { olderMessages, startMessages } from './history-test-helpers.ts';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { once } from 'node:events';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { Store } from '../runtime/store.ts';
 import { WebSocketServer } from 'ws';
 import { createChatHost } from '@lamplit/contracts/server';
 import { openChat } from '@lamplit/contracts/client';
@@ -20,43 +25,49 @@ test('voice messages keep identity across edits, history windows and recovery', 
     ...result.images.map(item => ({ itemId: item.id, kind: 'image', imageId: item.id, imageState: 'ready', sourceIds: [] })),
     ...result.voices.map(item => ({ itemId: item.itemId, kind: 'voice', voiceId: item.id, sourceIds: [] })),
   ].map((item, position) => ({ ...item, position })) }] }), chatVisible: async () => true, sharedImageRef: async () => image, sharedImageLimits: async () => false, sharedFileLimits: async () => false, streamingReply: () => undefined, replyCompletion: () => undefined } as unknown as Partner;
+  const directory = await mkdtemp(join(tmpdir(), 'cfl-voice-index-'));
+  const store = new Store(join(directory, 'state.sqlite'));
+  Object.assign(partner, { historySession: () => 'session', historyStore: store, historyTurns: () => [], historyFence: async () => {}, subscribeHistory: () => () => {} });
   const backend = createCodexChatBackend(partner);
+  try {
   const collect = async () => {
     const latest = await backend.read();
     let before = latest.before, messages = latest.messages;
-    while (before) { const page = await backend.history(before); messages = [...page.messages, ...messages]; before = page.before; }
+    while (before) { const page = await olderMessages(backend, before); messages = [...page.messages, ...messages]; before = page.before; }
     return messages;
   };
   const initial = await collect();
-  assert.deepEqual(initial.filter(m => m.voice).map(m => m.voice!.id), ids);
+  assert.deepEqual(initial.filter(m => m.voice).map(m => m.voice!.id), ids.slice(-30));
   assert.equal(new Set(initial.map(m => m.id)).size, initial.length);
   const identity = new Map(initial.filter(m => m.voice).map(m => [m.voice!.id, m.id]));
   result.completedMessages.push({ id: 'answer', text: 'hello' }); result.images.push({ id: 'image' });
   result.voices.reverse();
   const mixed = await collect();
-  assert.equal(mixed.find(m => m.imageState === 'ready')?.images?.[0]?.attachmentId, 'image');
-  assert.deepEqual(mixed.filter(m => m.voice).map(m => m.voice!.id), [...ids].reverse());
-  for (const message of mixed.filter(m => m.voice)) assert.equal(message.id, identity.get(message.voice!.id));
+  assert.equal(mixed.some(m => m.imageState === 'ready'), false);
+  assert.deepEqual(mixed.filter(m => m.voice).map(m => m.voice!.id), [...ids].reverse().slice(-30));
+  for (const message of mixed.filter(m => m.voice)) if (identity.has(message.voice!.id)) assert.equal(message.id, identity.get(message.voice!.id));
   assert.deepEqual(await collect(), mixed);
+  } finally { await backend.historySync({ kind: 'start', sessionId: 'session' }).catch(() => {}); await store.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
 test('fake engine retains multiple voice identities through pagination, final text and restart', async () => {
   const f = await fixture(); f.appServer.env.FAKE_VOICE_COUNT = '35'; await f.holdVoiceFinal(true);
   let partner = await f.createPartner();
   const collect = async () => {
-    const backend = createCodexChatBackend(partner), view = await backend.read();
+    const backend = createCodexChatBackend(partner); await startMessages(backend); const view = await backend.read();
     let before = view.before, messages = view.messages;
-    while (before) { const page = await backend.history(before); messages = [...page.messages, ...messages]; before = page.before; }
+    while (before) { const page = await olderMessages(backend, before); messages = [...page.messages, ...messages]; before = page.before; }
     return messages;
   };
   try {
     await partner.submit(crypto.randomUUID(), 'send voice');
-    await eventually(async () => (await collect()).filter(message => message.voice).length === 35);
+    await eventually(async () => (await partner.snapshot()).results.some(result => result.voices.length === 35));
+    await f.holdVoiceFinal(false);
+    await eventually(async () => (await partner.snapshot()).results.some(result => result.chatStatus === 'completed'));
     const initial = await collect();
     const identity = new Map(initial.flatMap(message => message.voice ? [[message.voice.id, message.id] as const] : []));
     assert.equal(identity.size, 35);
     assert.equal(new Set(initial.map(message => message.id)).size, initial.length);
-    await f.holdVoiceFinal(false);
     await eventually(async () => (await collect()).some(message => message.role === 'agent' && message.text));
     const completed = await collect();
     for (const message of completed) if (message.voice) assert.equal(message.id, identity.get(message.voice.id));
@@ -117,20 +128,20 @@ test('fake engine publishes voice over the shared socket and recovers it after r
   try {
     client = await connect();
     await partner.submit(crypto.randomUUID(), 'send voice');
-    await eventually(async () => (view?.messages.filter(message => message.voice).length ?? 0) === 30 && !!view?.before
-      && (await client!.history(view.before)).messages.filter(message => message.voice).length === 5, 20_000);
-    let history = await client.history(view!.before!);
-    assert.equal(history.messages.filter(message => message.voice).length, 5);
+    await eventually(async () => (view?.messages.filter(message => message.voice).length ?? 0) === 30 && !view?.before, 20_000);
+    await f.holdVoiceFinal(false);
+    await eventually(async () => !!view?.before, 20_000);
+    let history = await olderMessages(client, view!.before!);
+    assert.equal(history.messages.filter(message => message.voice).length, 6);
     const identity = new Map([...history.messages, ...view!.messages].flatMap(message => message.voice ? [[message.voice.id, message.id] as const] : []));
     assert.equal(identity.size, 35);
-    await f.holdVoiceFinal(false);
     await eventually(async () => (await partner.snapshot()).results?.some(result => result.completedMessages.length > 0) === true);
     await eventually(async () => view!.messages.some(message => message.role === 'agent' && !!message.text));
-    history = await client.history(view!.before!);
+    history = await olderMessages(client, view!.before!);
     for (const message of [...history.messages, ...view!.messages]) if (message.voice) assert.equal(message.id, identity.get(message.voice.id));
     client.close(); host.close(); for (const socket of channels.keys()) socket.terminate();
     await partner.close(); partner = await f.createPartner(); host = await createChatHost(createCodexChatBackend(partner));
-    client = await connect(); history = await client.history(view!.before!);
+    client = await connect(); history = await olderMessages(client, view!.before!);
     assert.deepEqual([...history.messages, ...view!.messages].flatMap(message => message.voice ? [[message.voice.id, message.id] as const] : []), [...identity]);
   } finally {
     client?.close(); host.close(); for (const socket of channels.keys()) socket.terminate();

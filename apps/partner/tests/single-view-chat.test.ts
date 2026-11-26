@@ -1,3 +1,4 @@
+import { startMessages } from './history-test-helpers.ts';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { once } from 'node:events';
@@ -30,7 +31,7 @@ test('single shared view publishes raw reply updates and only materialized image
     const image = { type: 'imageGeneration', id: 'pending-picture', status: 'in_progress', revisedPrompt: 'fixture', result: '', failure: null, savedPath: null };
     await f.streamCommand({ action: 'timeline', entries: [{ method: 'item/started', item: image }] });
     await eventually(async () => (await partner.snapshot()).results.some(result => result.timeline.some(slot => slot.itemId === image.id)));
-    const during = await client.history(JSON.stringify({ before: 2 }));
+    const during = await startMessages(client);
     assert.equal(during.messages.some(message => message.imageState !== undefined), false, 'an unfinished image does not enter history');
     assert.equal(view!.messages.some(message => message.imageState !== undefined), false, 'an unfinished image does not enter the view');
     await f.streamCommand({ action: 'timeline', entries: [{ method: 'item/completed', item: { ...image, status: 'completed', result: fixtureImage.toString('base64') } }] });

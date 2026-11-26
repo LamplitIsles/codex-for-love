@@ -1,3 +1,4 @@
+import { olderMessages, startMessages } from './history-test-helpers.ts';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { mkdir, readFile, writeFile, unlink } from 'node:fs/promises';
@@ -52,8 +53,9 @@ test('HTTP and Companion discover the same visible media across pages and restar
     assert.equal(new Set(all.map(item => item.voice!.id)).size, 1);
     const mcpFirst = await companion('voice'), mcpSecond = await companion('voice', mcpFirst.nextCursor!);
     assert.deepEqual([...mcpFirst.items, ...mcpSecond.items], all);
-    const chat = createCodexChatBackend(partner); const view = await chat.read(); let before = view.before, messages = view.messages;
-    while (before) { const history = await chat.history(before); messages = [...history.messages, ...messages]; before = history.before; }
+    await eventually(async () => !(await partner.snapshot()).typing);
+    const chat = createCodexChatBackend(partner); await startMessages(chat); const view = await chat.read(); let before = view.before, messages = view.messages;
+    while (before) { const history = await olderMessages(chat, before); messages = [...history.messages, ...messages]; before = history.before; }
     assert.deepEqual(new Set(all.map(item => item.messageId)), new Set(messages.filter(message => message.voice).map(message => message.id)));
     await mkdir(join(f.workspace, '.lamplit', 'audio'), { recursive: true });
     await writeFile(join(f.workspace, '.lamplit', 'audio', `${all[0]!.voice!.id}.mp3`), 'voice');

@@ -1,3 +1,4 @@
+import { olderMessages, startMessages } from './history-test-helpers.ts';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -50,8 +51,9 @@ for (const count of [0, 35, 70]) test(`native text/image/voice/steering order su
   try {
     for (let restart = 0; restart < 2; restart++) {
       const partner = await f.createPartner(), backend = createCodexChatBackend(partner);
+      await startMessages(backend);
       const view = await backend.read(), messages = [...view.messages]; let before = view.before;
-      while (before) { const page = await backend.history(before); messages.unshift(...page.messages); before = page.before; }
+      while (before) { const page = await olderMessages(backend, before); messages.unshift(...page.messages); before = page.before; }
       if (count === 70) {
         const app = createWebServer(partner, join(f.directory, 'assets'));
         app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening');
@@ -62,11 +64,11 @@ for (const count of [0, 35, 70]) test(`native text/image/voice/steering order su
           await eventually(async () => !!socketView);
           const all = [...socketView!.messages]; let cursor = socketView!.before;
           while (cursor) {
-            const page = await client.history(cursor);
-            assert.ok(page.messages.length > 0 && page.messages.length <= 30);
+            const page = await olderMessages(client, cursor);
+            assert.ok(page.messages.length > 0 && page.messages.length <= 128);
             client.close(); socketView = undefined; client = await connect();
             await eventually(async () => !!socketView);
-            assert.deepEqual(await client.history(cursor), page, 'retained cursor is stable across reconnect');
+            assert.deepEqual(await olderMessages(client, cursor), page, 'retained cursor is stable across reconnect');
             all.unshift(...page.messages); cursor = page.before;
           }
           assert.equal(new Set(all.map(m => m.id)).size, all.length, 'shared history must not repeat turn entries');
@@ -99,68 +101,5 @@ test('shared socket publishes native input changes through the view', async () =
     await eventually(async () => view?.messages.some(message => message.role === 'agent') === true);
     assert.ok(view!.messages.some(message => message.operationId === operationId));
     assert.equal(frames.some(frame => JSON.parse(frame).type === 'timeline'), false);
-  } finally { client.close(); await app.close(); await f.close(); }
-});
-
-for (const [backlog, depth] of [[0, 0], [70, 0], [70, 1]] as const) test(`retained cursor stays exclusive when active turn gains a newer steer beyond its bound (${backlog} later admissions, ${depth} loaded pages)`, async () => {
-  const f = await fixture(); f.appServer.env.FAKE_STREAM_FIXTURE = 'true'; f.appServer.env.FAKE_TIMELINE_USER_START = 'true';
-  const paths = partnerPaths(f.workspace); await mkdir(paths.managedRoot, { recursive: true });
-  const store = new Store(paths.database);
-  const prior = Array.from({ length: 65 }, (_, i) => ({ type: 'agentMessage', id: `prior-answer-${i}`, text: `prior reply ${i}`, phase: 'commentary' }));
-  try {
-    await store.admit('active-input', 'active initial input');
-    await store.recordTimelineSlot('thread-fake', 'growing-turn', 'native-active-input', 'user');
-    for (const item of prior) {
-      await store.markChatItemCompleted('growing-turn', item.id);
-      await store.recordTimelineSlot('thread-fake', 'growing-turn', item.id, 'text');
-    }
-    await store.recordTimelineSlot('thread-fake', 'growing-turn', 'pending-answer', 'text');
-    // Old unresolved admissions remain hidden and are never replayed.
-    for (let i = 0; i < backlog; i++) await store.admit(`queued-${i}`, `queued input ${i}`);
-  } finally { await store.close(); }
-  const turn = { id: 'growing-turn', status: 'inProgress', startedAt: 1700000000, items: [
-    { type: 'userMessage', id: 'native-active-input', clientId: 'active-input', content: [{ type: 'text', text: 'active initial input' }] },
-    ...prior, { type: 'agentMessage', id: 'pending-answer', text: '', phase: 'final_answer' },
-  ] };
-  await writeFile(f.appServer.env.FAKE_SERVER_STATE!, JSON.stringify({ threadId: 'thread-fake', next: 100, active: turn.id, streamingItem: 'pending-answer', turns: [turn] }));
-  const partner = await f.createPartner(); const app = createWebServer(partner, join(f.directory, 'assets'));
-  app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening');
-  let view: ChatView | undefined;
-  const connect = () => openChat(new WebSocket(`ws://127.0.0.1:${(app.server.address() as { port: number }).port}/api/chat/socket`), value => { view = value; }, () => {});
-  let client = await connect();
-  try {
-    await eventually(async () => !!view?.before);
-    const original = view!, loaded = [...original.messages];
-    let cursor = original.before!;
-    for (let i = 0; i < depth; i++) {
-      const page = await client.history(cursor); loaded.unshift(...page.messages); cursor = page.before!;
-    }
-    const cursorBeforeSequence = JSON.parse(cursor).before;
-    const steer = crypto.randomUUID(); await client.submit({ operationId: steer, text: 'steer after retained cursor' }).catch(() => {});
-    await eventually(async () => (await partner.snapshot()).messages.some(message => message.id === steer));
-    assert.ok((await partner.snapshot()).messages.find(message => message.id === steer)!.sequence >= cursorBeforeSequence);
-    await f.streamCommand({ action: 'next' });
-    await f.streamCommand({ action: 'complete', text: 'after retained-cursor steer' });
-    await eventually(async () => view?.activeTurnId === null);
-    const fresh = [...view!.messages]; let before = view!.before;
-    while (before) { const page = await client.history(before); fresh.unshift(...page.messages); before = page.before; }
-    const retained = [...view!.messages];
-    const liveIds = new Set(retained.map(message => message.id));
-    // Mirror the shared UI's retention of messages evicted by a live refresh.
-    retained.unshift(...loaded.filter(message => !liveIds.has(message.id)));
-    before = cursor;
-    while (before) {
-      const page = await client.history(before);
-      assert.ok(page.messages.length > 0 && page.messages.length <= 30);
-      client.close(); view = undefined; client = await connect();
-      await eventually(async () => !!view);
-      assert.deepEqual(await client.history(before), page, 'retained cursor is stable after refresh/reconnect');
-      retained.unshift(...page.messages); before = page.before;
-    }
-    assert.equal(new Set(retained.map(message => message.id)).size, retained.length, 'retained history and refreshed live pages are exclusive');
-    assert.deepEqual(retained.map(message => message.id), fresh.map(message => message.id), 'retained cursor must not omit a new steer from its native timeline');
-    const native = fresh.filter(message => message.turnId === turn.id);
-    assert.deepEqual(native.map(message => message.text), ['active initial input', ...prior.map(item => item.text), 'steer after retained cursor', 'after retained-cursor steer']);
-    assert.equal((await f.requests()).filter(request => request.method === 'turn/start').length, 0, 'unresolved admissions are never replayed');
   } finally { client.close(); await app.close(); await f.close(); }
 });

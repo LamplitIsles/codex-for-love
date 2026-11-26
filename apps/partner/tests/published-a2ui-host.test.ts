@@ -1,3 +1,4 @@
+import { olderMessages } from './history-test-helpers.ts';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { once } from 'node:events';
@@ -72,13 +73,13 @@ test('published shared host preserves valid and damaged UI through history, reco
       const connect = () => openChat(new WebSocket(url), value => { view = value; }, () => {});
       let client = await connect();
       try {
-        await eventually(async () => !!view);
+        await eventually(async () => !!view?.before);
         const messages = [...view!.messages]; let cursor = view!.before;
         while (cursor) {
-          const retained = cursor, page = await client.history(retained);
-          assert.ok(page.messages.length && page.messages.length <= 30);
+          const retained = cursor, page = await olderMessages(client, retained);
+          assert.ok(page.messages.length && page.messages.length <= 128);
           client.close(); view = undefined; client = await connect(); await eventually(async () => !!view);
-          assert.deepEqual(await client.history(retained), page);
+          assert.deepEqual(await olderMessages(client, retained), page);
           messages.unshift(...page.messages); cursor = page.before;
         }
         const mixed = messages.filter(message => message.turnId === turnId);

@@ -1,3 +1,4 @@
+import { olderMessages, startMessages } from './history-test-helpers.ts';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { once } from 'node:events';
@@ -40,14 +41,14 @@ for (const rounds of [16, 31]) for (const advance of [0, 11]) test(`older histor
     const anchor = pages[0]![0]!.operationId!;
     assert.equal((await partner.snapshot()).messages.some(m => m.id === anchor), advance === 0);
     assert.equal((await partner.snapshot({ before: originalBoundary })).messages.some(m => m.id === anchor), true);
-    const firstPage = await client.history(before!);
+    const firstPage = await olderMessages(client, before!);
     client.close(); view = undefined; client = await connect();
     await eventually(async () => !!view?.before);
-    assert.deepEqual(await client.history(before!), firstPage, 'the retained history cursor also works after reconnect');
+    assert.deepEqual(await olderMessages(client, before!), firstPage, 'the retained history cursor also works after reconnect');
     while (before) {
-      const page = await client.history(before);
+      const page = await olderMessages(client, before);
       assert.ok(page.messages.length > 0);
-      assert.ok(page.messages.length <= 30);
+      assert.ok(page.messages.length <= 128);
       pages.unshift(page.messages);
       before = page.before;
     }
@@ -86,7 +87,7 @@ test('real Node host and official SDK: completed messages, duplicate admission, 
     const target = view!.activeTurnId!;
     assert.equal((await client.stop(target)).stopped, true);
     await eventually(async () => !!view?.messages.some(m => m.turnId === target && m.role === 'notice' && m.text === '已停止回复'));
-    assert.equal((await client.history(JSON.stringify({ before: 0 }))).messages.length, 0);
+    assert.ok((await startMessages(client)).messages.some(message => message.turnId === target && message.role === 'notice'));
   } finally { client.close(); await app.close(); await f.close(); }
 });
 

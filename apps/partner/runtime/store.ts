@@ -1,7 +1,7 @@
 import { postInput, postInputId, postPresentation } from './post.ts';
 import type { EventV1 } from './post-contract.ts';
 import { type MatrixEvent, type MatrixContext } from './matrix.ts';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { open, readFile } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
@@ -12,6 +12,15 @@ import type { CompactBoundary, ContextObservation } from './continuity.ts';
 
 /** UI/domain metadata only. Official Codex owns the conversation transcript. */
 export type MessageMeta = { id: string; created: number; sequence: number; revision: number };
+export type HistoryIndexInput = { messageId: string; turnId: string | null; stable: string };
+export type HistoryIndexEntry = { ordinal: number; messageId: string; turnId: string | null; prefixHash: string };
+export type HistoryIndexState = { historyId: string; head: number; prefixHash: string };
+export function historySeed(sessionId: string, historyId: string): string {
+  return createHash('sha256').update(JSON.stringify(['cfl-history-v1', sessionId, historyId])).digest('hex');
+}
+export function historyPrefix(previous: string, item: HistoryIndexInput): string {
+  return createHash('sha256').update(Buffer.from(previous, 'hex')).update(JSON.stringify([item.messageId, item.turnId, item.stable])).digest('hex');
+}
 export type PendingMessage = MessageMeta & { input: string };
 export type DeliveryAttempt = { attempt: number; state: 'unknown' | 'failed' | 'accepted' };
 export type StoredInput = { input: string; images: StoredImage[] };
@@ -147,6 +156,21 @@ export class Store {
           PRIMARY KEY(session_id,turn_id,item_id),
           UNIQUE(session_id,turn_id,position)
         );
+        CREATE TABLE IF NOT EXISTS chat_history_generations (
+          session_id TEXT NOT NULL PRIMARY KEY CHECK(length(session_id) > 0),
+          history_id TEXT NOT NULL CHECK(length(history_id) > 0)
+        );
+        CREATE TABLE IF NOT EXISTS chat_history_entries (
+          session_id TEXT NOT NULL REFERENCES chat_history_generations(session_id) ON DELETE CASCADE,
+          ordinal INTEGER NOT NULL CHECK(typeof(ordinal) = 'integer' AND ordinal BETWEEN 1 AND 9007199254740991),
+          message_id TEXT NOT NULL CHECK(length(message_id) > 0),
+          turn_id TEXT,
+          prefix_hash BLOB NOT NULL CHECK(typeof(prefix_hash) = 'blob' AND length(prefix_hash) = 32),
+          PRIMARY KEY(session_id,ordinal),
+          UNIQUE(session_id,message_id)
+        );
+        CREATE INDEX IF NOT EXISTS chat_history_entries_turn ON chat_history_entries(session_id,turn_id,ordinal)
+          WHERE turn_id IS NOT NULL;
         CREATE TABLE IF NOT EXISTS message_meta (
           sequence INTEGER PRIMARY KEY AUTOINCREMENT,
           id TEXT NOT NULL UNIQUE,
@@ -421,6 +445,71 @@ export class Store {
   }
   async timelineSlots(sessionId: string, turnId: string): Promise<Array<{ itemId: string; kind: 'user' | 'text' | 'image' | 'voice' | 'ui'; position: number }>> {
     return this.transaction(() => (this.db.prepare('SELECT item_id,kind,position FROM chat_timeline_slots WHERE session_id=? AND turn_id=? ORDER BY position').all(sessionId, turnId) as Array<{ item_id: string; kind: 'user' | 'text' | 'image' | 'voice' | 'ui'; position: number }>).map(row => ({ itemId: row.item_id, kind: row.kind, position: row.position })));
+  }
+
+  /** Reconcile the full finalized projection once after native history hydration. */
+  async reconcileHistoryIndex(sessionId: string, items: readonly HistoryIndexInput[]): Promise<HistoryIndexState> {
+    return this.transaction(() => {
+      const generation = this.db.prepare('SELECT history_id FROM chat_history_generations WHERE session_id=?').get(sessionId) as { history_id: string } | undefined;
+      const rows = this.db.prepare('SELECT ordinal,message_id,turn_id,prefix_hash FROM chat_history_entries WHERE session_id=? ORDER BY ordinal').all(sessionId) as Array<{ ordinal: number; message_id: string; turn_id: string | null; prefix_hash: Uint8Array }>;
+      let historyId = generation?.history_id ?? randomUUID();
+      let previous = historySeed(sessionId, historyId);
+      let compatible = !!generation && rows.length <= items.length;
+      for (let i = 0; i < items.length && compatible; i++) {
+        const item = items[i]!; previous = historyPrefix(previous, item);
+        const row = rows[i];
+        if (row && (row.ordinal !== i + 1 || row.message_id !== item.messageId || row.turn_id !== item.turnId || Buffer.from(row.prefix_hash).toString('hex') !== previous)) compatible = false;
+      }
+      if (!compatible) {
+        historyId = randomUUID();
+        this.db.prepare('DELETE FROM chat_history_generations WHERE session_id=?').run(sessionId);
+        this.db.prepare('INSERT INTO chat_history_generations(session_id,history_id) VALUES(?,?)').run(sessionId, historyId);
+      }
+      previous = historySeed(sessionId, historyId);
+      const insert = this.db.prepare('INSERT INTO chat_history_entries(session_id,ordinal,message_id,turn_id,prefix_hash) VALUES(?,?,?,?,?)');
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i]!; previous = historyPrefix(previous, item);
+        if (!compatible || i >= rows.length) insert.run(sessionId, i + 1, item.messageId, item.turnId, Buffer.from(previous, 'hex'));
+      }
+      return { historyId, head: items.length, prefixHash: previous };
+    });
+  }
+
+  /** Append only when the caller's observed head is still the committed head. */
+  async appendHistoryIndex(sessionId: string, expected: HistoryIndexState, items: readonly HistoryIndexInput[]): Promise<HistoryIndexState> {
+    return this.transaction(() => {
+      const generation = this.db.prepare('SELECT history_id FROM chat_history_generations WHERE session_id=?').get(sessionId) as { history_id: string } | undefined;
+      const tail = this.db.prepare('SELECT ordinal,prefix_hash FROM chat_history_entries WHERE session_id=? ORDER BY ordinal DESC LIMIT 1').get(sessionId) as { ordinal: number; prefix_hash: Uint8Array } | undefined;
+      const hash = tail ? Buffer.from(tail.prefix_hash).toString('hex') : generation ? historySeed(sessionId, generation.history_id) : '';
+      if (!generation || generation.history_id !== expected.historyId || (tail?.ordinal ?? 0) !== expected.head || hash !== expected.prefixHash) throw new Error('History index changed during append');
+      const insert = this.db.prepare('INSERT INTO chat_history_entries(session_id,ordinal,message_id,turn_id,prefix_hash) VALUES(?,?,?,?,?)');
+      let previous = hash;
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i]!; previous = historyPrefix(previous, item);
+        insert.run(sessionId, expected.head + i + 1, item.messageId, item.turnId, Buffer.from(previous, 'hex'));
+      }
+      return { historyId: generation.history_id, head: expected.head + items.length, prefixHash: previous };
+    });
+  }
+
+  async historyIndexState(sessionId: string): Promise<HistoryIndexState | undefined> {
+    return this.transaction(() => {
+      const generation = this.db.prepare('SELECT history_id FROM chat_history_generations WHERE session_id=?').get(sessionId) as { history_id: string } | undefined;
+      if (!generation) return undefined;
+      const tail = this.db.prepare('SELECT ordinal,prefix_hash FROM chat_history_entries WHERE session_id=? ORDER BY ordinal DESC LIMIT 1').get(sessionId) as { ordinal: number; prefix_hash: Uint8Array } | undefined;
+      return { historyId: generation.history_id, head: tail?.ordinal ?? 0, prefixHash: tail ? Buffer.from(tail.prefix_hash).toString('hex') : historySeed(sessionId, generation.history_id) };
+    });
+  }
+
+  async historyIndexEntries(sessionId: string, after: number, through: number, limit: number, descending = false): Promise<HistoryIndexEntry[]> {
+    return this.transaction(() => (this.db.prepare(`SELECT ordinal,message_id,turn_id,prefix_hash FROM chat_history_entries WHERE session_id=? AND ordinal>? AND ordinal<=? ORDER BY ordinal ${descending ? 'DESC' : 'ASC'} LIMIT ?`).all(sessionId, after, through, limit) as Array<{ ordinal: number; message_id: string; turn_id: string | null; prefix_hash: Uint8Array }>).map(row => ({ ordinal: Number(row.ordinal), messageId: row.message_id, turnId: row.turn_id, prefixHash: Buffer.from(row.prefix_hash).toString('hex') })));
+  }
+
+  async historyIndexPosition(sessionId: string, messageId: string): Promise<HistoryIndexEntry | undefined> {
+    return this.transaction(() => {
+      const row = this.db.prepare('SELECT ordinal,message_id,turn_id,prefix_hash FROM chat_history_entries WHERE session_id=? AND message_id=?').get(sessionId, messageId) as { ordinal: number; message_id: string; turn_id: string | null; prefix_hash: Uint8Array } | undefined;
+      return row && { ordinal: Number(row.ordinal), messageId: row.message_id, turnId: row.turn_id, prefixHash: Buffer.from(row.prefix_hash).toString('hex') };
+    });
   }
 
   private async revision(): Promise<number> {

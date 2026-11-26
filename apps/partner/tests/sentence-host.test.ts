@@ -1,3 +1,4 @@
+import { olderMessages } from './history-test-helpers.ts';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
@@ -29,7 +30,7 @@ test('sentence controls exercise native ingress, held execution, privacy, sessio
     await eventually(async () => !!view?.before);
     assert.equal(JSON.stringify(view).includes(privateSentinel), false);
     assert.equal(view!.messages.some(m => m.thinking), false);
-    const older = await client.history(view!.before!);
+    const older = await olderMessages(client, view!.before!, view!.sessionId);
     assert.ok(older.messages.some(m => m.text === '更早第一行。\n更早第二行。'), 'one real older page reaches the approved older marker');
     assert.equal(JSON.stringify(older).includes(privateSentinel), false);
     const start = await control('start', 'first\r'); assert.equal(start.held, true);

@@ -1,3 +1,4 @@
+import { startMessages } from './history-test-helpers.ts';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { mkdir, rm, rmdir, symlink, writeFile } from 'node:fs/promises';
@@ -128,9 +129,10 @@ for (const kind of ['once', 'interval'] as const) for (const lateness of [59000,
         const message = (await backend.read()).messages.find(m => m.id === id)!;
         assert.equal(message.text, 'immutable reminder');
         assert.deepEqual(message.source, { kind: 'reminder', reminderId: alarm.id, occurrenceId: id });
-        assert.ok((await backend.history(JSON.stringify({}))).messages.some(m => m.id === id && m.source?.kind === 'reminder'));
+        assert.equal((await startMessages(backend)).messages.some(m => m.id === id), false);
         await partner.checkAlarms(); assert.equal((await f.requests()).filter(r => r.method === 'turn/start').length, 1);
         await f.holdProvider(false); await eventually(async () => (await partner.snapshot()).results.some(r => r.chatStatus === 'completed'));
+        await eventually(async () => (await startMessages(backend)).messages.some(m => m.id === id && m.source?.kind === 'reminder'));
         // A reminder occurrence is not a Human submission and carries no delivery
         // receipt. Observable here: the fake engine recorded a native user item
         // for this occurrence, and its source stays stable through the shared read.

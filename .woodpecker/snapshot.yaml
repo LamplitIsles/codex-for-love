@@ -41,7 +41,7 @@ steps:
         auth_file="$$(mktemp)"
         trap 'rm -f "$${auth_file}"' EXIT
         chmod 600 "$${auth_file}"
-        printf '%s\n' '//forgejo.n5.guion.io/api/packages/LamplitIsles/npm/:_authToken=$${FORGEJO_PACKAGES_TOKEN}' > "$${auth_file}"
+        printf '%s\n' '//code.sfang.space/api/packages/LamplitIsles/npm/:_authToken=$${FORGEJO_PACKAGES_TOKEN}' > "$${auth_file}"
         export NPM_CONFIG_USERCONFIG="$${auth_file}"
         node scripts/snapshot-publish.mjs stage
         cmp packages/codex-for-love/package.json .snapshot-artifacts/staged-package.json

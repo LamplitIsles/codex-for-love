@@ -36,7 +36,7 @@ await withRoutingWorkspace(async ({ root, check, listen, run }) => {
   const staged = JSON.parse(await readFile(join(mainSource, 'package.json'), 'utf8'));
   assert.equal(staged.name, '@lamplitisles/codex-for-love');
   assert.equal(staged.version, snapshotVersion(original.version, sha));
-  assert.equal(staged.publishConfig?.registry, 'https://forgejo.n5.guion.io/api/packages/LamplitIsles/npm/');
+  assert.equal(staged.publishConfig?.registry, 'https://code.sfang.space/api/packages/LamplitIsles/npm/');
   assert.deepEqual(staged.optionalDependencies, original.optionalDependencies);
   assert.equal(JSON.parse(await readFile(join(mainSource, 'vendor/source.json'), 'utf8')).cfl.sha, sha);
   for (const path of ['bin/codex-for-love.mjs', 'vendor/runtime/cli.mjs', 'vendor/runtime/companion-mcp.mjs', 'vendor/source.json', 'LICENSE', 'NOTICE', 'README.md']) assert.ok(names.includes(`package/${path}`), `missing ${path}`);

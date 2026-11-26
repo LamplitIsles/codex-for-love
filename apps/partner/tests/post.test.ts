@@ -1,3 +1,4 @@
+import { startMessages } from './history-test-helpers.ts';
 import assert from 'node:assert/strict';
 import sharp from 'sharp';
 import { test } from 'node:test';
@@ -1157,7 +1158,7 @@ test('Post Keet discovery, durable wake and strict chat projection coexist with 
     chat = await openChat(socket, value => { publicView = value; }, () => {});
     await eventually(async () => !!publicView?.messages.find(m => m.id === source(group).id));
     assert.deepEqual(publicView!.messages.find(m => m.id === source(group).id), source(group));
-    assert.deepEqual((await chat.history(JSON.stringify({ before: Number.MAX_SAFE_INTEGER }))).messages.find(m => m.id === source(direct).id), source(direct));
+    assert.deepEqual((await startMessages(chat)).messages.find(m => m.id === source(direct).id), source(direct));
     chat.close(); chat = undefined; socket = undefined;
     assert.equal((await h.send(group)).status, 202);
     assert.equal((await h.send({ ...group, delivery_id: 'duplicate-keet-delivery' })).status, 202);
@@ -1207,7 +1208,7 @@ test('retained Post provenance reaches source UI with original body media and ti
     chat = await openChat(socket, view => { publicView = view; }, () => {});
     await eventually(async () => publicView?.messages.filter(m => m.role === 'user').length === 4);
     for (const message of expectedMessages) assert.deepEqual(publicView!.messages.find(m => m.id === message.id), message, 'public strict serialized view matches retained source');
-    const history = await chat.history(JSON.stringify({ before: Number.MAX_SAFE_INTEGER }));
+    const history = await startMessages(chat);
     for (const message of expectedMessages) assert.deepEqual(history.messages.find(m => m.id === message.id), message);
   }
   try {
@@ -1243,7 +1244,7 @@ test('retained Post provenance reaches source UI with original body media and ti
     const reads = post.requests.filter(r => r.tool === 'list_conversations').length;
     const backend = createCodexChatBackend(partner);
     await backend.read();
-    const history = await backend.history(JSON.stringify({ before: Number.MAX_SAFE_INTEGER }));
+    const history = await startMessages(backend);
     for (const message of expectedMessages) assert.deepEqual(history.messages.find(m => m.id === message.id), message);
     await connect();
     assert.equal(post.requests.filter(r => r.tool === 'list_conversations').length, reads, 'UI projection performs no remote metadata lookup');
@@ -1328,15 +1329,24 @@ test('Post display suppresses only the exact available shared image and preserve
     await eventually(async () => (await starts(f)).length === 1 && await f.consumed(id) && !(await partner.snapshot()).typing);
     const call = (await starts(f))[0]!;
     assert(call.input[0]!.text!.includes('[image "ast_example": attached]'), 'native body stays unchanged');
-    let message = (await createCodexChatBackend(partner).read()).messages.find(m => m.id === id)!;
+    const backend = createCodexChatBackend(partner);
+    const initial = await backend.historySync({ kind: 'start', sessionId: (await partner.snapshot()).sessionId });
+    assert.equal(initial.kind, 'start'); if (initial.kind !== 'start') throw new Error();
+    let message = (await backend.read()).messages.find(m => m.id === id)!;
     assert(!message.text.includes('[image "ast_example"'), 'actual available shared attachment represents this exact image part');
     assert(message.text.includes('[image "missing-image": unavailable (Post)]'));
     for (const type of ['file', 'audio', 'video']) assert(message.text.includes(`[${type} "${type}": available via Post asset-fetch]`));
     assert.equal(message.images!.length, 1); assert.equal(message.images![0]!.availability, 'available');
     const path = call.input.find(part => part.type === 'localImage')!.path!;
     assert(path.startsWith(f.directory + '/')); await unlink(path);
-    message = (await createCodexChatBackend(partner).read()).messages.find(m => m.id === id)!;
+    message = (await backend.read()).messages.find(m => m.id === id)!;
     assert.equal(message.images![0]!.availability, 'missing');
     assert(message.text.includes('[image "ast_example": attached]'), 'checkpoint status alone cannot hide a nonavailable shared attachment');
+    const after = await backend.historySync({ kind: 'start', sessionId: initial.sessionId });
+    assert.equal(after.kind, 'start'); if (after.kind !== 'start') throw new Error();
+    assert.equal(after.historyId, initial.historyId, 'availability does not rewrite the history prefix');
+    const resume = await backend.historySync({ kind: 'newer', sessionId: initial.sessionId, after: initial.head });
+    assert.equal(resume.kind, 'newer'); if (resume.kind !== 'newer') throw new Error();
+    assert.deepEqual(resume.records, []);
   } finally { await h?.close(); await s.close(); }
 });

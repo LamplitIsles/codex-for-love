@@ -1,13 +1,14 @@
+import { olderMessages } from './history-test-helpers.ts';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { once } from 'node:events';
-import { writeFile } from 'node:fs/promises';
+import { readFile, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import sharp from 'sharp';
 import { openChat } from '@lamplit/contracts/client';
 import type { ChatView } from '@lamplit/contracts';
 import { createWebServer } from './web-server.ts';
-import { fixture } from './fixture.ts';
+import { fixture, eventually } from './fixture.ts';
 
 for (const [rounds, count] of [[1, 7], [1, 11], [31, 11]] as const) {
   test(`${count} native generated images survive ${rounds === 1 ? 'initial subscription' : 'older history'} and reconnect`, { timeout: 15_000 }, async () => {
@@ -49,10 +50,11 @@ for (const [rounds, count] of [[1, 7], [1, 11], [31, 11]] as const) {
       for (let connection = 0; connection < 2; connection++) {
         client = await connect();
         assert.ok(view, 'initial subscription produces a view');
+        if (rounds > 1) await eventually(async () => !!view?.before);
         const messages = [...view.messages];
         let before = view.before;
         while (before) {
-          const page = await client.history(before);
+          const page = await olderMessages(client, before);
           messages.unshift(...page.messages); before = page.before;
         }
         const reply = messages.find(message => message.id === 'history-agent-0')!;
@@ -73,3 +75,44 @@ for (const [rounds, count] of [[1, 7], [1, 11], [31, 11]] as const) {
     }
   });
 }
+
+test('first history sync retains a generated image identity while its bytes are missing', async () => {
+  const f = await fixture();
+  const nativePath = join(f.directory, 'native-image.png');
+  await sharp({ create: { width: 1, height: 1, channels: 4, background: '#112233' } }).png().toFile(nativePath);
+  const turns = [{ id: 'image-turn', status: 'completed', startedAt: 1700000000, items: [
+    { type: 'userMessage', id: 'user', clientId: 'input', content: [{ type: 'text', text: 'make image' }] },
+    { type: 'imageGeneration', id: 'image-item', status: 'completed', savedPath: nativePath, result: '' },
+  ] }];
+  await writeFile(f.appServer.env.FAKE_SERVER_STATE!, JSON.stringify({ threadId: 'thread-fake', next: 10, turns }));
+  const partner = await f.createPartner();
+  let app: ReturnType<typeof createWebServer> | undefined, client: Awaited<ReturnType<typeof openChat>> | undefined;
+  try {
+    const image = (await partner.snapshot()).results[0]!.images[0]!;
+    const stored = await partner.historyStore.imageMetadata(image.id);
+    assert.ok(stored); const bytes = await readFile(stored.path);
+    await unlink(stored.path);
+    app = createWebServer(partner, join(f.directory, 'assets'));
+    app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening');
+    let view: ChatView | undefined;
+    client = await openChat(new WebSocket(`ws://127.0.0.1:${(app.server.address() as { port: number }).port}/api/chat/socket`), next => { view = next; }, () => {});
+    await eventually(async () => !!view);
+    const live = view!.messages.find(message => message.id.startsWith('image:'))!;
+    assert.equal(live.imageState, 'unknown'); assert.equal(live.images, undefined);
+    const first = await client.historySync({ kind: 'start', sessionId: view!.sessionId });
+    assert.equal(first.kind, 'start'); if (first.kind !== 'start') throw new Error();
+    const missing = first.records.find(row => row.message.id === live.id)!.message;
+    assert.equal(missing.imageState, undefined);
+    assert.equal(missing.images?.[0]?.attachmentId, image.id);
+    assert.equal(missing.images?.[0]?.availability, 'missing');
+    await writeFile(stored.path, bytes);
+    const again = await client.historySync({ kind: 'start', sessionId: view!.sessionId });
+    assert.equal(again.kind, 'start'); if (again.kind !== 'start') throw new Error();
+    assert.equal(again.historyId, first.historyId);
+    assert.equal(again.records.find(row => row.message.id === live.id)?.message.images?.[0]?.attachmentId, image.id);
+    assert.equal(again.records.find(row => row.message.id === live.id)?.message.images?.[0]?.availability, 'available');
+    const newer = await client.historySync({ kind: 'newer', sessionId: view!.sessionId, after: first.head });
+    assert.equal(newer.kind, 'newer'); if (newer.kind !== 'newer') throw new Error();
+    assert.deepEqual(newer.records, []);
+  } finally { client?.close(); await app?.close(); await f.close(); }
+});

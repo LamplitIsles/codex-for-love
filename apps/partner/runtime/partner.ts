@@ -620,6 +620,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
   const now = dependencies.now ?? Date.now;
   const listeners = new Set<() => void>();
   const chatListeners = new Set<(observation: ChatObservation) => void>();
+  const historyListeners = new Set<(turnId: string) => void>();
   const storedMessages = await store.allMessages();
   const messageIds = new Set(storedMessages.map((message) => message.id));
   const messagesById = new Map<string, KnownMessage>(
@@ -763,6 +764,9 @@ export async function createPartner(config: Config, credentials: Credentials, de
   function notifyDelivery(receipt: NativeDeliveryReceipt): void {
     if (closing) return;
     notify({ type: 'delivery', receipt });
+    if (receipt.state === 'submitted' && receipt.turnId && isTerminalTurn(turns.get(receipt.turnId))) {
+      for (const listener of historyListeners) listener(receipt.turnId);
+    }
   }
 
   function officialInputIds(turn: OfficialTurn): string[] {
@@ -1237,6 +1241,24 @@ export async function createPartner(config: Config, credentials: Credentials, de
     await updateMediaTurn(turn.id);
   }
 
+  async function reconcileTerminalDeliveries(turn: OfficialTurn): Promise<void> {
+    if (!isTerminalTurn(turn)) return;
+    const session = threadId;
+    for (const item of userItems(turn)) {
+      const id = typeof item.clientId === 'string' ? item.clientId : '';
+      if (!id) continue;
+      const attempt = await store.deliveryAttempt(id, session);
+      if (attempt?.state !== 'unknown' || await verifiedNativeDeliveryInput(id, item) === undefined) continue;
+      if (closing || storageError || threadId !== session) return;
+      // Store's expected-attempt/state check is atomic. Do not take the input
+      // lock: selectModel holds it while waiting for the notification chain.
+      const accepted = await store.transitionDeliveryAttempt(id, session, attempt.attempt, 'accepted', () => {
+        if (closing || storageError || threadId !== session) throw new Error('Unavailable session');
+      });
+      if (accepted) notifyDelivery(deliveryReceipt(id, accepted.attempt, 'accepted'));
+    }
+  }
+
   /** Full history is hydrated once at startup/resume; events update one turn thereafter. */
   async function hydrateHistory(): Promise<void> {
     reconcilingCatalogue = true; reconciledCatalogueIds = new Set();
@@ -1251,7 +1273,10 @@ export async function createPartner(config: Config, credentials: Credentials, de
         registerTurn(turn);
         if (isActiveTurn(turn)) observeNotificationTurn(turn.id);
         const complete = await reconcileTurn(turn.id, turn);
-        if (complete) await projectTurn(complete, false);
+        if (complete) {
+          await reconcileTerminalDeliveries(complete);
+          await projectTurn(complete, false);
+        }
       }
     } finally {
       reconcilingCatalogue = false;
@@ -1894,7 +1919,10 @@ export async function createPartner(config: Config, credentials: Credentials, de
         if (turn && (userItems(turn).length || sourceIdsForTurn(turn.id).length)) {
           try {
             reconciled = await reconcileTurn(turn.id);
-            if (reconciled && userItems(reconciled).length) await projectTurn(reconciled, true, true);
+            if (reconciled && userItems(reconciled).length) {
+              await reconcileTerminalDeliveries(reconciled);
+              await projectTurn(reconciled, true, true);
+            }
           } catch (error) { barkLog('inspection', 'failed'); throw error; }
         }
         // Only a live, successfully completed turn can be a notification candidate.
@@ -1939,6 +1967,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
           }
         }
         await refreshBootstrap();
+        if (reconciled && isTerminalTurn(reconciled)) for (const listener of historyListeners) listener(reconciled.id);
         if (!activeTurnId) { void drainRejectedSteers(); drainExternal(); }
         if (!closing) notify();
         break;
@@ -2445,6 +2474,15 @@ export async function createPartner(config: Config, credentials: Credentials, de
   return {
     keetEnabled,
     postEnabled,
+    historyStore: store,
+    historySession() { return threadId; },
+    async historyFence() { await eventChain; },
+    historyTurns() {
+      return [...turnResults.values()].filter(result => isTerminalTurn(turns.get(result.turnId)))
+        .sort((a, b) => Math.min(...a.sourceIds.map(id => messagesById.get(id)?.sequence ?? Number.MAX_SAFE_INTEGER)) - Math.min(...b.sourceIds.map(id => messagesById.get(id)?.sequence ?? Number.MAX_SAFE_INTEGER)))
+        .map(result => result.turnId);
+    },
+    subscribeHistory(listener: (turnId: string) => void) { historyListeners.add(listener); return () => historyListeners.delete(listener); },
     async relationship() {
       const history = (await readRelationshipJournal(paths.relationshipJournal)).reverse();
       return { scope: createHash('sha256').update(paths.workspaceRoot).digest('hex'), current: stateFromHistory(history) };
@@ -2801,14 +2839,18 @@ export async function createPartner(config: Config, credentials: Credentials, de
     saveBackground: (kind: 'landscape' | 'portrait', data: Buffer, mediaType: string, authorized: () => boolean) => backgroundSettings.save(kind,data,mediaType,authorized,() => notify()),
     background: (kind: 'landscape' | 'portrait') => backgroundSettings.effective(kind),
     async petAsset(activity: import('./pet.ts').PetActivity) { return pet ? localPetClip(config.state, activity) : undefined; },
-    async snapshot(options: MessagePageOptions = {}, settled = true) {
+    async snapshot(options: MessagePageOptions = {}, settled = true, selectedTurnIds?: readonly string[]) {
       if (settled) await eventChain;
-      const all = await store.allMessages();
+      const selected = selectedTurnIds ? new Set(selectedTurnIds) : undefined;
+      const all = selected ? (await Promise.all([...selected].flatMap(id => (turnInputs.get(id) ?? []).map(source => store.messageMeta(source))))).filter((value): value is MessageMeta => !!value).sort((a, b) => a.sequence - b.sequence) : await store.allMessages();
       // Capture pending bodies before their native items: an event can retire a
       // body after this read, but its registered item is then in the index.
-      const inputRows = new Map((await store.pendingMessages()).map((message) => [message.id, message]));
+      const inputRows = selected ? new Map((await Promise.all(all.map(async meta => {
+        const payload = await store.inputPayload(meta.id); return payload ? [meta.id, { ...meta, input: payload.input }] as const : undefined;
+      }))).filter((value): value is readonly [string, MessageMeta & { input: string }] => !!value)) : new Map((await store.pendingMessages()).map((message) => [message.id, message]));
       const sources = new Map<string, { turnId: string; turn: OfficialTurn | undefined; item?: OfficialItem }>();
-      for (const [turnId, ids] of turnInputs) {
+      const sourceTurns = selected ? [...selected].map(id => [id, turnInputs.get(id) ?? []] as const) : turnInputs;
+      for (const [turnId, ids] of sourceTurns) {
         const turn = turns.get(turnId);
         for (const id of ids) if (!sources.has(id)) sources.set(id, { turnId, turn });
         if (!turn) continue;
@@ -2825,7 +2867,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
         store.keetContexts(missingIds), store.matrixSources(missingIds), store.postSources(missingIds),
       ]);
       const hidden = new Set(missingIds.filter(id => !pendingKeet.has(id) && !pendingMatrix.has(id) && !pendingPost.has(id) && !id.startsWith('alarm:')));
-      const page = options.after === undefined
+      const page = selected ? { messages: all, cursor: 0, hasChangesMore: false, hasMore: false, before: null } : options.after === undefined
         ? visibleHistoryPage(all.filter(meta => !hidden.has(meta.id)), [...turnResults.values()], options.before)
         : await store.messagePage(options);
       const outcomes = await store.outcomes(page.messages.map((message) => message.id));
@@ -2835,11 +2877,11 @@ export async function createPartner(config: Config, credentials: Credentials, de
       const matrixSources = await store.matrixSources(page.messages.map((message) => message.id));
       const postSources = await store.postSources(page.messages.map((message) => message.id));
       const pageIds = new Set(page.messages.map((message) => message.id));
-      const pageTurns = [...turnResults.values()]
+      const pageTurns = [...(selected ? [...selected].flatMap(id => turnResults.get(id) ? [turnResults.get(id)!] : []) : turnResults.values())]
         .filter((result) => result.sourceIds.some((id) => pageIds.has(id)))
         .sort((a, b) => a.sequence - b.sequence || a.revision - b.revision);
       const generatedMeta = await store.generatedImageMetadata(pageTurns.map((result) => resultOperationId(result.turnId)));
-      const history = (await readRelationshipJournal(paths.relationshipJournal)).reverse();
+      const history = selected ? [] : (await readRelationshipJournal(paths.relationshipJournal)).reverse();
       const state: CompanionState = stateFromHistory(history);
       const messages = [];
       for (const meta of page.messages) {
@@ -2980,9 +3022,9 @@ export async function createPartner(config: Config, credentials: Credentials, de
         voices: result.voiceDispatches.map(({ id, itemId }) => ({ id, itemId, url: `/api/audio/${id}.mp3` })),
         ...(result.completedAt === undefined ? {} : { completedAt: result.completedAt }),
       }));
-      const unresolved = await unresolvedMessages();
-      const context = await store.observedContext();
-      const continuity = projectContinuity(await store.compactBoundaries(), lifecycle);
+      const unresolved = selected ? [] : await unresolvedMessages();
+      const context = selected ? null : await store.observedContext();
+      const continuity = projectContinuity(selected ? [] : await store.compactBoundaries(), lifecycle);
       const cancellable = activeTurnId ? [activeTurnId] : [];
       const pendingIds = new Set<string>(unresolved.map((message) => message.id));
       for (const intent of pendingStarts.values()) for (const id of intent.ids) pendingIds.add(id);
@@ -3132,6 +3174,7 @@ export async function createPartner(config: Config, credentials: Credentials, de
         await Promise.allSettled([...barkTasks]);
         listeners.clear();
         chatListeners.clear();
+        historyListeners.clear();
         try { await store.close(); }
         catch (error) { closeError ??= error; }
         try { stickers.close(); }

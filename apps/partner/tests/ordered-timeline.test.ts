@@ -1,3 +1,4 @@
+import { olderMessages } from './history-test-helpers.ts';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { writeFile } from 'node:fs/promises';
@@ -147,7 +148,7 @@ test('real App controller reconciles a delayed image across 35 voices, reconnect
     partner = await f.createPartner(); app = createWebServer(partner, join(f.directory, 'assets'));
     const backend = createCodexChatBackend(partner); const view = await backend.read();
     let cursor = view.before, restored = view.messages;
-    while (cursor) { const page = await backend.history(cursor); restored = [...page.messages, ...restored]; cursor = page.before; }
+    while (cursor) { const page = await olderMessages(backend, cursor); restored = [...page.messages, ...restored]; cursor = page.before; }
     assert.equal(restored.find(message => message.id === imageId)?.imageState, 'ready');
     assert.deepEqual(restored.filter(message => message.voice).map(message => message.id), voiceIds);
     assert.ok(restored.findIndex(message => message.id === imageId) < restored.findIndex(message => message.text === 'after voice'));

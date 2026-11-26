@@ -784,3 +784,16 @@ retired input relay no longer consumes that subpath. Assistant voice-message
 playback and TTS remain separate. The retained App IMPORTS notice is updated
 from the matching published frontend and source revision; historical source
 and acceptance identities above remain unchanged.
+
+## History sync contracts — CFL #162 / App PR #69
+
+CFL consumes the Apache-2.0 App contracts from merged revision
+`8673b30c17b1809178f5b3fc5feaf67b8c9e491b`. The public GitHub release
+contracts archive SHA-256 is
+`a8717496cc480e47a36de40cee1b9455faad2270e6b615e11af23a633510a60d`;
+the matching frontend archive SHA-256 is
+`a80a8c882a2867133493963e96eaff39f448717a76e6dc46fb7ac43d3df618d7`.
+Both archives identify that revision and their 50 compiled-contract hashes
+match. The retained App IMPORTS notice comes from that frontend archive; its
+Noto Sans SC notice is unchanged. App owns the shared history protocol and
+browser behavior; CFL owns its native history projection.

@@ -570,7 +570,7 @@ There is no `/slice` entry, UI fallback or asset-directory environment override.
 Platform owns hosted authentication, manifest, service worker and management;
 CFL does not register a service worker or serve management routes.
 
-CFL obtains App archives from Forgejo generic packages. It pins the published
+CFL obtains App archives from public GitHub releases. It pins the published
 App commit in `lamplit-app.sha` and independently pins
 its public contract archive digest in `lamplit-contracts.sha256`. Preparation
 verifies both, exports, licenses and the protocol marker before frozen CFL
@@ -582,7 +582,7 @@ update the dependency lock deliberately if its metadata changes.
 the runtime and contracts using its explicit Rolldown dependency, licenses and
 `vendor/source.json` (contracts and prepared license hashes), but no browser
 resources. At startup CFL prepares the selected App separately and verifies its
-compiled contracts against the runtime. `latest` resolves Forgejo App `main` at
+compiled contracts against the runtime. `latest` resolves the public GitHub mirror of App `main` at
 each startup and fails if that revision's package is unavailable; a complete
 verified cache selected by full SHA can be used offline.
 See [source preparation and isolated acceptance](docs/default-shared-frontend.md)
@@ -615,7 +615,12 @@ attachment errors and uploaded files.
 
 The official app-server remains the sole execution/history owner. Completed
 message IDs are presentation metadata; no reply text is duplicated in a new
-transcript. Each completed agent message, including commentary, becomes visible
+transcript. CFL keeps a per-conversation sequence index for finalized visible
+messages so clients can resume from their own cursor after a restart. Active
+turns stay in the live view until their final ordering is known. If a restored
+or repaired history no longer matches a cursor, the client must rebuild its
+local history; media availability is still checked when read.
+Each completed agent message, including commentary, becomes visible
 while the turn continues. Current answer text grows from official agent-message
 increments as a transient preview; reasoning, tool payloads and unfinished
 commentary remain private. The default Reply display preference splits answers

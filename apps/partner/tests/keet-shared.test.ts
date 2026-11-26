@@ -1,3 +1,4 @@
+import { olderMessages } from './history-test-helpers.ts';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
@@ -97,7 +98,7 @@ test('native Keet ingress retains display source, private context, images and re
     assert(!view!.messages.some(m => m.source?.kind === 'keet'));
     let cursor = view!.before;
     const historical: ChatMessage[] = [];
-    while (cursor) { const page = await client.history(cursor); historical.push(...page.messages); cursor = page.before; }
+    while (cursor) { const page = await olderMessages(client, cursor); historical.push(...page.messages); cursor = page.before; }
     for (const [id, before] of visible) assert.deepEqual(historical.find(m => m.id === id), before);
     assert.deepEqual(Buffer.from(await (await media()).arrayBuffer()), bytes);
     assert.equal((await post(dm)).status, 202);

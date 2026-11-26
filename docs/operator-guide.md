@@ -633,15 +633,15 @@ frontend = "latest"
 # Or set frontend to a compatible full 40-character lowercase commit SHA.
 ```
 
-`latest` resolves public Forgejo App `main` at every startup, so it trusts future
+`latest` resolves the public GitHub mirror of App `main` at every startup, so it trusts future
 main commits and requires network even when that revision is cached. A full
 lowercase 40-character SHA fixes the version and can reuse an intact cache
 offline. Other values fail configuration validation. CFL logs the resolved SHA
 before listening. To roll back, select a previously known SHA and restart; reload
 old browser pages after restart so their HTML and assets are from the same version.
 
-First preparation needs Node 24, `curl`, and access to Forgejo. CFL downloads
-`lamplit-app-<SHA>.tar.gz` from the public `lamplit-app/<SHA>` generic package; it never
+First preparation needs Node 24, `curl`, and access to the public GitHub release. CFL downloads
+`lamplit-app-<SHA>.tar.gz` from the `app-<SHA>` release; it never
 builds App on the service host. A freshly merged `main` may resolve before the
 package is published: wait for App CI and retry, or select a known compatible
 full SHA. Prepared resources, source revision, compiled contract hashes and
@@ -657,7 +657,8 @@ and remove only that SHA directory; the next startup downloads it again.
 
 Woodpecker builds and verifies a CFL snapshot on pushes to `main` and publishes
 `<base>.snapshot.g<full-commit-SHA>` (or `<base>-snapshot.g<SHA>` for a stable
-base) to the LamplitIsles Forgejo npm registry. It does not bundle the App
+base) to the LamplitIsles Forgejo npm registry at
+`https://code.sfang.space/api/packages/LamplitIsles/npm/`. It does not bundle the App
 browser or native Codex binaries and does not install or restart Shio. Select
 the exact snapshot tarball from Forgejo metadata and verify its SHA-512 before
 installation. Keep npmjs as the default registry for public dependencies.

@@ -1,3 +1,4 @@
+import { olderMessages, startMessages } from './history-test-helpers.ts';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';
@@ -42,14 +43,30 @@ test('history checks only returned files, repeating integrity checks after chang
     await eventually(async () => (await f.requests()).filter(request => request.method === 'turn/start' || request.method === 'turn/steer').length >= 35, 30000);
     const reset = () => { reads = 0; bytes = 0; };
     reset(); const view = await backend.read();
-    assert.equal(view.messages.length, 30); assert.ok(view.before);
+    assert.equal(view.messages.length, 30); assert.equal(view.before, null);
     assert.equal(reads, 30); assert.equal(bytes, 30 * 64_000);
     reset(); const refreshed = await backend.read();
     assert.deepEqual(refreshed.messages, view.messages); assert.equal(reads, 30); assert.equal(bytes, 30 * 64_000);
-    reset(); const older = await backend.history(view.before!);
-    assert.equal(older.messages.length, 5); assert.equal(reads, 5); assert.equal(bytes, 5 * 64_000);
+    reset(); const history = await startMessages(backend);
+    assert.equal(history.messages.length, 0); assert.equal(reads, 0); assert.equal(bytes, 0);
     reset(); await Promise.all([backend.read(), backend.read()]);
     assert.equal(reads, 60); assert.equal(bytes, 60 * 64_000);
+    // Finalize the actual native turn, then read only the rows before the live
+    // window. The same turn owns all files, but only this page needs bytes.
+    await f.holdProvider(false);
+    await eventually(async () => !(await partner.snapshot()).typing);
+    await eventually(async () => (await startMessages(backend)).messages.length >= 36);
+    const finalized = await backend.read(); assert.ok(finalized.before);
+    const { Store } = await import('../runtime/store.ts');
+    const originalBoundaries = Store.prototype.compactBoundaries;
+    let boundaryReads = 0;
+    Store.prototype.compactBoundaries = async function () { boundaryReads++; return originalBoundaries.call(this); };
+    try {
+      reset(); const older = await olderMessages(backend, finalized.before);
+      assert.equal(older.messages.length, 6);
+      assert.equal(reads, 6); assert.equal(bytes, 6 * 64_000);
+      assert.equal(boundaryReads, 0, 'history projection does not scan all compaction boundaries');
+    } finally { Store.prototype.compactBoundaries = originalBoundaries; }
     // Same-size modification, removal and symlink substitution must be visible
     // on the next refresh; no previous successful check can authorize a file.
     const changed = payloads[34]!, missing = payloads[33]!, linked = payloads[32]!;
@@ -58,7 +75,7 @@ test('history checks only returned files, repeating integrity checks after chang
     await fs.unlink(linked.path); await fs.symlink(changed.path, linked.path);
     reset(); const after = await backend.read();
     for (const item of [changed, missing, linked]) assert.equal(after.messages.find(message => message.operationId === item.id)?.files?.[0]?.availability, 'missing');
-    assert.equal(reads, 28); assert.equal(bytes, 28 * 64_000);
+    assert.equal(reads, 27); assert.equal(bytes, 27 * 64_000);
     assert.equal(await readTestFile(partner, uploadedId(after, changed.id), owner), null);
   } finally {
     await partner.close(); await f.close();

@@ -19,7 +19,7 @@ export async function readDigest(path = join(root, 'lamplit-contracts.sha256')) 
   return digest;
 }
 export function downloadContracts(pin, archive, execute = execFileSync) {
-  const url = `https://forgejo.n5.guion.io/api/packages/LamplitIsles/generic/lamplit-app/${pin}/lamplit-contracts-${pin}.tar.gz`;
+  const url = `https://github.com/LamplitIsles/lamplit-app/releases/download/app-${pin}/lamplit-contracts-${pin}.tar.gz`;
   execute('curl', ['--fail', '--silent', '--show-error', '--location', '--proto', '=https', '--proto-redir', '=https', '--max-time', '120', '--max-filesize', '134217728', '--output', archive, url], { stdio: 'inherit' });
 }
 export function identity(directory = root) {

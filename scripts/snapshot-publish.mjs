@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 
-const registry = 'https://forgejo.n5.guion.io/api/packages/LamplitIsles/npm/';
+const registry = 'https://code.sfang.space/api/packages/LamplitIsles/npm/';
 const name = '@lamplitisles/codex-for-love';
 const manifestPath = 'packages/codex-for-love/package.json';
 const shaPattern = /^[a-f0-9]{40}$/u;

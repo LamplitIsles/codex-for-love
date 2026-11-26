@@ -37,7 +37,7 @@ test('published contracts require trusted bytes, matching source, exports and no
     const downloaded = join(root, 'downloaded.tgz');
     downloadContracts(pin, downloaded, (command, args) => {
       assert.equal(command, 'curl');
-      assert.equal(args.at(-1), `https://forgejo.n5.guion.io/api/packages/LamplitIsles/generic/lamplit-app/${pin}/lamplit-contracts-${pin}.tar.gz`);
+      assert.equal(args.at(-1), `https://github.com/LamplitIsles/lamplit-app/releases/download/app-${pin}/lamplit-contracts-${pin}.tar.gz`);
       assert.deepEqual(args.slice(args.indexOf('--proto'), args.indexOf('--proto') + 4), ['--proto', '=https', '--proto-redir', '=https']);
       assert.equal(args[args.indexOf('--max-filesize') + 1], '134217728');
       copyFileSync(archive, args[args.indexOf('--output') + 1]);

@@ -1,3 +1,4 @@
+import { olderMessages } from './history-test-helpers.ts';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
@@ -89,8 +90,8 @@ test('Post native browser history control puts the retained older source in one 
       try { await eventually(async () => !!view?.messages.some(m => m.text === 'reconnect original') && !!view?.before); }
       catch (error) { throw new Error(`Post reconnect view: ${JSON.stringify(view)}`, { cause: error }); }
       assert(!view!.messages.some(m => m.text === 'older original'), 'older source is actually outside the live public page');
-      const page = await client.history(view!.before!);
-      const next = page.before ? await client.history(page.before) : undefined;
+      const page = await olderMessages(client, view!.before!);
+      const next = page.before ? await olderMessages(client, page.before) : undefined;
       assert(page.messages.some(m => m.text === 'older original' && m.source?.kind === 'post'), JSON.stringify({ firstPostSources: page.messages.filter(m => m.source?.kind === 'post').length, nextHasOlder: next?.messages.some(m => m.text === 'older original' && m.source?.kind === 'post') }));
     } finally { client?.close(); await host.close(); }
   } finally { await rm(assets, { recursive: true, force: true }); }

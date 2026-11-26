@@ -22,16 +22,16 @@ test('startup downloads and verifies the selected App, reuses cache offline, and
   const execute = async (command: string, args: string[], cwd: string) => {
     assert.equal(command, 'curl');
     if (args.at(-1)!.endsWith('/branches/main')) {
-      assert.equal(args.at(-1), 'https://forgejo.n5.guion.io/api/v1/repos/LamplitIsles/lamplit-app/branches/main');
+      assert.equal(args.at(-1), 'https://api.github.com/repos/LamplitIsles/lamplit-app/branches/main');
       if (fail === 'resolve') throw new Error('offline');
       if (fail === 'json') return '{';
       if (fail === 'missing-id') return JSON.stringify({ sha: latest });
-      return JSON.stringify({ commit: { id: latest } });
+      return JSON.stringify({ commit: { sha: latest } });
     }
     downloads++;
-    const revision = /\/([a-f0-9]{40})\/lamplit-app-\1\.tar\.gz$/u.exec(args.at(-1)!)?.[1];
-    assert.ok(revision, 'exact public Forgejo generic package URL');
-    assert.equal(args.at(-1), `https://forgejo.n5.guion.io/api/packages/LamplitIsles/generic/lamplit-app/${revision}/lamplit-app-${revision}.tar.gz`);
+    const revision = /\/app-([a-f0-9]{40})\/lamplit-app-\1\.tar\.gz$/u.exec(args.at(-1)!)?.[1];
+    assert.ok(revision, 'exact public GitHub release URL');
+    assert.equal(args.at(-1), `https://github.com/LamplitIsles/lamplit-app/releases/download/app-${revision}/lamplit-app-${revision}.tar.gz`);
     if (fail === 'download') throw new Error('404');
     const archive = args[args.indexOf('--output') + 1]!;
     if (fail === 'corrupt') { await writeFile(archive, 'not gzip'); return ''; }
@@ -123,7 +123,7 @@ test('a signal between preparation steps prevents every subsequent subprocess', 
     const execute = async (command: string, args: string[]) => {
       calls.push(`${command} ${args.slice(0, 2).join(' ')}`);
       if (calls.length === stopAfter) process.emit(stopAfter % 2 ? 'SIGTERM' : 'SIGINT');
-      if (command === 'curl' && args.at(-1)!.endsWith('/branches/main')) return JSON.stringify({ commit: { id: one } });
+      if (command === 'curl' && args.at(-1)!.endsWith('/branches/main')) return JSON.stringify({ commit: { sha: one } });
       return '';
     };
     try {

@@ -153,8 +153,8 @@ export async function prepareFrontend(selector: string, runtimeUrl: string, opti
     checkInterrupted();
     let revision = selector;
     if (selector === 'latest') {
-      const data = await execute('curl', ['--fail', '--silent', '--show-error', '--location', '--proto', '=https', '--proto-redir', '=https', '--max-time', '60', 'https://forgejo.n5.guion.io/api/v1/repos/LamplitIsles/lamplit-app/branches/main'], stage, home, 65_000);
-      const resolved = (JSON.parse(data) as { commit?: { id?: unknown } } | null)?.commit?.id;
+      const data = await execute('curl', ['--fail', '--silent', '--show-error', '--location', '--proto', '=https', '--proto-redir', '=https', '--max-time', '60', 'https://api.github.com/repos/LamplitIsles/lamplit-app/branches/main'], stage, home, 65_000);
+      const resolved = (JSON.parse(data) as { commit?: { sha?: unknown } } | null)?.commit?.sha;
       if (typeof resolved !== 'string' || !sha.test(resolved)) throw new Error('Canonical App main did not resolve to a full lowercase commit SHA');
       revision = resolved;
     }
@@ -165,7 +165,7 @@ export async function prepareFrontend(selector: string, runtimeUrl: string, opti
     try { await access(candidate); } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') exists = false; else throw error; }
     if (!exists) {
       const archive = join(stage, 'frontend.tar.gz');
-      const url = `https://forgejo.n5.guion.io/api/packages/LamplitIsles/generic/lamplit-app/${revision}/lamplit-app-${revision}.tar.gz`;
+      const url = `https://github.com/LamplitIsles/lamplit-app/releases/download/app-${revision}/lamplit-app-${revision}.tar.gz`;
       try {
         await execute('curl', ['--fail', '--silent', '--show-error', '--location', '--proto', '=https', '--proto-redir', '=https', '--max-time', '120', '--max-filesize', '134217728', '--output', archive, url], stage, home, 125_000);
       } catch (error) {

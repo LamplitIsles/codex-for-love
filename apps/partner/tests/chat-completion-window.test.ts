@@ -4,6 +4,11 @@ import { createCodexChatBackend } from '../runtime/chat.ts';
 import { createChatHost } from '@lamplit/contracts/server';
 import type { Partner } from '../runtime/partner.ts';
 
+function backendFor(partner: Partner) {
+  Object.assign(partner, { historySession: () => 'fixture-session', historyTurns: () => [], historyFence: async () => {}, subscribeHistory: () => () => {}, historyStore: { reconcileHistoryIndex: async () => ({ historyId: 'fixture', head: 0, prefixHash: '0'.repeat(64) }) } });
+  return createCodexChatBackend(partner);
+}
+
 for (const finishDuringRead of [true, false]) test(`two-message window remains continuous when ${finishDuringRead ? 'completion occurs during' : 'nothing changes during'} receipt lookup`, async () => {
   let complete = false, hold = false, snapshots = 0;
   let entered!: () => void, release!: () => void;
@@ -27,7 +32,7 @@ for (const finishDuringRead of [true, false]) test(`two-message window remains c
     streamingReply() { return complete ? undefined : { id: 'b', turnId: 'turn', text: 'B' }; },
     replyCompletion() { return undefined; },
   } as unknown as Partner;
-  const backend = createCodexChatBackend(partner);
+  const backend = backendFor(partner);
   const first = await backend.read();
   hold = true;
   const pending = backend.read();
@@ -59,7 +64,7 @@ test('an unsettled projection does not publish a missing message or resurrect an
     async chatVisible() { return true; },
     streamingReply() { return undefined; }, replyCompletion() { return undefined; },
   } as unknown as Partner;
-  const backend = createCodexChatBackend(partner);
+  const backend = backendFor(partner);
   await assert.rejects(backend.read(), /chat projection.*changed/i);
   assert.equal(snapshots, 3);
   settled = true;
@@ -87,7 +92,7 @@ test('repeated completion during receipt lookup exhausts retries without publish
     async chatVisible() { streaming = undefined; return true; },
     streamingReply() { return streaming; }, replyCompletion() { return undefined; },
   } as unknown as Partner;
-  await assert.rejects(createCodexChatBackend(partner).read(), /chat projection.*changed/i);
+  await assert.rejects(backendFor(partner).read(), /chat projection.*changed/i);
   assert.equal(snapshots, 3);
 });
 
@@ -109,7 +114,7 @@ test('a session change during receipt lookup cannot return the old session previ
     async chatVisible() { if (hold) { entered(); await gate; } return true; },
     streamingReply() { return { id: 'b', turnId: session, text: session }; }, replyCompletion() { return undefined; },
   } as unknown as Partner;
-  const pending = createCodexChatBackend(partner).read();
+  const pending = backendFor(partner).read();
   await reading;
   session = 'new'; hold = false; release();
   const view = await pending;
@@ -139,7 +144,7 @@ for (const steer of [false, true]) test(`a ${steer ? 'steer' : 'new turn'} start
     async chatVisible() { if (hold) { entered(); await gate; } return true; },
     streamingReply() { return started ? { id: 'b', turnId: steer ? 'old' : 'new', text: 'B' } : undefined; }, replyCompletion() { return undefined; },
   } as unknown as Partner;
-  const backend = createCodexChatBackend(partner);
+  const backend = backendFor(partner);
   hold = true;
   const pending = backend.read();
   await reading;
@@ -167,7 +172,7 @@ test('stream text growth during receipt lookup does not rescan history', async (
     async chatVisible() { entered(); await gate; return true; },
     streamingReply() { return { id: 'b', turnId: 'turn', text }; }, replyCompletion() { return undefined; },
   } as unknown as Partner;
-  const pending = createCodexChatBackend(partner).read();
+  const pending = backendFor(partner).read();
   await reading;
   text = 'B extended'; release();
   const view = await pending;
@@ -191,7 +196,7 @@ test('single-view host disconnects after an exhausted inconsistent invalidation'
     streamingReply() { return undefined; }, replyCompletion() { return undefined; },
     subscribeChat(listener: (event: { type: 'change' }) => void) { notify = () => listener({ type: 'change' }); return () => {}; },
   } as unknown as Partner;
-  const backend = createCodexChatBackend(partner);
+  const backend = backendFor(partner);
   let observedError!: () => void;
   const error = new Promise<void>(resolve => { observedError = resolve; });
   const host = await createChatHost(backend, () => observedError());
@@ -203,11 +208,29 @@ test('single-view host disconnects after an exhausted inconsistent invalidation'
     notify();
     await error;
     assert.equal(closeCode, 1012);
-    await assert.rejects(createChatHost(createCodexChatBackend(partner), () => {}), /chat projection.*changed/i);
+    await assert.rejects(createChatHost(backendFor(partner), () => {}), /chat projection.*changed/i);
     unstable = false;
-    const fresh = createCodexChatBackend(partner);
+    const fresh = backendFor(partner);
     const recovered = await createChatHost(fresh, () => {});
     try { assert.deepEqual((await fresh.read()).messages.map(message => message.id), ['a']); }
     finally { recovered.close(); }
   } finally { host.close(); }
+});
+
+test('a history read cannot cross a Store replacement with the same session ID', async () => {
+  const { historySeed } = await import('../runtime/store.ts');
+  let entered!: () => void, release!: () => void;
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const session = 'same-session';
+  const original = { async reconcileHistoryIndex() { entered(); await gate; return { historyId: 'old', head: 0, prefixHash: historySeed(session, 'old') }; } };
+  const replacement = { async historyIndexState() { return { historyId: 'new', head: 0, prefixHash: historySeed(session, 'new') }; }, async historyIndexEntries() { return []; } };
+  let current = original as unknown;
+  const partner = { historySession: () => session, get historyStore() { return current; }, historyTurns: () => [], historyFence: async () => {}, subscribeHistory: () => () => {}, streamingReply: () => undefined, snapshot: async () => ({ sessionId: session, messages: [], results: [], hasMore: false, before: null }) } as unknown as Partner;
+  const backend = createCodexChatBackend(partner);
+  const pending = backend.historySync({ kind: 'start', sessionId: session });
+  try {
+    await started; current = replacement; release();
+    await assert.rejects(pending, /session changed|Wrong session/);
+  } finally { release(); await pending.catch(() => {}); }
 });

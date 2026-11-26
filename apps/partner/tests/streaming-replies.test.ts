@@ -1,3 +1,4 @@
+import { startMessages } from './history-test-helpers.ts';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { once } from 'node:events';
@@ -14,7 +15,7 @@ function activePreview(view: ChatView | undefined) {
   return message ? { id: message.id, turnId: message.turnId!, createdAt: message.createdAt, text: message.text } : view?.streamingReply;
 }
 
-for (const mode of ['read', 'history'] as const) test(`${mode}: native completion during the receipt lookup keeps both messages`, async () => {
+for (const mode of ['read'] as const) test(`${mode}: native completion during the receipt lookup keeps both messages`, async () => {
   const f = await fixture(); f.appServer.env.FAKE_STREAM_FIXTURE = 'true';
   const partner = await f.createPartner(), backend = createCodexChatBackend(partner);
   const original = partner.chatVisible;
@@ -29,13 +30,14 @@ for (const mode of ['read', 'history'] as const) test(`${mode}: native completio
     await f.streamCommand({ action: 'advance', text: 'partial' });
     await eventually(async () => partner.streamingReply()?.text === 'partial');
     const first = await backend.read();
+    await startMessages(backend);
     const replyId = activePreview(first)!.id;
     partner.chatVisible = async id => {
       if (armed) { armed = false; entered(); await gate; }
       return original(id);
     };
     armed = true;
-    const read = () => mode === 'read' ? backend.read() : backend.history(JSON.stringify({ before: 2 }));
+    const read = () => backend.read();
     pending = read();
     await reading;
     await f.streamCommand({ action: 'complete', text: 'partial and complete' });
@@ -55,7 +57,7 @@ for (const mode of ['read', 'history'] as const) test(`${mode}: native completio
   }
 });
 
-for (const mode of ['read', 'history'] as const) test(`${mode}: completion between the snapshot completion ledger and stream sampling preserves the timeline item`, async () => {
+for (const mode of ['read'] as const) test(`${mode}: completion between the snapshot completion ledger and stream sampling preserves the timeline item`, async () => {
   const f = await fixture(); f.appServer.env.FAKE_STREAM_FIXTURE = 'true';
   const partner = await f.createPartner(), backend = createCodexChatBackend(partner);
   const original = Store.prototype.completedChatItems;
@@ -70,6 +72,7 @@ for (const mode of ['read', 'history'] as const) test(`${mode}: completion betwe
     await f.streamCommand({ action: 'advance', text: 'Partial answer' });
     await eventually(async () => partner.streamingReply()?.text === 'Partial answer');
     const first = await backend.read();
+    await startMessages(backend);
     const preview = activePreview(first)!;
     assert.deepEqual(first.messages.map(message => message.id), [operationId, preview.id]);
     Store.prototype.completedChatItems = async function (turnId) {
@@ -78,7 +81,7 @@ for (const mode of ['read', 'history'] as const) test(`${mode}: completion betwe
       return completed;
     };
     armed = true;
-    const read = () => mode === 'read' ? backend.read() : backend.history(JSON.stringify({ before: 2 }));
+    const read = () => backend.read();
     pending = read();
     await reading;
     const native = await f.nativeState();
@@ -177,7 +180,7 @@ for (const ending of ['complete', 'stop', 'fail'] as const) test(`held official 
     assert.equal((await partner.snapshot()).results.some(r => r.completedMessages.length > 0), false);
     assert.equal((await client.lookup(input.operationId))?.state, 'submitted');
     assert.equal(JSON.stringify(await createCodexChatBackend(partner).read()).includes('CFL_REASONING_PRIVATE_SENTINEL'), false);
-    assert.equal(JSON.stringify(await client.history(JSON.stringify({ before: 999999 }))).includes('CFL_REASONING_PRIVATE_SENTINEL'), false);
+    assert.equal(JSON.stringify(await startMessages(client)).includes('CFL_REASONING_PRIVATE_SENTINEL'), false);
     const starts = (await f.requests()).filter(r => r.method === 'turn/start').length;
     client.close(); view = undefined;
     await eventually(async () => app.chatSockets.clients.size === 0);

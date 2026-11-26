@@ -1,3 +1,4 @@
+import { olderMessages, startMessages } from './history-test-helpers.ts';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
@@ -18,8 +19,9 @@ const uiId = (turn: string, id: string) => `ui:${createHash('sha256').update(JSO
 const uiValue = (message: unknown) => (message as { ui?: unknown }).ui;
 
 async function allMessages(backend: ReturnType<typeof createCodexChatBackend>) {
+  await startMessages(backend);
   const view = await backend.read(); let messages = [...view.messages], before = view.before;
-  while (before) { const page = await backend.history(before); assert.ok(page.messages.length <= 30); messages = [...page.messages, ...messages]; before = page.before; }
+  while (before) { const page = await olderMessages(backend, before); assert.ok(page.messages.length <= 128); messages = [...page.messages, ...messages]; before = page.before; }
   return messages;
 }
 
@@ -59,10 +61,11 @@ test('fake native history projects ordered independent UI through pages and rest
     for (let restart = 0; restart < 2; restart++) {
       const partner = await f.createPartner({ uiPayloadBound: bound });
       const backend = createCodexChatBackend(partner);
+      await startMessages(backend);
       const initial = await backend.read();
       assert.ok(initial.before);
-      if (retained) assert.deepEqual(await backend.history(retained.cursor), retained.page);
-      else retained = { cursor: initial.before, page: await backend.history(initial.before) };
+      if (retained) assert.deepEqual(await olderMessages(backend, retained.cursor), retained.page);
+      else retained = { cursor: initial.before, page: await olderMessages(backend, initial.before) };
       const messages = await allMessages(backend), mixedMessages = messages.filter(message => message.turnId === turnId);
       assert.equal(new Set(messages.map(message => message.id)).size, messages.length);
       assert.deepEqual(mixedMessages.map(message => message.id), ['input', 'text-before', uiId(turnId, 'ui-first'), uiId(turnId, 'ui-bad'), uiId(turnId, 'ui-oversized'), mixedMessages[5]!.id, ...Array.from({ length: 35 }, (_, i) => uiId(turnId, `ui-many-${i}`)), uiId(turnId, 'ui-last'), 'text-after']);

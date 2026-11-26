@@ -11,8 +11,8 @@ unchanged. No migration, alias, old UI fallback or asset override is supported.
 
 CFL uses Node 24 and its pinned pnpm. `lamplit-app.sha` identifies the full App
 commit; `lamplit-contracts.sha256` independently pins the SHA-256 of the public
-`lamplit-contracts-<SHA>.tar.gz` Forgejo generic package file at
-`https://forgejo.n5.guion.io/api/packages/LamplitIsles/generic/lamplit-app/<SHA>/lamplit-contracts-<SHA>.tar.gz`.
+`lamplit-contracts-<SHA>.tar.gz` GitHub release asset at
+`https://github.com/LamplitIsles/lamplit-app/releases/download/app-<SHA>/lamplit-contracts-<SHA>.tar.gz`.
 The commit identifies origin;
 the digest authenticates the downloaded bytes. Preparation verifies both before
 materializing the package into ignored `.generated/shared-app`. It checks exports,
@@ -235,7 +235,7 @@ The historical voice runner and fake relay are retired. Current preparation uses
 published contract archive; frozen acceptance identities in IMPORTS remain
 separate from current resource hashes.
 
-Public Forgejo package reachability for the pinned SHA is a hosted CI prerequisite. Local
+Public GitHub release reachability for the pinned SHA is a hosted CI prerequisite. Local
 isolated source acceptance does not establish that reachability or hosted CI
 success. The 2026-10-13 Owner authorization in spec #3739 supersedes the
 historical deployment hold. Workers prepare artifacts; Orc owns current-head

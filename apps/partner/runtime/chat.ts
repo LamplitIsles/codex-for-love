@@ -1,4 +1,4 @@
-import { capabilities, mediaUrl, albumImageThumbnailUrl, PAGE_SIZE, type ImageRef, type FileRef, type ChatMessage, type ChatView } from '@lamplit/contracts';
+import { capabilities, mediaUrl, albumImageThumbnailUrl, PAGE_SIZE, type ImageRef, type FileRef, type ChatMessage, type ChatView, type HistorySyncRecord, type HistorySyncResult } from '@lamplit/contracts';
 import { createChatHost, type ChatBackend, type ChatChange } from '@lamplit/contracts/server';
 import { panelCursors } from './panel-cursor.ts';
 import type { Partner } from './partner.ts';
@@ -6,6 +6,17 @@ import type { ConversationSearch } from './conversation-search.ts';
 import { WebSocketServer } from 'ws';
 import { createHash } from 'node:crypto';
 import { voiceMessageId } from './conversation-media.ts';
+import { historyCursor, readHistorySync, HistoryProjectionMismatch } from './history-sync.ts';
+import { type HistoryIndexInput, type HistoryIndexState } from './store.ts';
+
+type HistoryProjection = { record: Omit<HistorySyncRecord, 'orderKey'>; stable: string };
+type HistoryManager = { session: string; ready: Promise<void>; state?: HistoryIndexState; listeners: Set<() => void>; repair(): Promise<void>; project(turnIds: readonly string[], messageIds?: ReadonlySet<string>): Promise<HistoryProjection[]> };
+const histories = new WeakMap<Partner['historyStore'], HistoryManager>();
+function stableJson(value: unknown): string {
+  const normalize = (v: unknown): unknown => Array.isArray(v) ? v.map(normalize)
+    : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).filter(([, item]) => item !== undefined).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([key, item]) => [key, normalize(item)])) : v;
+  return JSON.stringify(normalize(value));
+}
 
 export function createCodexChatBackend(partner: Partner, authorize: () => Promise<boolean> = async () => true, conversationSearch?: ConversationSearch, authorizeCommit?: () => boolean): ChatBackend {
   const cursors = panelCursors();
@@ -16,15 +27,14 @@ export function createCodexChatBackend(partner: Partner, authorize: () => Promis
   let waitingReply: string | undefined;
   let waitingChanged = false;
   const latest = new Map<string, { turnId: string; text: string; textState: 'streaming' | 'complete' }>();
-  async function page(cursor?: string) {
-    const options: { before?: number; anchor?: string } = cursor ? JSON.parse(cursor) : {};
-    if (options.before !== undefined && (!Number.isSafeInteger(options.before) || options.before < 0)) throw new Error('Invalid cursor');
+  async function page(selectedTurns?: readonly string[], selectedMessages?: ReadonlySet<string>) {
     // Shared host refresh must read the current projection without waiting
     // for native history; known activity and durable receipts are independent.
     const snapshotStream = partner.streamingReply();
-    const snapshot = await partner.snapshot(options.before === undefined ? {} : { before: options.before }, false);
+    const snapshot = await partner.snapshot({}, false, selectedTurns);
     const visible = new Map(await Promise.all(snapshot.messages.map(async m => [m.id, await partner.chatVisible(m.id)] as const)));
-    const ordered: Array<{ order: number; position?: number; message: ChatMessage; fileIds?: string[] }> = [];
+    if (selectedTurns && snapshot.messages.some(message => !visible.get(message.id))) throw new Error('Final history is awaiting delivery reconciliation');
+    const ordered: Array<{ order: number; position?: number; message: ChatMessage; fileIds?: string[]; stableText?: string; stableImage?: ImageRef }> = [];
     for (const m of snapshot.messages) {
       if (!visible.get(m.id)) continue;
       const images = (await Promise.all(m.inputImages.map(image => partner.sharedImageRef(image.id)))).filter((ref): ref is ImageRef => !!ref);
@@ -48,7 +58,7 @@ export function createCodexChatBackend(partner: Partner, authorize: () => Promis
       const owner = snapshot.results.find(result => result.sourceIds.includes(m.id));
       const slot = owner?.timeline.find(entry => entry.kind === 'user' && entry.sourceIds.includes(m.id));
       const position = slot ? slot.position + slot.sourceIds.indexOf(m.id) / (slot.sourceIds.length + 1) : undefined;
-      ordered.push({ order: owner ? owner.anchorSequence * 2 : m.sequence * 2, ...(owner ? { position: position ?? -1 } : {}), fileIds: m.inputFiles, message: {
+      ordered.push({ order: owner ? owner.anchorSequence * 2 : m.sequence * 2, ...(owner ? { position: position ?? -1 } : {}), fileIds: m.inputFiles, ...(post ? { stableText: post.parts.map(part => part.text).join('\n') } : {}), message: {
         id: m.id, role: 'user', text: m.keet ? `${m.keet.text}${m.keet.imageNote ?? ''}` : m.matrix ? m.matrix.body : post ? postText! : m.input,
         ...(images.length ? { images } : {}), createdAt: m.matrix?.timestamp ?? m.post?.timestamp ?? m.created,
         operationId: m.id, turnId: m.turnId, ...(source ? { source } : {}),
@@ -63,7 +73,7 @@ export function createCodexChatBackend(partner: Partner, authorize: () => Promis
           } else if (slot.kind === 'image' && (slot.imageId || slot.imageState === 'failed')) {
             const image = slot.imageId ? await partner.sharedImageRef(slot.imageId) : undefined;
             const imageState = slot.imageState === 'failed' ? 'failed' : image?.availability === 'available' ? 'ready' : 'unknown';
-            ordered.push({ order, position: slot.position, message: { id: `image:${createHash('sha256').update(JSON.stringify([r.turnId, slot.itemId])).digest('hex')}`, role: 'agent', text: '', imageState,
+            ordered.push({ order, position: slot.position, ...(image ? { stableImage: image } : {}), message: { id: `image:${createHash('sha256').update(JSON.stringify([r.turnId, slot.itemId])).digest('hex')}`, role: 'agent', text: '', imageState,
               ...(imageState === 'ready' && image ? { images: [image] } : {}), createdAt, operationId: null, turnId: r.turnId } });
           } else if (slot.kind === 'ui' && Object.hasOwn(slot, 'ui')) {
             const message: ChatMessage & { ui: unknown } = { id: `ui:${createHash('sha256').update(JSON.stringify([r.turnId, slot.itemId])).digest('hex')}`, role: 'agent', text: '', ui: slot.ui, createdAt, operationId: null, turnId: r.turnId };
@@ -75,25 +85,99 @@ export function createCodexChatBackend(partner: Partner, authorize: () => Promis
         if (['failed', 'interrupted', 'cancelled'].includes(r.chatStatus)) ordered.push({ order, position: Number.POSITIVE_INFINITY, message: { id: `${r.id}:status`, role: 'notice', text: r.chatStatus === 'failed' ? '回复失败' : '已停止回复', createdAt, operationId: null, turnId: r.turnId } });
     }
     ordered.sort((a,b) => a.order - b.order || (a.position ?? 0) - (b.position ?? 0));
-    const all = ordered.map(x => x.message);
-    const end = options.anchor ? all.findIndex(m => m.id === options.anchor) : all.length;
-    if (end < 0) throw new Error('Cursor no longer exists');
-    const start = Math.max(0, end - PAGE_SIZE);
-    // An anchor belongs to this native window, not whichever window is latest
-    // when the Human next requests history. Freeze its exclusive upper bound.
-    const before = start > 0 ? JSON.stringify({ before: options.before ?? snapshot.messages.at(-1)!.sequence + 1, anchor: all[start]!.id }) : snapshot.hasMore && snapshot.before !== null ? JSON.stringify({ before: snapshot.before }) : null;
+    const end = ordered.length;
+    const start = selectedTurns ? 0 : Math.max(0, end - PAGE_SIZE);
+    const hasOlder = start > 0 || (snapshot.hasMore && snapshot.before !== null);
     // Check file bytes only for the messages actually returned on this page.
     // Do not retain results across reads: files can change or disappear.
     const messages: ChatMessage[] = [];
-    for (const { message, fileIds } of ordered.slice(start, end)) {
+    const projections: HistoryProjection[] = [];
+    for (const { message, fileIds, stableText, stableImage } of ordered.slice(start, end)) {
+      if (selectedMessages && !selectedMessages.has(message.id)) continue;
       // Bound concurrent buffers to one message's files (at most six).
       const files = (await Promise.all((fileIds ?? []).map(id => partner.sharedFileRef(id)))).filter((ref): ref is FileRef => !!ref);
-      messages.push(files.length ? { ...message, files } : message);
+      const full = files.length ? { ...message, files } : message;
+      messages.push(full);
+      if (selectedTurns) {
+        const owner = snapshot.results.find(result => result.turnId === full.turnId);
+        const alarm = owner?.sourceIds.length === 1 ? /^alarm:([^:]+):(\d+)$/u.exec(owner.sourceIds[0]!) : undefined;
+        const triggeredAtMs = alarm ? Number(alarm[2]) : NaN;
+        const wake = full.role === 'agent' && alarm && Number.isSafeInteger(triggeredAtMs) ? { occurrenceId: alarm[0], reminderId: alarm[1]!, triggeredAtMs } : undefined;
+        const stableImageRef = stableImage && (({ availability: _availability, ...ref }) => ref)(stableImage);
+        const canonical = { ...full, text: stableText ?? full.text,
+          ...(full.imageState && full.imageState !== 'failed' ? { imageState: 'ready', images: stableImageRef ? [stableImageRef] : [] } : {}),
+          ...(full.images && !full.imageState ? { images: full.images.map(({ availability: _availability, ...ref }) => ref) } : {}),
+          ...(full.files ? { files: full.files.map(({ availability: _availability, ...ref }) => ref) } : {}) };
+        // The shared schema permits a missing image reference without an
+        // imageState, but forbids images beside imageState=unknown. Keep the
+        // live placeholder unchanged and retain the durable ID for sync clients.
+        const { imageState: _imageState, ...withoutImageState } = full;
+        const historical = stableImage?.availability === 'missing' && full.imageState === 'unknown'
+          ? { ...withoutImageState, images: [stableImage] } : full;
+        projections.push({ record: { message: historical, ...(wake ? { wake } : {}) }, stable: stableJson([canonical, wake ?? null]) });
+      }
     }
-    return { snapshot, messages, before, snapshotStream };
+    let syncBefore: string | null = null;
+    const currentHistory = histories.get(partner.historyStore);
+    const state = currentHistory?.session === snapshot.sessionId ? currentHistory.state : undefined;
+    if (!selectedTurns && hasOlder && state) {
+      let number = state.head;
+      for (const message of messages) {
+        const position = await partner.historyStore.historyIndexPosition(snapshot.sessionId, message.id);
+        if (position) { number = position.ordinal - 1; break; }
+      }
+      if (number > 0) {
+        const [row] = await partner.historyStore.historyIndexEntries(snapshot.sessionId, number - 1, number, 1);
+        if (row) syncBefore = historyCursor(snapshot.sessionId, state.historyId, 'older', { n: number, hash: row.prefixHash });
+      }
+    }
+    return { snapshot, messages, before: syncBefore, snapshotStream, projections };
   }
-  async function consistentPage<T>(cursor: string | undefined, project: (p: Awaited<ReturnType<typeof page>>, streamingReply: ReturnType<Partner['streamingReply']>) => T): Promise<T> {
-    let p = await page(cursor);
+  const session = partner.historySession(), store = partner.historyStore;
+  const sameScope = () => partner.historyStore === store && partner.historySession() === session;
+  let history = histories.get(store);
+  if (history?.session !== partner.historySession()) history = undefined;
+  if (!history) {
+    const manager: HistoryManager = { session, ready: Promise.resolve(), listeners: new Set(), repair: async () => {}, project: async (turnIds, messageIds) => (await page(turnIds, messageIds)).projections };
+    const entries = (values: readonly HistoryProjection[]): HistoryIndexInput[] => values.map(value => ({ messageId: value.record.message.id, turnId: value.record.message.turnId, stable: value.stable }));
+    const rebuild = async () => {
+      await partner.historyFence();
+      if (!sameScope()) throw new Error('History session changed');
+      const all: HistoryIndexInput[] = [];
+      for (const turnId of partner.historyTurns()) all.push(...entries(await manager.project([turnId])));
+      if (!sameScope()) throw new Error('History session changed');
+      manager.state = await store.reconcileHistoryIndex(session, all);
+    };
+    manager.ready = rebuild();
+    manager.repair = () => {
+      manager.ready = manager.ready.catch(() => {}).then(async () => { await rebuild(); for (const listener of manager.listeners) listener(); });
+      return manager.ready;
+    };
+    partner.subscribeHistory(turnId => {
+      let repair = false;
+      manager.ready = manager.ready.catch(() => { repair = true; }).then(async () => {
+        if (repair || !manager.state) { await rebuild(); for (const listener of manager.listeners) listener(); return; }
+        await partner.historyFence();
+        if (!sameScope()) throw new Error('History session changed');
+        const next = entries(await manager.project([turnId]));
+        if (!sameScope()) throw new Error('History session changed');
+        if (!next.length) return;
+        if ((await Promise.all(next.map(item => store.historyIndexPosition(session, item.messageId)))).some(Boolean)) {
+          await rebuild();
+          for (const listener of manager.listeners) listener();
+          return;
+        }
+        manager.state = await store.appendHistoryIndex(session, manager.state!, next);
+        for (const listener of manager.listeners) listener();
+      });
+      void manager.ready.catch(() => {});
+    });
+    void manager.ready.then(() => { for (const listener of manager.listeners) listener(); }, () => {});
+    histories.set(store, manager); history = manager;
+  }
+  const historyManager = history;
+  async function consistentPage<T>(project: (p: Awaited<ReturnType<typeof page>>, streamingReply: ReturnType<Partner['streamingReply']>) => T): Promise<T> {
+    let p = await page();
     let streamingReply = partner.streamingReply();
     const streamChanged = () => p.snapshotStream?.id !== streamingReply?.id
       || p.snapshotStream?.turnId !== streamingReply?.turnId;
@@ -101,7 +185,7 @@ export function createCodexChatBackend(partner: Partner, authorize: () => Promis
       && (!streamingReply || streamingReply.id !== message.id || streamingReply.turnId !== message.turnId));
     // Retry only when the stream's identity changes, not when its text grows.
     for (let attempt = 0; attempt < 2 && (streamChanged() || staleStream()); attempt++) {
-      p = await page(cursor);
+      p = await page();
       streamingReply = partner.streamingReply();
     }
     if (streamChanged() || staleStream()) throw new Error('Chat projection changed during read');
@@ -112,7 +196,7 @@ export function createCodexChatBackend(partner: Partner, authorize: () => Promis
   async function readView(): Promise<ChatView> {
     const images = await partner.sharedImageLimits();
     const files = await partner.sharedFileLimits();
-    return consistentPage(undefined, (p, streamingReply) => {
+    return consistentPage((p, streamingReply) => {
       const completion = partner.replyCompletion();
       const replyCompletedTurnId = completion && p.snapshot.cancellable[0] === completion.turnId
         && p.messages.some(m => m.role === 'agent' && m.turnId === completion.turnId && m.id === completion.itemId && m.text === completion.text)
@@ -212,7 +296,31 @@ export function createCodexChatBackend(partner: Partner, authorize: () => Promis
       if (dirty) queueMicrotask(refresh);
       return view;
     },
-    async history(before) { return consistentPage(before, p => ({ messages: p.messages, before: p.before })); },
+    async historySync(input) {
+      if (input.sessionId !== session || !sameScope()) throw new Error('Wrong session');
+      await historyManager.ready;
+      if (!sameScope()) throw new Error('History session changed');
+      const source = {
+        state: session => store.historyIndexState(session),
+        entries: (session, after, through, limit, descending) => store.historyIndexEntries(session, after, through, limit, descending),
+        async project(rows) {
+          const turns = [...new Set(rows.flatMap(row => row.turnId ? [row.turnId] : []))];
+          const projected = await historyManager.project(turns, new Set(rows.map(row => row.messageId)));
+          const byId = new Map(projected.map(value => [value.record.message.id, value]));
+          return rows.map(row => { const value = byId.get(row.messageId); if (!value) throw new HistoryProjectionMismatch('Indexed history message is unavailable'); return value; });
+        },
+      } satisfies import('./history-sync.ts').HistorySyncSource;
+      let result: HistorySyncResult;
+      try { result = await readHistorySync(source, input); }
+      catch (error) {
+        if (!(error instanceof HistoryProjectionMismatch)) throw error;
+        if (!sameScope()) throw new Error('History session changed');
+        await historyManager.repair();
+        result = input.kind === 'start' ? await readHistorySync(source, input) : { kind: 'resyncRequired', sessionId: input.sessionId };
+      }
+      if (!sameScope()) throw new Error('History session changed');
+      return result;
+    },
     compact: input => partner.compact({ ...input, authorize }),
     async submit(input) {
       const receipt = await partner.submitNativeDelivery(input, authorize, authorizeCommit);
@@ -260,7 +368,8 @@ export function createCodexChatBackend(partner: Partner, authorize: () => Promis
         else if (observation.type === 'completed') replyUpdate(observation.id, observation.turnId, observation.text, 'complete');
         else if (observation.type === 'change') refresh();
       });
-      return { scope, close() { closed = true; changed = undefined; off(); } };
+      historyManager.listeners.add(refresh);
+      return { scope, close() { closed = true; changed = undefined; off(); historyManager.listeners.delete(refresh); } };
     },
   };
 }
